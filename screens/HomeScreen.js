@@ -1,21 +1,21 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, Image, ScrollView, ActivityIndicator } from 'react-native';
-import styles from '../styles';
+import React, { useEffect, useState } from "react";
+import { View, Text, Image, ScrollView, ActivityIndicator } from "react-native";
+import styles from "../styles";
 
 const HomeScreen = () => {
   const [announcements, setAnnouncements] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('http://192.168.250.76:3000/announcement')
-      .then(res => res.json())
-      .then(data => {
+    fetch("http://192.168.254.102:3000/post") // Updated endpoint
+      .then((res) => res.json())
+      .then((data) => {
         console.log("Fetched announcements:", data);
         setAnnouncements(data);
         setLoading(false);
       })
-      .catch(error => {
-        console.error('Error fetching announcements:', error);
+      .catch((error) => {
+        console.error("Error fetching announcements:", error);
         setLoading(false);
       });
   }, []);
@@ -44,13 +44,17 @@ const HomeScreen = () => {
                   />
                 ) : (
                   <Image
-                    source={require('../assets/placeholder.png')}
+                    source={require("../assets/placeholder.png")}
                     style={styles.announcementImage}
                   />
                 )}
-                <Text style={styles.announcementTitle}>{item.title}</Text>
-                <Text style={styles.announcementDate}>{item.date}</Text>
-                <Text style={styles.announcementDescription}>{item.description}</Text>
+                <Text style={styles.announcementTitle}>{item.Title}</Text>
+                <Text style={styles.announcementDate}>
+                  {item.Start_date} to {item.End_date}
+                </Text>
+                <Text style={styles.announcementDescription}>
+                  {item.Announcement}
+                </Text>
               </View>
             ))
           )}

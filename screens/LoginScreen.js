@@ -1,56 +1,80 @@
-import React, { useState } from 'react';
-import { View, TextInput, TouchableOpacity, Text, Alert, Image } from 'react-native';
-import Icon from 'react-native-vector-icons/Feather';
-import CheckBox from 'expo-checkbox';
-import styles from '../styles';
+import React, { useState } from "react";
+import {
+  View,
+  TextInput,
+  TouchableOpacity,
+  Text,
+  Alert,
+  Image,
+  ActivityIndicator,
+  Modal,
+} from "react-native";
+import Icon from "react-native-vector-icons/Feather";
+import CheckBox from "expo-checkbox";
+import styles from "../styles";
 
 const LoginScreen = ({ navigation }) => {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
+  const [loading, setLoading] = useState(false); // NEW
 
   const handleLogin = async () => {
-    if (!email || !password) {
-      Alert.alert('Missing Input', 'Please enter both email and password.');
+    if (!username || !password) {
+      Alert.alert("Missing Input", "Please enter both username and password.");
       return;
     }
 
     try {
-      const response = await fetch('http://192.168.250.76:3000/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+      const response = await fetch("http://192.168.254.102:3000/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
       });
 
       const result = await response.json();
 
-      if (response.ok) {
-        navigation.replace('DrawerNavigator');
+      if (response.ok && result.success) {
+        setLoading(true); // Show loading screen
+
+        // Wait for 2 seconds before navigating
+        setTimeout(() => {
+          setLoading(false);
+          navigation.replace("DrawerNavigator");
+        }, 1500);
       } else {
-        Alert.alert('❌ Login Failed', result.message || 'Invalid email or password');
+        Alert.alert(
+          "❌ Login Failed",
+          result.message || "Invalid username or password"
+        );
       }
     } catch (error) {
-      console.error('Login error:', error.message);
-      Alert.alert('❌ Error', error.message || 'Something went wrong while logging in');
+      console.error("Login error:", error.message);
+      Alert.alert(
+        "❌ Error",
+        error.message || "Something went wrong while logging in"
+      );
     }
   };
 
   const handleForgotPassword = () => {
-    Alert.alert('Forgot Password', 'Redirect to password recovery screen (not implemented)');
+    Alert.alert(
+      "Forgot Password",
+      "Redirect to password recovery screen (not implemented)"
+    );
   };
 
   return (
     <View style={styles.container}>
       <View style={styles.card}>
-        <Image source={require('../assets/image.png')} style={styles.logo} />
+        <Image source={require("../assets/image.png")} style={styles.logo} />
 
         <TextInput
           style={[styles.input, styles.blueField]}
-          placeholder="Email"
-          value={email}
-          onChangeText={setEmail}
-          keyboardType="email-address"
+          placeholder="Username"
+          value={username}
+          onChangeText={setUsername}
           autoCapitalize="none"
         />
 
@@ -66,7 +90,11 @@ const LoginScreen = ({ navigation }) => {
             style={styles.eyeIcon}
             onPress={() => setIsPasswordVisible(!isPasswordVisible)}
           >
-            <Icon name={isPasswordVisible ? 'eye-off' : 'eye'} size={24} color="#0249AD" />
+            <Icon
+              name={isPasswordVisible ? "eye-off" : "eye"}
+              size={24}
+              color="#0249AD"
+            />
           </TouchableOpacity>
         </View>
 
@@ -75,7 +103,7 @@ const LoginScreen = ({ navigation }) => {
             <CheckBox
               value={rememberMe}
               onValueChange={setRememberMe}
-              color={rememberMe ? '#0249AD' : undefined}
+              color={rememberMe ? "#0249AD" : undefined}
             />
             <Text style={styles.rememberMeText}>Remember me</Text>
           </View>
@@ -89,6 +117,34 @@ const LoginScreen = ({ navigation }) => {
           <Text style={styles.buttonText}>Login</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Loading Overlay */}
+      {loading && (
+        <Modal transparent={true} animationType="fade">
+          <View
+            style={{
+              flex: 1,
+              backgroundColor: "rgba(0,0,0,0.4)",
+              justifyContent: "center",
+              alignItems: "center",
+            }}
+          >
+            <View
+              style={{
+                backgroundColor: "#fff",
+                padding: 20,
+                borderRadius: 10,
+                alignItems: "center",
+              }}
+            >
+              <ActivityIndicator size="large" color="#0249AD" />
+              <Text style={{ marginTop: 10, fontSize: 16, color: "#0249AD" }}>
+                Logging in...
+              </Text>
+            </View>
+          </View>
+        </Modal>
+      )}
     </View>
   );
 };
