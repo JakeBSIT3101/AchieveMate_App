@@ -255,4 +255,162 @@ export default StyleSheet.create({
     color: "#0249AD",
     fontWeight: "bold",
   },
+  // Portfolio styles
+  portfolioProfileContainer: {
+    marginVertical: 30,
+    padding: 20,
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 8,
+    elevation: 6,
+    width: "90%",
+    alignSelf: "center",
+    display: "grid",
+  },
+
+  portfolioName: {
+    fontSize: 25,
+    fontWeight: "bold",
+    color: "#0249AD",
+    marginTop: 10,
+    paddingHorizontal: 2,
+  },
+
+  portfolioSubtitle: {
+    fontSize: 16,
+    color: "#666",
+    marginTop: 6,
+  },
+
+  portfolioBio: {
+    fontSize: 16,
+    color: "#444",
+    textAlign: "center",
+    lineHeight: 22,
+    marginTop: 10,
+    paddingHorizontal: 10,
+  },
+
+  portfolioContactHeader: {
+    fontWeight: "600",
+    color: "#0249AD",
+    fontSize: 18,
+    marginTop: 30,
+    marginBottom: 10,
+    alignSelf: "flex-start",
+  },
+
+  portfolioContactText: {
+    color: "#666",
+    fontSize: 16,
+    marginVertical: 2,
+  },
+
+  profileRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 20,
+  },
+
+  profileImage: {
+    width: 130,
+    height: 130,
+    borderRadius: 50,
+    resizeMode: "cover",
+    marginRight: 20,
+  },
+
+  profileTextContainer: {
+    flex: 1,
+  },
+
+  certCard: {
+    flexDirection: "row",
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 15,
+    marginBottom: 12,
+    shadowColor: "#000",
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
+    elevation: 4,
+    alignItems: "center",
+  },
+
+  certLogo: {
+    width: 40,
+    height: 40,
+    resizeMode: "contain",
+    marginRight: 15,
+  },
+
+  certInfo: {
+    flex: 1,
+  },
+
+  certTitle: {
+    fontWeight: "bold",
+    fontSize: 16,
+    color: "#0249AD",
+  },
+
+  certOrg: {
+    color: "#666",
+    marginTop: 2,
+  },
+
+  certDate: {
+    color: "#999",
+    marginTop: 4,
+  },
+  sectionDivider: {
+    height: 1,
+    backgroundColor: "#ccc",
+    marginTop: 30,
+    width: "100%",
+  },
+
+  honorCard: {
+    backgroundColor: "#f9f9f9",
+    borderRadius: 12,
+    padding: 15,
+    marginBottom: 12,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 4,
+    elevation: 3,
+  },
+
+  honorTitle: {
+    fontWeight: "bold",
+    fontSize: 16,
+    color: "#0249AD",
+  },
+
+  honorDesc: {
+    marginTop: 6,
+    fontSize: 14,
+    color: "#555",
+  },
+
+  honorDate: {
+    marginTop: 6,
+    fontSize: 13,
+    color: "#999",
+  },
+
+  sectionHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    width: "100%",
+    marginTop: 30,
+    marginBottom: 10,
+    paddingHorizontal: 5,
+  },
 });
