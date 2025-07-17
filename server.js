@@ -57,6 +57,17 @@ app.post("/login", (req, res) => {
 
     const user = results[0];
 
+    // 🔒 Reject if not a Student before checking the password
+    if (user.usertype !== "Student") {
+      console.log(
+        `❌ Unauthorized access attempt: ${username} is a ${user.usertype}`
+      );
+      return res.status(403).json({
+        success: false,
+        message: "Access denied: Only students are allowed.",
+      });
+    }
+
     try {
       const passwordMatch = await bcrypt.compare(password, user.password);
 
@@ -67,40 +78,24 @@ app.post("/login", (req, res) => {
           .json({ success: false, message: "Invalid credentials" });
       }
 
-      // Reject if not a student
-      if (user.usertype !== "Student") {
-        console.log(
-          `❌ Unauthorized access: ${username} is a ${user.usertype}`
-        );
-        return res
-          .status(403)
-          .json({
-            success: false,
-            message: "This system is only for student users.",
-          });
-      }
-
-      // Store session
+      // ✅ Store session and return user info
       req.session.user = {
         username: user.username,
         usertype: user.usertype,
         login_id: user.Login_id,
       };
 
-      // Return data silently (no message)
       res.json({
         success: true,
         usertype: user.usertype,
         login_id: user.Login_id,
       });
     } catch (err) {
-      console.error("❌ Error during password comparison:", err.message);
-      return res
-        .status(500)
-        .json({
-          success: false,
-          message: "Server error during password verification",
-        });
+      console.error("❌ Error during password verification:", err.message);
+      return res.status(500).json({
+        success: false,
+        message: "Server error during password check",
+      });
     }
   });
 });
