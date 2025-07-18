@@ -17,7 +17,7 @@ const HomeScreen = () => {
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   const fetchAnnouncements = () => {
-    fetch("http://192.168.19.8:3000/post")
+    fetch("http://192.168.18.250:3000/post")
       .then((res) => res.json())
       .then((data) => {
         setAnnouncements(data);

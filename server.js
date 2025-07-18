@@ -1,8 +1,8 @@
 const express = require("express");
 const mysql = require("mysql2");
-const bcrypt = require("bcryptjs"); // Import bcrypt for password hashing
-const session = require("express-session"); // Import session for session management
-const cors = require("cors"); // Enable CORS for cross-origin requests
+const bcrypt = require("bcryptjs");
+const session = require("express-session");
+const cors = require("cors");
 const app = express();
 const port = 3000;
 
@@ -10,13 +10,12 @@ const port = 3000;
 app.use(cors());
 app.use(express.json());
 
-// Session middleware
 app.use(
   session({
-    secret: "your-secret-key", // You can replace this with a secure key
+    secret: "your-secret-key",
     resave: false,
     saveUninitialized: true,
-    cookie: { secure: false }, // Set to true if using https
+    cookie: { secure: false },
   })
 );
 
@@ -24,11 +23,10 @@ app.use(
 const db = mysql.createConnection({
   host: "localhost",
   user: "root",
-  password: "", // Change if you have a password
+  password: "",
   database: "achievemate",
 });
 
-// Connect to MySQL
 db.connect((err) => {
   if (err) {
     console.error("❌ Error connecting to MySQL:", err.message);
@@ -37,7 +35,7 @@ db.connect((err) => {
   }
 });
 
-// Login route
+// 🔐 LOGIN
 app.post("/login", (req, res) => {
   const { username, password } = req.body;
 
@@ -49,19 +47,12 @@ app.post("/login", (req, res) => {
     }
 
     if (results.length === 0) {
-      console.log(`❌ Invalid username: ${username}`);
-      return res
-        .status(401)
-        .json({ success: false, message: "Invalid credentials" });
+      return res.status(401).json({ success: false, message: "Invalid credentials" });
     }
 
     const user = results[0];
 
-    // 🔒 Reject if not a Student before checking the password
     if (user.usertype !== "Student") {
-      console.log(
-        `❌ Unauthorized access attempt: ${username} is a ${user.usertype}`
-      );
       return res.status(403).json({
         success: false,
         message: "Access denied: Only students are allowed.",
@@ -70,37 +61,49 @@ app.post("/login", (req, res) => {
 
     try {
       const passwordMatch = await bcrypt.compare(password, user.password);
-
       if (!passwordMatch) {
-        console.log(`❌ Invalid password for username: ${username}`);
-        return res
-          .status(401)
-          .json({ success: false, message: "Invalid credentials" });
+        return res.status(401).json({ success: false, message: "Invalid credentials" });
       }
 
-      // ✅ Store session and return user info
-      req.session.user = {
-        username: user.username,
-        usertype: user.usertype,
-        login_id: user.Login_id,
-      };
+      // Fetch userId from studentmanagement
+      const lookupQuery = "SELECT userId FROM studentmanagement WHERE Login_id = ?";
+      db.query(lookupQuery, [user.Login_id], (lookupErr, lookupRes) => {
+        if (lookupErr) {
+          console.error("❌ Error fetching userId:", lookupErr.message);
+          return res.status(500).json({ message: "Database lookup error" });
+        }
 
-      res.json({
-        success: true,
-        usertype: user.usertype,
-        login_id: user.Login_id,
+        if (lookupRes.length === 0) {
+          console.warn(`⚠️ No student record found for Login_id: ${user.Login_id}`);
+          return res.status(404).json({ message: "Student profile not found" });
+        }
+
+        const userId = lookupRes[0].userId;
+        console.log("✅ Login successful. Returning userId:", userId);
+
+        // Store session
+        req.session.user = {
+          username: user.username,
+          usertype: user.usertype,
+          login_id: user.Login_id,
+          userId: userId,
+        };
+
+        return res.json({
+          success: true,
+          usertype: user.usertype,
+          login_id: user.Login_id,
+          userId: userId,
+        });
       });
     } catch (err) {
-      console.error("❌ Error during password verification:", err.message);
-      return res.status(500).json({
-        success: false,
-        message: "Server error during password check",
-      });
+      console.error("❌ Password verification error:", err.message);
+      return res.status(500).json({ message: "Server error during password check" });
     }
   });
 });
 
-// Logout route to clear session
+// 🚪 LOGOUT
 app.post("/logout", (req, res) => {
   req.session.destroy((err) => {
     if (err) {
@@ -112,6 +115,7 @@ app.post("/logout", (req, res) => {
   });
 });
 
+// 📢 POSTS
 app.get("/post", (req, res) => {
   const query = `
     SELECT 
@@ -126,7 +130,7 @@ app.get("/post", (req, res) => {
 
   db.query(query, (err, results) => {
     if (err) {
-      console.error("Error fetching announcements:", err.message);
+      console.error("❌ Error fetching announcements:", err.message);
       return res.status(500).json({ message: "Database error" });
     }
 
@@ -134,7 +138,26 @@ app.get("/post", (req, res) => {
   });
 });
 
-// Start the server
+// 👤 STUDENT PROFILE BY userId
+app.get("/user/:userId", (req, res) => {
+  const userId = req.params.userId;
+
+  const query = "SELECT * FROM studentmanagement WHERE userId = ?";
+  db.query(query, [userId], (err, results) => {
+    if (err) {
+      console.error("❌ Error fetching user details:", err.message);
+      return res.status(500).json({ message: "Database error" });
+    }
+
+    if (results.length === 0) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.json(results[0]);
+  });
+});
+
+// 🚀 Start the server
 app.listen(port, () => {
   console.log(`🚀 Server running at http://localhost:${port}`);
 });

@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import Icon from "react-native-vector-icons/Feather";
 import CheckBox from "expo-checkbox";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import styles from "../styles";
 
 const LoginScreen = ({ navigation }) => {
@@ -18,7 +19,7 @@ const LoginScreen = ({ navigation }) => {
   const [password, setPassword] = useState("");
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
-  const [loading, setLoading] = useState(false); // NEW
+  const [loading, setLoading] = useState(false);
 
   const handleLogin = async () => {
     if (!username || !password) {
@@ -27,7 +28,7 @@ const LoginScreen = ({ navigation }) => {
     }
 
     try {
-      const response = await fetch("http://172.20.10.3:3000/login", {
+      const response = await fetch("http://192.168.18.250:3000/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
@@ -36,9 +37,19 @@ const LoginScreen = ({ navigation }) => {
       const result = await response.json();
 
       if (response.ok && result.success) {
-        setLoading(true); // Show loading screen
+        if (!result.userId) {
+          console.warn("⚠️ Missing userId in response");
+          return Alert.alert("Error", "Student user ID not returned from server.");
+        }
 
-        // Wait for 2 seconds before navigating
+        setLoading(true);
+
+        // ✅ Store student userId and userType in AsyncStorage
+        await AsyncStorage.setItem("userId", result.userId.toString());
+        await AsyncStorage.setItem("userType", result.usertype);
+
+        console.log("✅ Stored student userId:", result.userId);
+
         setTimeout(() => {
           setLoading(false);
           navigation.replace("DrawerNavigator");
@@ -118,7 +129,6 @@ const LoginScreen = ({ navigation }) => {
         </TouchableOpacity>
       </View>
 
-      {/* Loading Overlay */}
       {loading && (
         <Modal transparent={true} animationType="fade">
           <View

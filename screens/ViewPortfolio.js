@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -8,91 +8,94 @@ import {
   Modal,
 } from "react-native";
 import Icon from "react-native-vector-icons/MaterialCommunityIcons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import styles from "../styles";
 
-const certifications = [
-  {
-    title: "Frontend Developer Certificate",
-    organization: "Meta",
-    date: "April 2024",
-    year: "2024",
-    logo: require("../assets/meta.png"),
-  },
-  {
-    title: "AWS Cloud Practitioner",
-    organization: "Amazon",
-    date: "January 2024",
-    year: "2024",
-    logo: require("../assets/meta.png"),
-  },
-  {
-    title: "React Native Course",
-    organization: "Coursera",
-    date: "March 2023",
-    year: "2023",
-    logo: require("../assets/meta.png"),
-  },
-];
-
-const honors = [
-  {
-    title: "Dean’s Lister",
-    description: "Recognized for academic excellence in 2023.",
-    date: "December 2023",
-  },
-  {
-    title: "Best Capstone Project",
-    description: "Awarded for top-performing senior project.",
-    date: "March 2024",
-  },
-];
-
 export default function StudentProfile() {
+  const [user, setUser] = useState(null);
+  const [userId, setUserId] = useState(null);
   const [selectedYear, setSelectedYear] = useState(null);
   const [showFilterModal, setShowFilterModal] = useState(false);
 
-  const availableYears = [...new Set(certifications.map((c) => c.year))];
+  useEffect(() => {
+    const fetchUserDetails = async () => {
+      try {
+        const storedUserId = await AsyncStorage.getItem("userId");
 
-  const filteredCerts = selectedYear
-    ? certifications.filter((cert) => cert.year === selectedYear)
-    : certifications;
+        if (!storedUserId) {
+          console.warn("⚠️ No userId found in AsyncStorage.");
+          return;
+        }
+
+        setUserId(storedUserId);
+
+        const response = await fetch(`http://192.168.18.250:3000/user/${storedUserId}`);
+        const data = await response.json();
+
+        if (response.ok) {
+          console.log("✅ User data fetched:", data);
+          setUser(data);
+        } else {
+          console.warn("⚠️ Failed to fetch user profile");
+        }
+      } catch (err) {
+        console.error("❌ Error fetching user profile:", err.message);
+      }
+    };
+
+    fetchUserDetails();
+  }, []);
 
   return (
     <ScrollView contentContainerStyle={styles.scrollContainer}>
       <View style={styles.portfolioProfileContainer}>
-        {/* Profile Section */}
+        {/* Profile Header */}
         <View style={styles.profileRow}>
           <Image
             source={require("../assets/Diwata.jpg")}
             style={styles.profileImage}
           />
           <View style={styles.profileTextContainer}>
-            <Text style={styles.portfolioName}>John Kenneth Smith</Text>
-            <Text style={styles.portfolioSubtitle}>
-              Bachelor of Science in Computer Science
+            <Text style={styles.portfolioName}>
+              {user
+                ? `${user.firstname} ${user.middlename} ${user.lastname}`
+                : "Loading..."}
             </Text>
-            <Text style={styles.portfolioSubtitle}>Batch of 2025</Text>
+            <Text style={styles.portfolioSubtitle}>
+              {user?.program || "Program"} | {user?.track || "Track"}
+            </Text>
+            <Text style={styles.portfolioSubtitle}>
+              Batch of {user?.Year || "Year"}
+            </Text>
           </View>
         </View>
 
+        {/* Bio */}
         <Text style={styles.portfolioBio}>
-          Passionate software developer and student focused on mobile and web
-          development. Skilled in React Native, AWS, and UI/UX design.
+          Welcome to your student portfolio. Your personal, academic, and achievement details will appear here.
+        </Text>
+
+        {/* Show User ID */}
+        <Text style={{
+          marginTop: 10,
+          fontSize: 14,
+          color: "#999",
+          fontStyle: "italic",
+          textAlign: "center",
+        }}>
+          User ID: {userId ?? "Loading..."}
         </Text>
 
         {/* Contact Info */}
         <View style={{ width: "100%", marginTop: 30 }}>
           <Text style={styles.portfolioContactHeader}>Contact Info</Text>
-          <Text style={styles.portfolioContactText}>
-            📧 kenneth.smith@email.com
-          </Text>
-          <Text style={styles.portfolioContactText}>📞 +1 (234) 567-8900</Text>
+          <Text style={styles.portfolioContactText}>📧 {user?.email || "N/A"}</Text>
+          <Text style={styles.portfolioContactText}>📞 {user?.contact || "N/A"}</Text>
         </View>
 
-        {/* Divider */}
         <View style={styles.sectionDivider} />
 
-        {/* Certifications Header */}
+        {/* Certifications */}
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.portfolioContactHeader}>Certifications</Text>
           <TouchableOpacity onPress={() => setShowFilterModal(true)}>
@@ -100,7 +103,6 @@ export default function StudentProfile() {
           </TouchableOpacity>
         </View>
 
-        {/* Filter Modal */}
         <Modal visible={showFilterModal} transparent animationType="slide">
           <View
             style={{
@@ -117,30 +119,14 @@ export default function StudentProfile() {
                 padding: 20,
               }}
             >
-              <Text
-                style={{ fontWeight: "bold", fontSize: 16, marginBottom: 10 }}
-              >
+              <Text style={{ fontWeight: "bold", fontSize: 16, marginBottom: 10 }}>
                 Filter by Year
               </Text>
-              {availableYears.map((year) => (
-                <TouchableOpacity
-                  key={year}
-                  onPress={() => {
-                    setSelectedYear(year);
-                    setShowFilterModal(false);
-                  }}
-                  style={{
-                    paddingVertical: 10,
-                    borderBottomWidth: 1,
-                    borderBottomColor: "#ddd",
-                  }}
-                >
-                  <Text>{year}</Text>
-                </TouchableOpacity>
-              ))}
+
+              {/* Filter Option */}
               <TouchableOpacity
                 onPress={() => {
-                  setSelectedYear(null); // Clear filter
+                  setSelectedYear(null);
                   setShowFilterModal(false);
                 }}
                 style={{ marginTop: 10 }}
@@ -153,38 +139,16 @@ export default function StudentProfile() {
           </View>
         </Modal>
 
-        {/* Filtered Certifications */}
-        {filteredCerts.map((cert, index) => (
-          <View key={index} style={styles.certCard}>
-            <Image source={cert.logo} style={styles.certLogo} />
-            <View style={styles.certInfo}>
-              <Text style={styles.certTitle}>{cert.title}</Text>
-              <Text style={styles.certOrg}>{cert.organization}</Text>
-              <Text style={styles.certDate}>📅 {cert.date}</Text>
-            </View>
-          </View>
-        ))}
-
-        {/* Divider */}
         <View style={styles.sectionDivider} />
 
         {/* Honors Section */}
         <View style={styles.sectionHeaderRow}>
-          <Text style={styles.portfolioContactHeader}>
-            Honors & Achievements
-          </Text>
-          <TouchableOpacity onPress={() => console.log("Filter honors")}>
-            <Icon name="filter-outline" size={22} color="#0249AD" />
-          </TouchableOpacity>
+          <Text style={styles.portfolioContactHeader}>Honors & Achievements</Text>
         </View>
 
-        {honors.map((item, index) => (
-          <View key={index} style={styles.honorCard}>
-            <Text style={styles.honorTitle}>{item.title}</Text>
-            <Text style={styles.honorDesc}>{item.description}</Text>
-            <Text style={styles.honorDate}>📅 {item.date}</Text>
-          </View>
-        ))}
+        <Text style={{ textAlign: "center", color: "#aaa" }}>
+          No honors data yet.
+        </Text>
       </View>
     </ScrollView>
   );
