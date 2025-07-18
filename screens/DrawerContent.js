@@ -14,7 +14,7 @@ const menuItems = [
   {
     title: "Apply Dean's List",
     icon: require("../assets/deanslist.png"),
-    screen: "DeansList",
+    screen: "ApplicationforDeans",
   },
   {
     title: "Apply Latin Honor",

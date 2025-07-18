@@ -12,6 +12,7 @@ import {
 import Icon from "react-native-vector-icons/Feather";
 import CheckBox from "expo-checkbox";
 import styles from "../styles";
+import { BASE_URL } from "../config/api";
 
 const LoginScreen = ({ navigation }) => {
   const [username, setUsername] = useState("");
@@ -27,7 +28,7 @@ const LoginScreen = ({ navigation }) => {
     }
 
     try {
-      const response = await fetch("http://172.20.10.3:3000/login", {
+      const response = await fetch(`${BASE_URL}/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),

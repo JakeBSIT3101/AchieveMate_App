@@ -413,4 +413,182 @@ export default StyleSheet.create({
     marginBottom: 10,
     paddingHorizontal: 5,
   },
+  containerdean: {
+    marginTop: 20,
+    paddingHorizontal: 20,
+  },
+  blueButtonupload: {
+    backgroundColor: "#0249AD",
+    paddingVertical: 30,
+    borderRadius: 8,
+    marginTop: 10,
+    alignItems: "center",
+    zIndex: 1, // important for stacking
+    elevation: 2,
+  },
+  buttonTextupload: {
+    color: "#fff",
+    fontWeight: "bold",
+    fontSize: 16,
+  },
+  guidelineCard: {
+    backgroundColor: "#fff",
+    padding: 20,
+    borderRadius: 12,
+    marginBottom: 24,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+
+  guidelineHeader: {
+    fontSize: 18,
+    fontWeight: "bold",
+    marginBottom: 12,
+  },
+
+  guidelineText: {
+    fontSize: 14,
+    marginBottom: 6,
+    lineHeight: 20,
+  },
+
+  gwaBox: {
+    backgroundColor: "#f3f3f3",
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 10,
+  },
+
+  gwaText: {
+    fontWeight: "bold",
+    fontSize: 14,
+    marginBottom: 4,
+  },
+
+  formulaBox: {
+    marginTop: 10,
+    backgroundColor: "#e0e0e0",
+    padding: 10,
+    borderRadius: 6,
+  },
+
+  formulaText: {
+    fontSize: 13,
+    fontStyle: "italic",
+    color: "#333",
+  },
+
+  uploadSection: {
+    paddingHorizontal: 10,
+    gap: 12,
+  },
+  navButton: {
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: "#007bff",
+    marginHorizontal: 10,
+    minWidth: 100,
+    alignItems: "center",
+  },
+  navButtonText: {
+    color: "#fff",
+    fontWeight: "bold",
+  },
+  uploadButton: {
+    padding: 15,
+    borderRadius: 10,
+    backgroundColor: "#00C881",
+    alignItems: "center",
+  },
+  uploadButtonText: {
+    color: "white",
+    fontWeight: "bold",
+  },
+  stickyBottom: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "#fff",
+    padding: 15,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    borderTopWidth: 1,
+    borderTopColor: "#ccc",
+    zIndex: 100,
+  },
+  stepFormStickyFooter: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingVertical: 15,
+    backgroundColor: "#fff",
+    borderTopWidth: 1,
+    borderTopColor: "#ccc",
+    zIndex: 10,
+  },
+  stepFormNavBtn: {
+    backgroundColor: "#007BFF",
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+  },
+  stepFormNavBtnText: {
+    color: "#fff",
+    fontWeight: "bold",
+    fontSize: 16,
+  },
+  stepFormTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    marginBottom: 10,
+  },
+  stepFormUploadBtn: {
+    backgroundColor: "#28a745",
+    padding: 12,
+    borderRadius: 8,
+    alignItems: "center",
+    marginTop: 10,
+  },
+  stepFormUploadBtnText: {
+    color: "#fff",
+    fontWeight: "bold",
+  },
+
+  removeImageBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#ff4d4d",
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    marginTop: 10,
+  },
+  removeImageText: {
+    color: "#fff",
+    fontWeight: "bold",
+  },
+  buttonspace: {
+    margintop: 50,
+  },
+  navStickyContainer: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingVertical: 15,
+    backgroundColor: "#fff",
+    borderTopWidth: 1,
+    borderColor: "#ddd",
+  },
 });

@@ -9,15 +9,17 @@ import {
   Animated,
 } from "react-native";
 import styles from "../styles";
+import { BASE_URL } from "../config/api";
+import { TouchableOpacity } from "react-native";
 
-const HomeScreen = () => {
+const HomeScreen = ({ navigation }) => {
   const [announcements, setAnnouncements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   const fetchAnnouncements = () => {
-    fetch("http://192.168.19.8:3000/post")
+    fetch(`${BASE_URL}/post`)
       .then((res) => res.json())
       .then((data) => {
         setAnnouncements(data);
@@ -76,7 +78,18 @@ const HomeScreen = () => {
             <Text>No announcements available.</Text>
           ) : (
             announcements.map((item, index) => (
-              <View key={index} style={styles.announcementCard}>
+              <TouchableOpacity
+                key={index}
+                style={styles.announcementCard}
+                onPress={() => {
+                  if (
+                    item.Title.toLowerCase().includes("dean's list") ||
+                    item.Title.toLowerCase().includes("deans list")
+                  ) {
+                    navigation.navigate("ApplicationforDeans");
+                  }
+                }}
+              >
                 {item.image ? (
                   <Image
                     source={{ uri: `data:image/jpeg;base64,${item.image}` }}
@@ -95,7 +108,7 @@ const HomeScreen = () => {
                 <Text style={styles.announcementDescription}>
                   {item.Announcement}
                 </Text>
-              </View>
+              </TouchableOpacity>
             ))
           )}
         </Animated.View>
