@@ -413,4 +413,35 @@ export default StyleSheet.create({
     marginBottom: 10,
     paddingHorizontal: 5,
   },
+
+    uploadContainer: {
+    marginBottom: 25,
+  },
+
+  uploadLabel: {
+    fontSize: 16,
+    marginBottom: 8,
+    color: "#333",
+  },
+
+  uploadButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#0249AD",
+    padding: 12,
+    borderRadius: 8,
+  },
+
+  uploadButtonText: {
+    color: "#fff",
+    marginLeft: 8,
+    fontWeight: "bold",
+  },
+
+  fileNameText: {
+    marginTop: 6,
+    fontStyle: "italic",
+    color: "#666",
+    fontSize: 13,
+  },
 });
