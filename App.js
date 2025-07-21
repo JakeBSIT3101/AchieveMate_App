@@ -5,9 +5,10 @@ import { createStackNavigator } from "@react-navigation/stack";
 
 import LoginScreen from "./screens/LoginScreen";
 import HomeScreen from "./screens/HomeScreen";
-import ViewPortfolio from "./screens/ViewPortfolio"; // ✅ make sure it's exported as ViewPortfolio
+import ViewPortfolio from "./screens/ViewPortfolio"; 
 import DeanList from "./screens/DeanList";
-import DrawerContent from "./screens/DrawerContent"; // ✅ your custom drawer content
+import DrawerContent from "./screens/DrawerContent";
+import ApplicationStatus from "./screens/ApplicationStatus";
 
 const Stack = createStackNavigator();
 const Drawer = createDrawerNavigator();
@@ -22,10 +23,11 @@ const DrawerNavigator = () => (
     <Drawer.Screen
       name="Home"
       component={HomeScreen}
-      options={{ title: "" }} // ✅ This hides the "Home" title in the top bar
+      options={{ title: "" }} // This hides the "Home" title in the top bar
     />
     <Drawer.Screen name="ViewPortfolio" component={ViewPortfolio} />
     <Drawer.Screen name="DeanList" component={DeanList} />
+    <Drawer.Screen name="ApplicationStatus" component={ApplicationStatus} />
   </Drawer.Navigator>
 );
 
