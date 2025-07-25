@@ -1,0 +1,14 @@
+[REASON] No valid course code or grade format matched
+[LINE]   4 IT 311 Systems Administration and Maintenance 3 175 IT-BA-3101 DE JESUS, NOELYN M.
+[REASON] No valid course code or grade format matched
+[LINE]   5 17312 Systems Integration and Architecture 3 2.00 IT-BA-3101 HERNANDEZ, OLIVER M.
+[REASON] No valid course code or grade format matched
+[LINE]   6 IT 313, System Analysis and Design 3 2.25 IT-BA-3101 SAMONTE, BENJIE R.
+[REASON] No valid course code or grade format matched
+[LINE]   Total no of Course 7
+[REASON] No valid course code or grade format matched
+[LINE]   Total no of Units 21
+[REASON] No valid course code or grade format matched
+[LINE]   General Weighted Average (GWA) 2.1429
+[REASON] No valid course code or grade format matched
+[LINE]   Raeaeass

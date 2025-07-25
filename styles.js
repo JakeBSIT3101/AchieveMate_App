@@ -591,4 +591,17 @@ export default StyleSheet.create({
     borderTopWidth: 1,
     borderColor: "#ddd",
   },
+  blueButtonupload: {
+    padding: 12,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#4c63ff",
+  },
+
+  buttonTextupload: {
+    color: "white",
+    fontWeight: "bold",
+    fontSize: 16,
+  },
 });

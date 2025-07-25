@@ -1,0 +1,19 @@
+result: CourseCode{
+};
+
+CourseTitle{
+};
+
+Units{
+};
+
+Grade{
+};
+
+Section{
+};
+
+Instructor{
+};
+
+

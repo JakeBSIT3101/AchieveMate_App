@@ -12,6 +12,8 @@ import * as ImagePicker from "expo-image-picker";
 import styles from "../styles";
 import { OCR_URL } from "../config/api";
 import Icon from "react-native-vector-icons/Feather";
+import * as FileSystem from "expo-file-system";
+import * as DocumentPicker from "expo-document-picker";
 
 export default function ApplicationforDeans() {
   const [currentStep, setCurrentStep] = useState(1);
@@ -21,6 +23,11 @@ export default function ApplicationforDeans() {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const progressAnim = useRef(new Animated.Value(0)).current;
+  const [enrollmentResult, setEnrollmentResult] = useState("");
+  const [gradesResult, setGradesResult] = useState("");
+  const [previewImage, setPreviewImage] = useState(null);
+  const [convertedImage, setConvertedImage] = useState(null);
+  const [pdfFile, setPdfFile] = useState(null);
 
   const steps = [
     "Guideline",
@@ -37,78 +44,118 @@ export default function ApplicationforDeans() {
   };
 
   const handleUpload = async (docType) => {
-    const permissionResult =
-      await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permissionResult.granted) {
-      Alert.alert(
-        "Permission Denied",
-        "Permission to access gallery is required!"
-      );
-      return;
-    }
+    let file;
+    if (docType === "Certificate of Enrollment") {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: "application/pdf",
+      });
+      if (result.canceled) return;
+      file = result.assets[0];
+    } else {
+      const permissionResult =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permissionResult.granted) {
+        Alert.alert(
+          "Permission Denied",
+          "Permission to access media is required!"
+        );
+        return;
+      }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      quality: 1,
-    });
-
-    if (!result.canceled && result.assets && result.assets.length > 0) {
-      const image = result.assets[0];
-
-      const xhr = new XMLHttpRequest();
-      const formData = new FormData();
-      formData.append("image", {
-        uri: image.uri,
-        name: "document.jpg",
-        type: "image/jpeg",
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        quality: 1,
       });
 
+      if (result.canceled || !result.assets || result.assets.length === 0)
+        return;
+      file = result.assets[0];
+    }
+
+    const formData = new FormData();
+    formData.append(docType === "Certificate of Enrollment" ? "pdf" : "image", {
+      uri: file.uri,
+      name:
+        docType === "Certificate of Enrollment" ? "document.pdf" : "image.jpg",
+      type:
+        docType === "Certificate of Enrollment"
+          ? "application/pdf"
+          : "image/jpeg",
+    });
+
+    const endpoint =
+      docType === "Certificate of Enrollment"
+        ? `${OCR_URL}/upload_registration_summary_pdf`
+        : `${OCR_URL}/upload`;
+
+    try {
       setUploading(true);
       setUploadProgress(0);
       animateProgress(0);
 
-      xhr.upload.onprogress = (event) => {
-        if (event.lengthComputable) {
-          const progress = event.loaded / event.total;
-          setUploadProgress(progress);
-          animateProgress(progress);
-        }
-      };
+      const res = await fetch(endpoint, {
+        method: "POST",
+        body: formData,
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+      });
 
-      xhr.onload = () => {
-        setUploading(false);
-        if (xhr.status === 200) {
-          const json = JSON.parse(xhr.response);
-          setOcrResult(json.result);
+      const json = await res.json();
+      setUploading(false);
 
-          if (docType === "Copy of Grades") {
-            setGradesImageUri(image.uri);
-          } else if (docType === "Certificate of Enrollment") {
-            setCertificateImageUri(image.uri);
-          }
+      if (!res.ok) {
+        throw new Error(json.error || "Upload failed");
+      }
 
-          Alert.alert("Uploaded", `${docType} uploaded successfully.`);
-        } else {
-          const json = JSON.parse(xhr.response);
-          Alert.alert("Upload Failed", json.error || "Something went wrong.");
-        }
-      };
+      const resultText = json.result ?? "No OCR result available.";
+      setOcrResult(resultText);
 
-      xhr.onerror = () => {
-        setUploading(false);
-        Alert.alert("Network Error", "An error occurred while uploading.");
-      };
+      if (docType === "Certificate of Enrollment") {
+        setCertificateImageUri(file.uri);
+        setEnrollmentResult(resultText);
+        await saveToTxtFile("result_certificate_of_enrollment.txt", resultText);
+      } else {
+        setGradesImageUri(file.uri);
+        setGradesResult(resultText);
+        await saveToTxtFile("result_copy_of_grade.txt", resultText);
+      }
 
-      xhr.open("POST", `${OCR_URL}/upload`);
-      xhr.send(formData);
+      Alert.alert("Uploaded", `${docType} uploaded successfully.`);
+    } catch (err) {
+      setUploading(false);
+      console.error("Upload failed:", err);
+      Alert.alert("Upload Failed", err.message);
     }
+  };
+
+  const saveToTxtFile = async (filename, content) => {
+    try {
+      const fileUri = FileSystem.documentDirectory + filename;
+      await FileSystem.writeAsStringAsync(fileUri, content);
+      console.log("✅ Saved to:", fileUri);
+    } catch (error) {
+      console.error("❌ Failed to save file:", error);
+    }
+  };
+
+  const handleRemoveGradesImage = () => {
+    setGradesImageUri(null);
+    setOcrResult("");
+    setGradesResult("");
+  };
+
+  const handleRemoveCertificateImage = () => {
+    setCertificateImageUri(null);
+    setOcrResult("");
   };
 
   return (
     <ScrollView
       contentContainerStyle={styles.container1}
       keyboardShouldPersistTaps="handled"
+      s
     >
       {/* Step Progress */}
       <View style={{ paddingHorizontal: 20, marginTop: 20 }}>
@@ -179,6 +226,14 @@ export default function ApplicationforDeans() {
             "Submit all documents clearly scanned.",
             "Ensure documents are updated.",
             "Apply before the deadline.",
+            "Apply at the end of the semester.",
+            "Be enrolled in the required academic load prescribed by the program.",
+            "Have no grade lower than 2.50 in any course.",
+            "Have no failed, dropped or withdrawn grade.",
+            "Have not committed any major offense during the semester of application.",
+            "Not include NSTP in the computation of General Weighted Average (GWA).",
+            "Not be enrolled in OJT in the previous semester (semester of application).",
+            "Have obtained an average rating as follows:",
           ].map((item, index) => (
             <Text key={index} style={styles.guidelineText}>{`${
               index + 1
@@ -204,7 +259,7 @@ export default function ApplicationforDeans() {
           </View>
 
           <TouchableOpacity
-            style={[styles.blueButtonupload, { marginTop: 20 }]}
+            style={[styles.blueButtonupload, { marginTop: 80 }]}
             onPress={() => setCurrentStep(2)}
           >
             <Text style={styles.buttonTextupload}>Continue</Text>
@@ -216,7 +271,7 @@ export default function ApplicationforDeans() {
       {currentStep === 2 && (
         <View style={{ flex: 1 }}>
           <ScrollView
-            contentContainerStyle={{ padding: 20, paddingBottom: 580 }}
+            contentContainerStyle={{ padding: 20, paddingBottom: 630 }}
           >
             <TouchableOpacity
               style={styles.blueButtonupload}
@@ -242,20 +297,39 @@ export default function ApplicationforDeans() {
             )}
 
             {certificateImageUri && (
-              <View style={{ alignItems: "center", marginTop: 10 }}>
-                <Image
-                  source={{ uri: certificateImageUri }}
+              <View
+                style={{
+                  alignItems: "center",
+                  marginTop: 10,
+                  marginBottom: -215,
+                }}
+              >
+                <View
                   style={{
-                    width: 350,
-                    height: 450,
-                    resizeMode: "contain",
+                    flexDirection: "row",
+                    alignItems: "center",
+                    backgroundColor: "#f2f2f2",
+                    padding: 15,
                     borderRadius: 10,
-                    marginTop: -100,
                     marginBottom: 20,
                   }}
-                />
+                >
+                  <Icon
+                    name="file-text"
+                    size={30}
+                    color="#ff5c5c"
+                    style={{ marginRight: 10 }}
+                  />
+                  <Text
+                    style={{ fontSize: 14, color: "#333", maxWidth: 200 }}
+                    numberOfLines={1}
+                  >
+                    {certificateImageUri.split("/").pop()}
+                  </Text>
+                </View>
+
                 <TouchableOpacity
-                  onPress={() => setCertificateImageUri(null)}
+                  onPress={handleRemoveCertificateImage}
                   style={{
                     flexDirection: "row",
                     alignItems: "center",
@@ -263,8 +337,7 @@ export default function ApplicationforDeans() {
                     paddingVertical: 10,
                     paddingHorizontal: 20,
                     borderRadius: 8,
-                    marginTop: -105,
-                    marginBottom: -7000,
+                    marginBottom: 20,
                   }}
                 >
                   <Icon
@@ -274,7 +347,7 @@ export default function ApplicationforDeans() {
                     style={{ marginRight: 8 }}
                   />
                   <Text style={{ color: "#fff", fontWeight: "bold" }}>
-                    Remove Image
+                    Remove File
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -305,7 +378,7 @@ export default function ApplicationforDeans() {
       {currentStep === 3 && (
         <View style={{ flex: 1 }}>
           <ScrollView
-            contentContainerStyle={{ padding: 20, paddingBottom: 180 }}
+            contentContainerStyle={{ padding: 20, paddingBottom: 620 }}
           >
             <TouchableOpacity
               style={styles.blueButtonupload}
@@ -323,11 +396,12 @@ export default function ApplicationforDeans() {
                     height: 450,
                     resizeMode: "contain",
                     borderRadius: 10,
+                    marginTop: -100,
                     marginBottom: 20,
                   }}
                 />
                 <TouchableOpacity
-                  onPress={() => setGradesImageUri(null)}
+                  onPress={handleRemoveGradesImage}
                   style={{
                     flexDirection: "row",
                     alignItems: "center",
@@ -335,7 +409,8 @@ export default function ApplicationforDeans() {
                     paddingVertical: 10,
                     paddingHorizontal: 20,
                     borderRadius: 8,
-                    marginTop: -60,
+                    marginTop: -105,
+                    marginBottom: -7000,
                   }}
                 >
                   <Icon

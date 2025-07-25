@@ -1,0 +1,46 @@
+BATANGAS STATE UNIVERSITY
+ARASOF-Nasugbu Campus
+
+Student's Copy of Grades
+
+Fullname : TAMPIS, JAZTIN SHANE A.
+
+College : College of Informatics and Computing Sciences
+
+Program : BS Information Technology
+
+Year Level : FIRST
+
+SRCODE : 22-77832
+
+Academic Year : 2022-2023
+
+Semester : FIRST
+
+# Course Code Course Title Units | Grade Section Instructor
+
+1 Fili 101 Kontekstwalisadong Komunikasyon sa Filipino 3 2.50 IT-1103 ILAGAN, RACHEL R.
+
+2 GEd 102 Mathematics in the Modern World 3 2.00 IT-1103 MAANO, JOHN DENVER M.
+
+3 GEd 103 Life and Works of Rizal 3 2.50 IT-1103 ROSALES, ANDREALYN R.
+
+4 GEd 104 The Contemporary World 3 2.50 IT-1103 BATACLAO, AUDREY K.
+
+5 GEd 108 Art Appreciation 3 2.50 IT-1103 NOLLORA, ANGELICA LOUISSE M.
+6 IT 111 Introduction to Computing 3 2.75 IT-1103 SECRETO, BLANCHE C.
+
+7 NSTP 111 National Service Training Program 1 3 1.50 IT-1103 MONTANO, FLORIDO L.
+
+8 PE 101 Physical Fitness, Gymnastics and Aerobics 2 1.50 IT-1103 BENTIR, JETHRO D.
+
+** NOTHING FOLLOWS **
+
+Total no of Course 8
+Total no of Units 23
+General Weighted Average (GWA) 2.25
+
+2025-07-25 09:49:46 PM
+
+22-77832
+

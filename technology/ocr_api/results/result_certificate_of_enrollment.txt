@@ -1,0 +1,8 @@
+SR Code: 
+Sex: 
+Name: NOT FOUND
+Program: NOT FOUND
+
+COURSE CODE{BAT 401,BAT 402,IT311,IT312,IT314}
+COURSE TITLE{— Fundamentals of Business Analytics,Fundamentals of Analytics Modeling,‘Systems Administration and Maintenance,Systems Integration and Architecture,Web Systems and Technologies}
+UNIT(S){3,3,3,3,3}
