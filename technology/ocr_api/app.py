@@ -143,30 +143,55 @@ def process_ocr_text(raw_text):
     return result
 
 # === Flask Routes ===
-@app.route('/upload_registration_summary', methods=['POST'])
-def upload_registration_summary():
-    if 'image' not in request.files:
-        return jsonify({"error": "No image uploaded"}), 400
+@app.route('/upload_registration_summary_pdf', methods=['POST'])
+def handle_registration_summary_pdf():  # ✅ Renamed this function
+    if 'pdf' not in request.files:
+        return jsonify({"error": "No PDF uploaded"}), 400
 
-    image_file = request.files['image']
-    image = Image.open(image_file.stream)
-    cropped_image = image.crop((100, 580, 1300, 1500))
+    pdf_file = request.files['pdf']
+    pdf_bytes = pdf_file.read()
 
+    try:
+        images = convert_from_bytes(
+            pdf_bytes,
+            first_page=1,
+            last_page=1,
+            poppler_path=r"C:\poppler-24.08.0\Library\bin"
+        )
+    except Exception as e:
+        return jsonify({"error": f"PDF conversion failed: {str(e)}"}), 500
+
+    if not images:
+        return jsonify({"error": "No image generated from PDF"}), 400
+
+    original_image = images[0]
+
+    # ✅ Crop the region (adjust coords as needed)
+    cropped_image = original_image.crop((100, 700, 1300, 1500))
+
+    # ✅ Save cropped image
+    import os
+    output_dir = os.path.join(os.path.dirname(__file__), "results")
+    os.makedirs(output_dir, exist_ok=True)
+    cropped_path = os.path.join(output_dir, "COR_pdf_image.png")
+    cropped_image.save(cropped_path)
+
+    # ✅ Scale for OCR
     scaled_image = scale_image(cropped_image, scale_factor=2)
+
+    # ✅ OCR
     raw_text = pytesseract.image_to_string(scaled_image)
     result = process_ocr_text(raw_text)
 
     with open("result_certificate_of_enrollment.txt", "w", encoding="utf-8") as f:
         f.write(result)
 
-    buffered = BytesIO()
-    image.save(buffered, format="PNG")
-    img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
-
     return jsonify({
+        "message": "OCR completed and cropped image saved",
         "result": result,
-        "image": f"data:image/png;base64,{img_base64}"
+        "saved_image": "results/COR_pdf_image.png"
     })
+
 
 @app.route('/upload_registration_summary_pdf', methods=['POST'])
 def upload_registration_summary_pdf():

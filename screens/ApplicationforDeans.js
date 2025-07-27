@@ -31,8 +31,10 @@ export default function ApplicationforDeans() {
 
   const steps = [
     "Guideline",
-    "Upload Certificate of Enrollment",
-    "Upload Copy of Grades",
+    "Uploading Certificate of Enrollment",
+    "Uploading Copy of Grades",
+    "Validation",
+    "confirmation",
   ];
 
   const animateProgress = (progress) => {
@@ -271,16 +273,18 @@ export default function ApplicationforDeans() {
       {currentStep === 2 && (
         <View style={{ flex: 1 }}>
           <ScrollView
-            contentContainerStyle={{ padding: 20, paddingBottom: 630 }}
+            contentContainerStyle={{ padding: 20, paddingBottom: 625 }}
           >
-            <TouchableOpacity
-              style={styles.blueButtonupload}
-              onPress={() => handleUpload("Certificate of Enrollment")}
-            >
-              <Text style={styles.uploadButtonText}>
-                Upload Certificate of Enrollment
-              </Text>
-            </TouchableOpacity>
+            {!certificateImageUri && (
+              <TouchableOpacity
+                style={styles.blueButtonupload}
+                onPress={() => handleUpload("Certificate of Enrollment")}
+              >
+                <Text style={styles.uploadButtonText}>
+                  Upload Certificate of Enrollment
+                </Text>
+              </TouchableOpacity>
+            )}
 
             {uploading && (
               <Animated.View
@@ -309,9 +313,10 @@ export default function ApplicationforDeans() {
                     flexDirection: "row",
                     alignItems: "center",
                     backgroundColor: "#f2f2f2",
-                    padding: 15,
+                    padding: 10,
                     borderRadius: 10,
-                    marginBottom: 20,
+                    marginBottom: 10,
+                    marginTop: 20,
                   }}
                 >
                   <Icon
@@ -337,7 +342,8 @@ export default function ApplicationforDeans() {
                     paddingVertical: 10,
                     paddingHorizontal: 20,
                     borderRadius: 8,
-                    marginBottom: 20,
+                    marginBottom: 110,
+                    marginTop: 20,
                   }}
                 >
                   <Icon
