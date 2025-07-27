@@ -157,6 +157,71 @@ app.get("/user/:userId", (req, res) => {
   });
 });
 
+// 📜 Fetch certificates by userId
+app.get("/certificates/:userId", (req, res) => {
+  const { userId } = req.params;
+
+  const query = `
+    SELECT certi_id, title, date_granted, TO_BASE64(certi) AS certi
+    FROM certificate
+    WHERE userId = ?
+  `;
+
+  db.query(query, [userId], (err, results) => {
+    if (err) {
+      console.error("❌ Error fetching certificates:", err.message);
+      return res.status(500).json({ message: "Database error" });
+    }
+
+    res.json(results);
+  });
+});
+
+// 🏅 Fetch badges by userId
+app.get("/badges/:userId", (req, res) => {
+  const { userId } = req.params;
+
+  const query = `
+    SELECT badge_id, badgetitle, badgetype, TO_BASE64(badge) AS badge
+    FROM badges
+    WHERE userId = ?
+  `;
+
+  db.query(query, [userId], (err, results) => {
+    if (err) {
+      console.error("❌ Error fetching badges:", err.message);
+      return res.status(500).json({ message: "Database error" });
+    }
+
+    res.json(results);
+  });
+});
+
+// Combined Honors & Certificates Titles
+app.get("/achievements/:userId", (req, res) => {
+  const { userId } = req.params;
+
+  const honorQuery = `
+    SELECT title, description 
+    FROM honors 
+    WHERE userId = ?
+  `;
+
+  const honorsList = [
+      ...achievements.map(a => ({ type: "achievement", title: a.title, description: a.description })),
+      ...badges.map(b => ({ type: "badge", title: b.badgetitle, image: b.badge })),
+    ];
+    
+  db.query(honorQuery, [userId], (honorErr, honorResults) => {
+    if (honorErr) {
+      console.error("❌ Error fetching honors:", honorErr.message);
+      return res.status(500).json({ message: "Database error (honors)" });
+    }
+  });
+});
+
+
+
 // 🚀 Start the server
 app.listen(port, () => {
   console.log(`🚀 Server running at http://localhost:${port}`);

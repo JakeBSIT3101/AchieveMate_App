@@ -9,11 +9,12 @@ import ViewPortfolio from "./screens/ViewPortfolio";
 import DeanList from "./screens/DeanList";
 import DrawerContent from "./screens/DrawerContent";
 import ApplicationStatus from "./screens/ApplicationStatus";
+import LatinHonors from "./screens/LatinHonors";
 
 const Stack = createStackNavigator();
 const Drawer = createDrawerNavigator();
 
-// ✅ Drawer navigator with both Home and ViewPortfolio
+// Drawer navigator with both Home and ViewPortfolio
 const DrawerNavigator = () => (
   <Drawer.Navigator
     initialRouteName="Home"
@@ -28,10 +29,11 @@ const DrawerNavigator = () => (
     <Drawer.Screen name="ViewPortfolio" component={ViewPortfolio} />
     <Drawer.Screen name="DeanList" component={DeanList} />
     <Drawer.Screen name="ApplicationStatus" component={ApplicationStatus} />
+    <Drawer.Screen name="LatinHonors" component={LatinHonors} />
   </Drawer.Navigator>
 );
 
-// ✅ Main navigation container
+// Main navigation container
 export default function App() {
   return (
     <NavigationContainer>

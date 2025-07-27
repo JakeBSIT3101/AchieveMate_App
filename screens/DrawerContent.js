@@ -19,7 +19,7 @@ const menuItems = [
   {
     title: "Apply Latin Honor",
     icon: require("../assets/latinhonor.png"),
-    screen: "LatinHonor",
+    screen: "LatinHonors",
   },
   {
     title: "Application Status",
