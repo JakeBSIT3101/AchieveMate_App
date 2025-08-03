@@ -6,27 +6,29 @@ import {
   Text,
   Alert,
   Image,
-  ActivityIndicator,
   Modal,
-  ImageBackground, // Import ImageBackground for background image
+  ImageBackground,
 } from "react-native";
 import Icon from "react-native-vector-icons/Feather";
 import CheckBox from "expo-checkbox";
 import styles from "../styles";
 import { BASE_URL } from "../config/api";
+import LottieView from "lottie-react-native";
 
 const LoginScreen = ({ navigation }) => {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
-  const [loading, setLoading] = useState(false); // NEW
+  const [loading, setLoading] = useState(false);
 
   const handleLogin = async () => {
     if (!username || !password) {
       Alert.alert("Missing Input", "Please enter both username and password.");
       return;
     }
+
+    setLoading(true); // Show loading GIF immediately
 
     try {
       const response = await fetch(`${BASE_URL}/login`, {
@@ -38,20 +40,20 @@ const LoginScreen = ({ navigation }) => {
       const result = await response.json();
 
       if (response.ok && result.success) {
-        setLoading(true); //loading screen
-
-        // Wait for 2 seconds before navigating
+        // Wait 1.5s before navigation
         setTimeout(() => {
           setLoading(false);
           navigation.replace("DrawerNavigator");
         }, 1500);
       } else {
+        setLoading(false);
         Alert.alert(
           "❌ Login Failed",
           result.message || "Invalid username or password"
         );
       }
     } catch (error) {
+      setLoading(false);
       console.error("Login error:", error.message);
       Alert.alert(
         "❌ Error",
@@ -71,7 +73,7 @@ const LoginScreen = ({ navigation }) => {
     <ImageBackground
       source={require("../assets/login_bg2.png")}
       style={{ flex: 1 }}
-      imageStyle={{ opacity: 0.5 }} // Apply opacity to the background image
+      imageStyle={{ opacity: 0.5 }}
     >
       <View
         style={{
@@ -146,7 +148,7 @@ const LoginScreen = ({ navigation }) => {
           </TouchableOpacity>
         </View>
 
-        {/* Loading Overlay */}
+        {/* Loading Modal with GIF */}
         {loading && (
           <Modal transparent={true} animationType="fade">
             <View
@@ -157,19 +159,12 @@ const LoginScreen = ({ navigation }) => {
                 alignItems: "center",
               }}
             >
-              <View
-                style={{
-                  backgroundColor: "#fff",
-                  padding: 20,
-                  borderRadius: 10,
-                  alignItems: "center",
-                }}
-              >
-                <ActivityIndicator size="large" color="#0249AD" />
-                <Text style={{ marginTop: 10, fontSize: 16, color: "#0249AD" }}>
-                  Logging in...
-                </Text>
-              </View>
+              <LottieView
+                source={require("../assets/loading_medal.json")}
+                autoPlay
+                loop
+                style={{ width: 150, height: 150 }}
+              />
             </View>
           </Modal>
         )}
