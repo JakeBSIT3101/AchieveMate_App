@@ -12,7 +12,10 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 import time
-
+from datetime import datetime
+from reportlab.lib.pagesizes import letter
+from pdfrw import PdfReader, PdfWriter, PageMerge
+from reportlab.pdfgen import canvas
 app = Flask(__name__)
 
 # === Image Scaling Only ===
@@ -115,7 +118,7 @@ def extract_course_data(line):
     prefix = match.group(1).upper()
     code = f"{prefix} {match.group(2)}"
 
-    blacklist_prefixes = {"FEE", "NSTP", "SCUAA", "ANTI", "INS", "HEMF", "TOTAL", "DISCOUNT"}
+    blacklist_prefixes = {"FEE", "SCUAA", "ANTI", "INS", "HEMF", "TOTAL", "DISCOUNT"}
     if prefix in blacklist_prefixes:
         return None
 
@@ -144,7 +147,7 @@ def process_ocr_text(raw_text):
 
 # === Flask Routes ===
 @app.route('/upload_registration_summary_pdf', methods=['POST'])
-def handle_registration_summary_pdf():  # ✅ Renamed this function
+def upload_registration_summary_pdf():
     if 'pdf' not in request.files:
         return jsonify({"error": "No PDF uploaded"}), 400
 
@@ -166,57 +169,42 @@ def handle_registration_summary_pdf():  # ✅ Renamed this function
 
     original_image = images[0]
 
-    # ✅ Crop the region (adjust coords as needed)
-    cropped_image = original_image.crop((100, 700, 1300, 1500))
+    # 📐 Coordinates for cropping the region (adjusting bottom part)
+    width, height = original_image.size
+    left = 0
+    top = 0
+    right = width
+    bottom = int(height * 0.60)  # Crop 25% from the bottom, keep 75%
 
-    # ✅ Save cropped image
+    cropped_image = original_image.crop((left, top, right, bottom))
+
+    # 💾 Save the cropped image to /results folder
     import os
     output_dir = os.path.join(os.path.dirname(__file__), "results")
     os.makedirs(output_dir, exist_ok=True)
     cropped_path = os.path.join(output_dir, "COR_pdf_image.png")
     cropped_image.save(cropped_path)
 
-    # ✅ Scale for OCR
-    scaled_image = scale_image(cropped_image, scale_factor=2)
+    # 🔍 Scale and OCR
+    scaled = scale_image(cropped_image, scale_factor=2)
+    raw_text = pytesseract.image_to_string(scaled)
 
-    # ✅ OCR
-    raw_text = pytesseract.image_to_string(scaled_image)
-    result = process_ocr_text(raw_text)
+    # Parse the OCR text to extract specific data (you can add your custom parsing logic here)
+    parsed_data = process_ocr_text(raw_text)  # Assuming process_ocr_text is your custom parser function
 
-    with open("result_certificate_of_enrollment.txt", "w", encoding="utf-8") as f:
-        f.write(result)
+    # Save the parsed OCR result to a text file
+    ocr_result_path = os.path.join(output_dir, "result_certificate_of_enrollment.txt")
+    with open(ocr_result_path, "w", encoding="utf-8") as f:
+        f.write(parsed_data)
 
+    # Return the result with saved file paths and preview
     return jsonify({
-        "message": "OCR completed and cropped image saved",
-        "result": result,
-        "saved_image": "results/COR_pdf_image.png"
+        "message": "COR top section cropped and processed.",
+        "saved_image": "results/COR_pdf_image.png",
+        "ocr_text_file": "results/result_certificate_of_enrollment.txt",
+        "ocr_preview": parsed_data[:500]  # Preview first 500 characters of the parsed data
     })
 
-
-@app.route('/upload_registration_summary_pdf', methods=['POST'])
-def upload_registration_summary_pdf():
-    if 'pdf' not in request.files:
-        return jsonify({"error": "No PDF uploaded"}), 400
-
-    pdf_file = request.files['pdf']
-    pdf_bytes = pdf_file.read()
-
-    try:
-        images = convert_from_bytes(pdf_bytes, first_page=1, last_page=1, poppler_path=r"C:\poppler-24.08.0\Library\bin")
-    except Exception as e:
-        return jsonify({"error": f"PDF conversion failed: {str(e)}"}), 500
-
-    if not images:
-        return jsonify({"error": "No image generated from PDF"}), 400
-
-    scaled_image = scale_image(images[0], scale_factor=2)
-    raw_text = pytesseract.image_to_string(scaled_image)
-    result = process_ocr_text(raw_text)
-
-    with open("result_certificate_of_enrollment.txt", "w", encoding="utf-8") as f:
-        f.write(result)
-
-    return jsonify({"result": result})
 
 @app.route('/upload', methods=['POST'])
 def upload_image():
@@ -244,7 +232,7 @@ def upload_image():
 
         service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=chrome_options)
-        driver.set_window_size(1280, 800)
+        driver.set_window_size(995, 795)
         driver.get(qr_data)
         time.sleep(3)
 
@@ -277,6 +265,57 @@ def upload_image():
 
     except Exception as e:
         return jsonify({"error": f"Failed to process: {str(e)}"}), 500
+
+# Route to Generate PDF with Template and Data
+@app.route('/generate_pdf_with_data', methods=['POST'])
+def generate_pdf_with_data():
+    try:
+        # Get data from request
+        data = request.json
+        name = data.get('name')
+        program = data.get('program')
+
+        # Paths to your template and output files
+        template_pdf_path = "assets/DL_Template.pdf"  # Assuming it's in assets folder
+        output_pdf_path = "generated_application_filled.pdf"
+
+        # Step 1: Prepare the content for the new PDF using ReportLab (overlaying Name and Program)
+        packet = io.BytesIO()
+        c = canvas.Canvas(packet, pagesize=letter)
+        
+        # Set font
+        c.setFont("Helvetica", 12)
+
+        # Add the Name and Program at specific (x, y) coordinates (adjust as needed)
+        c.drawString(100, 750, f"Name: {name}")  # Example position for Name
+        c.drawString(100, 730, f"Program: {program}")  # Example position for Program
+
+        # Save the canvas content into the packet (PDF in-memory)
+        c.save()
+
+        # Step 2: Merge the ReportLab-generated content into the existing template PDF
+        packet.seek(0)  # Go to the beginning of the packet
+        new_pdf = PdfReader(packet)
+        existing_pdf = PdfReader(template_pdf_path)
+        output_pdf = PdfWriter()
+
+        # Merge content onto the first page of the template
+        page = existing_pdf.pages[0]
+        merger = PageMerge(page)
+        merger.add(new_pdf.pages[0]).render()
+
+        # Step 3: Write to the final PDF output
+        output_pdf.addpage(page)
+        output_pdf.write(output_pdf_path)
+
+        # Step 4: Return response with the path of the generated PDF
+        return jsonify({
+            "message": "PDF generated successfully",
+            "pdf_url": output_pdf_path
+        })
+
+    except Exception as e:
+        return jsonify({"error": f"Failed to generate PDF: {str(e)}"}), 500
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=5000, debug=True)

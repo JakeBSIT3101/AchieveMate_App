@@ -1,8 +1,14 @@
-SR Code: 
-Sex: 
-Name: NOT FOUND
-Program: NOT FOUND
+SR Code: 22-71014
+Sex: MALE
+Name: SALANGUIT, HAROLD NIKKO G.
+Program: :
 
-COURSE CODE{BAT 401,BAT 402,IT311,IT312,IT314}
-COURSE TITLE{— Fundamentals of Business Analytics,Fundamentals of Analytics Modeling,‘Systems Administration and Maintenance,Systems Integration and Architecture,Web Systems and Technologies}
-UNIT(S){3,3,3,3,3}
+COURSE CODE{
+IT 321,
+IT 322,
+IT 323,
+IT 324,
+IT 325,
+NTT 403,
+NTT 404,
+}

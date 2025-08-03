@@ -8,6 +8,7 @@ import {
   Image,
   ActivityIndicator,
   Modal,
+  ImageBackground, // Import ImageBackground for background image
 } from "react-native";
 import Icon from "react-native-vector-icons/Feather";
 import CheckBox from "expo-checkbox";
@@ -37,7 +38,7 @@ const LoginScreen = ({ navigation }) => {
       const result = await response.json();
 
       if (response.ok && result.success) {
-        setLoading(true); // Show loading screen
+        setLoading(true); //loading screen
 
         // Wait for 2 seconds before navigating
         setTimeout(() => {
@@ -67,86 +68,113 @@ const LoginScreen = ({ navigation }) => {
   };
 
   return (
-    <View style={styles.container}>
-      <View style={styles.card}>
-        <Image source={require("../assets/image.png")} style={styles.logo} />
+    <ImageBackground
+      source={require("../assets/login_bg2.png")}
+      style={{ flex: 1 }}
+      imageStyle={{ opacity: 0.5 }} // Apply opacity to the background image
+    >
+      <View
+        style={{
+          flex: 1,
+          justifyContent: "center",
+          alignItems: "center",
+          paddingHorizontal: 20,
+        }}
+      >
+        <View
+          style={{
+            width: "100%",
+            maxWidth: 400,
+            backgroundColor: "#fff",
+            borderRadius: 12,
+            padding: 20,
+            shadowColor: "#000",
+            shadowOpacity: 0.1,
+            shadowOffset: { width: 0, height: 4 },
+            shadowRadius: 8,
+            elevation: 6,
+            alignItems: "center",
+          }}
+        >
+          <Image source={require("../assets/image.png")} style={styles.logo} />
 
-        <TextInput
-          style={[styles.input, styles.blueField]}
-          placeholder="Username"
-          value={username}
-          onChangeText={setUsername}
-          autoCapitalize="none"
-        />
-
-        <View style={styles.passwordInputContainer}>
           <TextInput
             style={[styles.input, styles.blueField]}
-            placeholder="Password"
-            secureTextEntry={!isPasswordVisible}
-            value={password}
-            onChangeText={setPassword}
+            placeholder="Username"
+            value={username}
+            onChangeText={setUsername}
+            autoCapitalize="none"
           />
-          <TouchableOpacity
-            style={styles.eyeIcon}
-            onPress={() => setIsPasswordVisible(!isPasswordVisible)}
-          >
-            <Icon
-              name={isPasswordVisible ? "eye-off" : "eye"}
-              size={24}
-              color="#0249AD"
-            />
-          </TouchableOpacity>
-        </View>
 
-        <View style={styles.rememberForgotRow}>
-          <View style={styles.rememberMe}>
-            <CheckBox
-              value={rememberMe}
-              onValueChange={setRememberMe}
-              color={rememberMe ? "#0249AD" : undefined}
+          <View style={styles.passwordInputContainer}>
+            <TextInput
+              style={[styles.input, styles.blueField]}
+              placeholder="Password"
+              secureTextEntry={!isPasswordVisible}
+              value={password}
+              onChangeText={setPassword}
             />
-            <Text style={styles.rememberMeText}>Remember me</Text>
+            <TouchableOpacity
+              style={styles.eyeIcon}
+              onPress={() => setIsPasswordVisible(!isPasswordVisible)}
+            >
+              <Icon
+                name={isPasswordVisible ? "eye-off" : "eye"}
+                size={24}
+                color="#0249AD"
+              />
+            </TouchableOpacity>
           </View>
 
-          <TouchableOpacity onPress={handleForgotPassword}>
-            <Text style={styles.forgotText}>Forgot Password?</Text>
+          <View style={styles.rememberForgotRow}>
+            <View style={styles.rememberMe}>
+              <CheckBox
+                value={rememberMe}
+                onValueChange={setRememberMe}
+                color={rememberMe ? "#0249AD" : undefined}
+              />
+              <Text style={styles.rememberMeText}>Remember me</Text>
+            </View>
+
+            <TouchableOpacity onPress={handleForgotPassword}>
+              <Text style={styles.forgotText}>Forgot Password?</Text>
+            </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity style={styles.blueButton} onPress={handleLogin}>
+            <Text style={styles.buttonText}>Login</Text>
           </TouchableOpacity>
         </View>
 
-        <TouchableOpacity style={styles.blueButton} onPress={handleLogin}>
-          <Text style={styles.buttonText}>Login</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Loading Overlay */}
-      {loading && (
-        <Modal transparent={true} animationType="fade">
-          <View
-            style={{
-              flex: 1,
-              backgroundColor: "rgba(0,0,0,0.4)",
-              justifyContent: "center",
-              alignItems: "center",
-            }}
-          >
+        {/* Loading Overlay */}
+        {loading && (
+          <Modal transparent={true} animationType="fade">
             <View
               style={{
-                backgroundColor: "#fff",
-                padding: 20,
-                borderRadius: 10,
+                flex: 1,
+                backgroundColor: "rgba(0,0,0,0.4)",
+                justifyContent: "center",
                 alignItems: "center",
               }}
             >
-              <ActivityIndicator size="large" color="#0249AD" />
-              <Text style={{ marginTop: 10, fontSize: 16, color: "#0249AD" }}>
-                Logging in...
-              </Text>
+              <View
+                style={{
+                  backgroundColor: "#fff",
+                  padding: 20,
+                  borderRadius: 10,
+                  alignItems: "center",
+                }}
+              >
+                <ActivityIndicator size="large" color="#0249AD" />
+                <Text style={{ marginTop: 10, fontSize: 16, color: "#0249AD" }}>
+                  Logging in...
+                </Text>
+              </View>
             </View>
-          </View>
-        </Modal>
-      )}
-    </View>
+          </Modal>
+        )}
+      </View>
+    </ImageBackground>
   );
 };
 

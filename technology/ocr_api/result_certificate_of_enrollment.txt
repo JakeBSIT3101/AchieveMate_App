@@ -1,9 +1,13 @@
-SR Code: 
-Sex: 
-Name: 
+SR Code: 22-73105
+Sex: FEMALE
+Name: ANDULAN, RECHELLE T.
 Program: :
 
 COURSE CODE{
+EED 321,
+EED 322,
+EED 323,
+EED 324,
 EED 325,
 EED 326,
 EED 327,

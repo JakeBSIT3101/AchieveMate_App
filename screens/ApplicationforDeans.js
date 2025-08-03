@@ -7,6 +7,7 @@ import {
   ScrollView,
   Image,
   Animated,
+  ActivityIndicator,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import styles from "../styles";
@@ -34,7 +35,7 @@ export default function ApplicationforDeans() {
     "Uploading Certificate of Enrollment",
     "Uploading Copy of Grades",
     "Validation",
-    "confirmation",
+    "Confirmation",
   ];
 
   const animateProgress = (progress) => {
@@ -45,6 +46,7 @@ export default function ApplicationforDeans() {
     }).start();
   };
 
+  // Function for uploading files with progress tracking
   const handleUpload = async (docType) => {
     let file;
     if (docType === "Certificate of Enrollment") {
@@ -96,11 +98,21 @@ export default function ApplicationforDeans() {
       setUploadProgress(0);
       animateProgress(0);
 
+      // Create fetch request with progress tracking
       const res = await fetch(endpoint, {
         method: "POST",
         body: formData,
         headers: {
           "Content-Type": "multipart/form-data",
+        },
+        onUploadProgress: (progressEvent) => {
+          if (progressEvent.total) {
+            const progress = Math.round(
+              (progressEvent.loaded * 100) / progressEvent.total
+            );
+            setUploadProgress(progress);
+            animateProgress(progress);
+          }
         },
       });
 
@@ -157,7 +169,6 @@ export default function ApplicationforDeans() {
     <ScrollView
       contentContainerStyle={styles.container1}
       keyboardShouldPersistTaps="handled"
-      s
     >
       {/* Step Progress */}
       <View style={{ paddingHorizontal: 20, marginTop: 20 }}>
@@ -237,9 +248,9 @@ export default function ApplicationforDeans() {
             "Not be enrolled in OJT in the previous semester (semester of application).",
             "Have obtained an average rating as follows:",
           ].map((item, index) => (
-            <Text key={index} style={styles.guidelineText}>{`${
-              index + 1
-            }. ${item}`}</Text>
+            <Text key={index} style={styles.guidelineText}>
+              {`${index + 1}. ${item}`}
+            </Text>
           ))}
 
           <View style={styles.gwaBox}>
@@ -284,6 +295,13 @@ export default function ApplicationforDeans() {
                   Upload Certificate of Enrollment
                 </Text>
               </TouchableOpacity>
+            )}
+
+            {uploading && (
+              <View style={{ alignItems: "center", marginTop: 20 }}>
+                <ActivityIndicator size="large" color="#00C881" />
+                <Text style={{ marginTop: 10 }}>Uploading...</Text>
+              </View>
             )}
 
             {uploading && (
@@ -381,6 +399,7 @@ export default function ApplicationforDeans() {
         </View>
       )}
 
+      {/* Step 3: Upload Copy of Grades */}
       {currentStep === 3 && (
         <View style={{ flex: 1 }}>
           <ScrollView
@@ -392,6 +411,27 @@ export default function ApplicationforDeans() {
             >
               <Text style={styles.uploadButtonText}>Upload Copy of Grades</Text>
             </TouchableOpacity>
+
+            {uploading && (
+              <View style={{ alignItems: "center", marginTop: 20 }}>
+                <ActivityIndicator size="large" color="#00C881" />
+                <Text style={{ marginTop: 10 }}>Uploading...</Text>
+              </View>
+            )}
+
+            {uploading && (
+              <Animated.View
+                style={{
+                  height: 10,
+                  backgroundColor: "#00C881",
+                  marginTop: 10,
+                  width: progressAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0, 300],
+                  }),
+                }}
+              />
+            )}
 
             {gradesImageUri && (
               <View style={{ alignItems: "center", marginTop: 10 }}>
