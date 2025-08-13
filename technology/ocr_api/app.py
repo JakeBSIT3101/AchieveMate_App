@@ -189,6 +189,11 @@ def upload_registration_summary_pdf():
     scaled = scale_image(cropped_image, scale_factor=2)
     raw_text = pytesseract.image_to_string(scaled)
 
+    # 💾 Save the raw OCR text to a file
+    raw_ocr_path = os.path.join(output_dir, "raw_certificate_of_enrollment.txt")
+    with open(raw_ocr_path, "w", encoding="utf-8") as f:
+        f.write(raw_text)
+
     # Parse the OCR text to extract specific data (you can add your custom parsing logic here)
     parsed_data = process_ocr_text(raw_text)  # Assuming process_ocr_text is your custom parser function
 
@@ -201,9 +206,11 @@ def upload_registration_summary_pdf():
     return jsonify({
         "message": "COR top section cropped and processed.",
         "saved_image": "results/COR_pdf_image.png",
+        "raw_ocr_text_file": "results/raw_certificate_of_enrollment.txt",
         "ocr_text_file": "results/result_certificate_of_enrollment.txt",
-        "ocr_preview": parsed_data[:500]  # Preview first 500 characters of the parsed data
+        "ocr_preview": parsed_data[:500]
     })
+
 
 
 @app.route('/upload', methods=['POST'])

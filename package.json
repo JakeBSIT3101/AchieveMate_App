@@ -28,6 +28,8 @@
     "expo-status-bar": "~2.2.3",
     "express": "^5.1.0",
     "express-session": "^1.18.1",
+    "lottie-react-native": "7.2.2",
+    "multer": "^2.0.2",
     "mysql2": "^3.14.2",
     "react": "19.0.0",
     "react-native": "0.79.5",
@@ -37,8 +39,7 @@
     "react-native-reanimated": "~3.17.4",
     "react-native-safe-area-context": "^5.5.1",
     "react-native-screens": "^4.11.1",
-    "react-native-vector-icons": "^10.2.0",
-    "lottie-react-native": "7.2.2"
+    "react-native-vector-icons": "^10.2.0"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
