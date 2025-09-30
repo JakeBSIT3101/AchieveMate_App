@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   View,
   Text,
@@ -20,7 +20,12 @@ export default function ApplicationforDeans() {
   const [currentStep, setCurrentStep] = useState(1);
   const [ocrResult, setOcrResult] = useState("");
   const [gradesImageUri, setGradesImageUri] = useState(null);
+
+  // Original file URI of the chosen COR PDF (we still keep this if you need it)
   const [certificateImageUri, setCertificateImageUri] = useState(null);
+  // Cropped image served by Flask (results/COR_pdf_image.png as absolute URL)
+  const [certificatePreviewUri, setCertificatePreviewUri] = useState(null);
+
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const progressAnim = useRef(new Animated.Value(0)).current;
@@ -29,6 +34,82 @@ export default function ApplicationforDeans() {
   const [previewImage, setPreviewImage] = useState(null);
   const [convertedImage, setConvertedImage] = useState(null);
   const [pdfFile, setPdfFile] = useState(null);
+
+  // --- Sticky footer config ---
+  const FOOTER_HEIGHT = 72;
+  const stickyFooter = {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: FOOTER_HEIGHT,
+    backgroundColor: "#fff",
+    borderTopWidth: 1,
+    borderTopColor: "#E6E6E6",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    elevation: 6,
+    shadowColor: "#000",
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: -2 },
+  };
+
+  // --- Local UI helpers ---
+  const ui = {
+    card: {
+      backgroundColor: "#fff",
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: "#e6e6e6",
+      padding: 12,
+      shadowColor: "#000",
+      shadowOpacity: 0.06,
+      shadowRadius: 12,
+      shadowOffset: { width: 0, height: 4 },
+      elevation: 3,
+    },
+    uploadBtn: {
+      alignSelf: "stretch",
+      borderRadius: 12,
+    },
+    removeBtn: {
+      flexDirection: "row",
+      alignItems: "center",
+      backgroundColor: "#ff4d4d",
+      paddingVertical: 12,
+      paddingHorizontal: 24,
+      borderRadius: 12,
+    },
+  };
+
+  // Aspect ratio for COR preview (portrait-ish)
+  const [corAspect, setCorAspect] = useState(0.72);
+  useEffect(() => {
+    if (!certificatePreviewUri) return;
+    Image.getSize(
+      certificatePreviewUri,
+      (w, h) => {
+        if (w && h) setCorAspect(w / h);
+      },
+      () => {}
+    );
+  }, [certificatePreviewUri]);
+
+  // Aspect ratio for Grades preview (usually landscape)
+  const [gradesAspect, setGradesAspect] = useState(1.5);
+  useEffect(() => {
+    if (!gradesImageUri) return;
+    Image.getSize(
+      gradesImageUri,
+      (w, h) => {
+        if (w && h) setGradesAspect(w / h);
+      },
+      () => {}
+    );
+  }, [gradesImageUri]);
 
   const steps = [
     "Guideline",
@@ -40,13 +121,13 @@ export default function ApplicationforDeans() {
 
   const animateProgress = (progress) => {
     Animated.timing(progressAnim, {
-      toValue: progress,
+      toValue: progress, // you're passing 0..100; okay given your existing interpolation
       duration: 300,
       useNativeDriver: false,
     }).start();
   };
 
-  // Function for uploading files with progress tracking
+  // Upload with fetch (unchanged logic)
   const handleUpload = async (docType) => {
     let file;
     if (docType === "Certificate of Enrollment") {
@@ -65,13 +146,11 @@ export default function ApplicationforDeans() {
         );
         return;
       }
-
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         quality: 1,
       });
-
       if (result.canceled || !result.assets || result.assets.length === 0)
         return;
       file = result.assets[0];
@@ -98,30 +177,16 @@ export default function ApplicationforDeans() {
       setUploadProgress(0);
       animateProgress(0);
 
-      // Create fetch request with progress tracking
       const res = await fetch(endpoint, {
         method: "POST",
         body: formData,
-        headers: {
-          "Content-Type": "multipart/form-data",
-        },
-        onUploadProgress: (progressEvent) => {
-          if (progressEvent.total) {
-            const progress = Math.round(
-              (progressEvent.loaded * 100) / progressEvent.total
-            );
-            setUploadProgress(progress);
-            animateProgress(progress);
-          }
-        },
+        headers: { "Content-Type": "multipart/form-data" },
       });
 
       const json = await res.json();
       setUploading(false);
 
-      if (!res.ok) {
-        throw new Error(json.error || "Upload failed");
-      }
+      if (!res.ok) throw new Error(json.error || "Upload failed");
 
       const resultText = json.result ?? "No OCR result available.";
       setOcrResult(resultText);
@@ -129,6 +194,13 @@ export default function ApplicationforDeans() {
       if (docType === "Certificate of Enrollment") {
         setCertificateImageUri(file.uri);
         setEnrollmentResult(resultText);
+
+        const previewUrl =
+          json.saved_image_url || `${OCR_URL}/${json.saved_image}`;
+        setCertificatePreviewUri(
+          previewUrl ? `${previewUrl}?t=${Date.now()}` : null
+        );
+
         await saveToTxtFile("result_certificate_of_enrollment.txt", resultText);
       } else {
         setGradesImageUri(file.uri);
@@ -162,15 +234,23 @@ export default function ApplicationforDeans() {
 
   const handleRemoveCertificateImage = () => {
     setCertificateImageUri(null);
+    setCertificatePreviewUri(null);
     setOcrResult("");
+    setEnrollmentResult("");
   };
 
+  // -------- Upload-button visibility control ----------
+  const showUploadButton = (type) => {
+    if (uploading) return false;
+    if (type === "Certificate of Enrollment") return !certificatePreviewUri;
+    if (type === "Copy of Grades") return !gradesImageUri;
+    return true;
+  };
+  // ----------------------------------------------------
+
   return (
-    <ScrollView
-      contentContainerStyle={styles.container1}
-      keyboardShouldPersistTaps="handled"
-    >
-      {/* Step Progress */}
+    <View style={[styles.container1, { flex: 1 }]}>
+      {/* Step Progress (static header) */}
       <View style={{ paddingHorizontal: 20, marginTop: 20 }}>
         <View
           style={{
@@ -231,64 +311,77 @@ export default function ApplicationforDeans() {
         </View>
       </View>
 
-      {/* Step 1: Guidelines */}
+      {/* Step 1: Guidelines (scrollable) */}
       {currentStep === 1 && (
-        <View style={styles.guidelineCard}>
-          <Text style={styles.guidelineHeader}>📌 Application Guidelines</Text>
-          {[
-            "Submit all documents clearly scanned.",
-            "Ensure documents are updated.",
-            "Apply before the deadline.",
-            "Apply at the end of the semester.",
-            "Be enrolled in the required academic load prescribed by the program.",
-            "Have no grade lower than 2.50 in any course.",
-            "Have no failed, dropped or withdrawn grade.",
-            "Have not committed any major offense during the semester of application.",
-            "Not include NSTP in the computation of General Weighted Average (GWA).",
-            "Not be enrolled in OJT in the previous semester (semester of application).",
-            "Have obtained an average rating as follows:",
-          ].map((item, index) => (
-            <Text key={index} style={styles.guidelineText}>
-              {`${index + 1}. ${item}`}
+        <ScrollView
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24 }}
+        >
+          <View style={styles.guidelineCard}>
+            <Text style={styles.guidelineHeader}>
+              📌 Application Guidelines
             </Text>
-          ))}
+            {[
+              "Submit all documents clearly scanned.",
+              "Ensure documents are updated.",
+              "Apply before the deadline.",
+              "Apply at the end of the semester.",
+              "Be enrolled in the required academic load prescribed by the program.",
+              "Have no grade lower than 2.50 in any course.",
+              "Have no failed, dropped or withdrawn grade.",
+              "Have not committed any major offense during the semester of application.",
+              "Not include NSTP in the computation of General Weighted Average (GWA).",
+              "Not be enrolled in OJT in the previous semester (semester of application).",
+              "Have obtained an average rating as follows:",
+            ].map((item, index) => (
+              <Text key={index} style={styles.guidelineText}>{`${
+                index + 1
+              }. ${item}`}</Text>
+            ))}
 
-          <View style={styles.gwaBox}>
-            <Text style={styles.gwaText}>
-              Tech Savant: GWA of 1.0000 to 1.2500
-            </Text>
-            <Text style={styles.gwaText}>
-              Tech Virtuoso: GWA of 1.2501 to 1.5000
-            </Text>
-            <Text style={styles.gwaText}>
-              Tech Prodigy: GWA of 1.5001 to 1.7500
-            </Text>
+            <View style={styles.gwaBox}>
+              <Text style={styles.gwaText}>
+                Tech Savant: GWA of 1.0000 to 1.2500
+              </Text>
+              <Text style={styles.gwaText}>
+                Tech Virtuoso: GWA of 1.2501 to 1.5000
+              </Text>
+              <Text style={styles.gwaText}>
+                Tech Prodigy: GWA of 1.5001 to 1.7500
+              </Text>
+            </View>
+
+            <View style={styles.formulaBox}>
+              <Text style={styles.formulaText}>
+                WA = total WG / total units
+              </Text>
+              <Text style={styles.formulaText}>WA = Weighted Average</Text>
+              <Text style={styles.formulaText}>WG = Weighted Grade</Text>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.blueButtonupload, { marginTop: 80 }]}
+              onPress={() => setCurrentStep(2)}
+            >
+              <Text style={styles.buttonTextupload}>Continue</Text>
+            </TouchableOpacity>
           </View>
-
-          <View style={styles.formulaBox}>
-            <Text style={styles.formulaText}>WA = total WG / total units</Text>
-            <Text style={styles.formulaText}>WA = Weighted Average</Text>
-            <Text style={styles.formulaText}>WG = Weighted Grade</Text>
-          </View>
-
-          <TouchableOpacity
-            style={[styles.blueButtonupload, { marginTop: 80 }]}
-            onPress={() => setCurrentStep(2)}
-          >
-            <Text style={styles.buttonTextupload}>Continue</Text>
-          </TouchableOpacity>
-        </View>
+        </ScrollView>
       )}
 
-      {/* Step 2: Upload Certificate */}
+      {/* Step 2: Upload Certificate (scrollable) */}
       {currentStep === 2 && (
         <View style={{ flex: 1 }}>
           <ScrollView
-            contentContainerStyle={{ padding: 20, paddingBottom: 625 }}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{
+              padding: 20,
+              paddingBottom: FOOTER_HEIGHT + 24,
+            }}
           >
-            {!certificateImageUri && (
+            {showUploadButton("Certificate of Enrollment") && (
               <TouchableOpacity
-                style={styles.blueButtonupload}
+                style={[styles.blueButtonupload, ui.uploadBtn]}
                 onPress={() => handleUpload("Certificate of Enrollment")}
               >
                 <Text style={styles.uploadButtonText}>
@@ -298,87 +391,61 @@ export default function ApplicationforDeans() {
             )}
 
             {uploading && (
-              <View style={{ alignItems: "center", marginTop: 20 }}>
-                <ActivityIndicator size="large" color="#00C881" />
-                <Text style={{ marginTop: 10 }}>Uploading...</Text>
-              </View>
-            )}
-
-            {uploading && (
-              <Animated.View
-                style={{
-                  height: 10,
-                  backgroundColor: "#00C881",
-                  marginTop: 10,
-                  width: progressAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [0, 300],
-                  }),
-                }}
-              />
-            )}
-
-            {certificateImageUri && (
-              <View
-                style={{
-                  alignItems: "center",
-                  marginTop: 10,
-                  marginBottom: -215,
-                }}
-              >
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    backgroundColor: "#f2f2f2",
-                    padding: 10,
-                    borderRadius: 10,
-                    marginBottom: 10,
-                    marginTop: 20,
-                  }}
-                >
-                  <Icon
-                    name="file-text"
-                    size={30}
-                    color="#ff5c5c"
-                    style={{ marginRight: 10 }}
-                  />
-                  <Text
-                    style={{ fontSize: 14, color: "#333", maxWidth: 200 }}
-                    numberOfLines={1}
-                  >
-                    {certificateImageUri.split("/").pop()}
-                  </Text>
+              <>
+                <View style={{ alignItems: "center", marginTop: 16 }}>
+                  <ActivityIndicator size="large" color="#00C881" />
+                  <Text style={{ marginTop: 8 }}>Uploading...</Text>
                 </View>
-
-                <TouchableOpacity
-                  onPress={handleRemoveCertificateImage}
+                <Animated.View
                   style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    backgroundColor: "#ff4d4d",
-                    paddingVertical: 10,
-                    paddingHorizontal: 20,
-                    borderRadius: 8,
-                    marginBottom: 110,
-                    marginTop: 20,
+                    height: 10,
+                    backgroundColor: "#00C881",
+                    marginTop: 10,
+                    width: progressAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0, 300],
+                    }),
                   }}
-                >
-                  <Icon
-                    name="trash-2"
-                    size={20}
-                    color="#fff"
-                    style={{ marginRight: 8 }}
-                  />
-                  <Text style={{ color: "#fff", fontWeight: "bold" }}>
-                    Remove File
-                  </Text>
-                </TouchableOpacity>
+                />
+              </>
+            )}
+
+            {certificatePreviewUri && (
+              <View style={[ui.card, { marginTop: 16 }]}>
+                <Image
+                  source={{ uri: certificatePreviewUri }}
+                  resizeMode="contain"
+                  style={{
+                    width: "100%",
+                    height: undefined,
+                    aspectRatio: corAspect,
+                    maxHeight: 520,
+                    borderRadius: 8,
+                    backgroundColor: "#f7f7f7",
+                  }}
+                />
+                <View style={{ alignItems: "center", marginTop: 16 }}>
+                  <TouchableOpacity
+                    onPress={handleRemoveCertificateImage}
+                    style={ui.removeBtn}
+                  >
+                    <Icon
+                      name="trash-2"
+                      size={20}
+                      color="#fff"
+                      style={{ marginRight: 8 }}
+                    />
+                    <Text style={{ color: "#fff", fontWeight: "bold" }}>
+                      Remove File
+                    </Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             )}
           </ScrollView>
 
-          <View style={styles.stepFormStickyFooter}>
+          {/* Sticky bottom nav */}
+          <View style={[styles.stepFormStickyFooter, stickyFooter]}>
             <TouchableOpacity
               style={styles.stepFormNavBtn}
               onPress={() => setCurrentStep(1)}
@@ -388,10 +455,10 @@ export default function ApplicationforDeans() {
             <TouchableOpacity
               style={[
                 styles.stepFormNavBtn,
-                { backgroundColor: certificateImageUri ? "#007bff" : "#ccc" },
+                { backgroundColor: certificatePreviewUri ? "#007bff" : "#ccc" },
               ]}
               onPress={() => setCurrentStep(3)}
-              disabled={!certificateImageUri}
+              disabled={!certificatePreviewUri}
             >
               <Text style={styles.navButtonText}>Next →</Text>
             </TouchableOpacity>
@@ -399,82 +466,83 @@ export default function ApplicationforDeans() {
         </View>
       )}
 
-      {/* Step 3: Upload Copy of Grades */}
+      {/* Step 3: Upload Copy of Grades (scrollable) */}
       {currentStep === 3 && (
         <View style={{ flex: 1 }}>
           <ScrollView
-            contentContainerStyle={{ padding: 20, paddingBottom: 620 }}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{
+              padding: 20,
+              paddingBottom: FOOTER_HEIGHT + 24,
+            }}
           >
-            <TouchableOpacity
-              style={styles.blueButtonupload}
-              onPress={() => handleUpload("Copy of Grades")}
-            >
-              <Text style={styles.uploadButtonText}>Upload Copy of Grades</Text>
-            </TouchableOpacity>
-
-            {uploading && (
-              <View style={{ alignItems: "center", marginTop: 20 }}>
-                <ActivityIndicator size="large" color="#00C881" />
-                <Text style={{ marginTop: 10 }}>Uploading...</Text>
-              </View>
+            {showUploadButton("Copy of Grades") && (
+              <TouchableOpacity
+                style={[styles.blueButtonupload, ui.uploadBtn]}
+                onPress={() => handleUpload("Copy of Grades")}
+              >
+                <Text style={styles.uploadButtonText}>
+                  Upload Copy of Grades
+                </Text>
+              </TouchableOpacity>
             )}
 
             {uploading && (
-              <Animated.View
-                style={{
-                  height: 10,
-                  backgroundColor: "#00C881",
-                  marginTop: 10,
-                  width: progressAnim.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [0, 300],
-                  }),
-                }}
-              />
+              <>
+                <View style={{ alignItems: "center", marginTop: 16 }}>
+                  <ActivityIndicator size="large" color="#00C881" />
+                  <Text style={{ marginTop: 8 }}>Uploading...</Text>
+                </View>
+                <Animated.View
+                  style={{
+                    height: 10,
+                    backgroundColor: "#00C881",
+                    marginTop: 10,
+                    width: progressAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0, 300],
+                    }),
+                  }}
+                />
+              </>
             )}
 
             {gradesImageUri && (
-              <View style={{ alignItems: "center", marginTop: 10 }}>
+              <View style={[ui.card, { marginTop: 16 }]}>
                 <Image
                   source={{ uri: gradesImageUri }}
+                  resizeMode="contain"
                   style={{
-                    width: 350,
-                    height: 450,
-                    resizeMode: "contain",
-                    borderRadius: 10,
-                    marginTop: -100,
-                    marginBottom: 20,
+                    width: "100%",
+                    height: undefined,
+                    aspectRatio: gradesAspect,
+                    maxHeight: 520,
+                    borderRadius: 8,
+                    backgroundColor: "#f7f7f7",
                   }}
                 />
-                <TouchableOpacity
-                  onPress={handleRemoveGradesImage}
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    backgroundColor: "#ff4d4d",
-                    paddingVertical: 10,
-                    paddingHorizontal: 20,
-                    borderRadius: 8,
-                    marginTop: -105,
-                    marginBottom: -7000,
-                  }}
-                >
-                  <Icon
-                    name="trash-2"
-                    size={20}
-                    color="#fff"
-                    style={{ marginRight: 8 }}
-                  />
-                  <Text style={{ color: "#fff", fontWeight: "bold" }}>
-                    Remove Image
-                  </Text>
-                </TouchableOpacity>
+                <View style={{ alignItems: "center", marginTop: 16 }}>
+                  <TouchableOpacity
+                    onPress={handleRemoveGradesImage}
+                    style={ui.removeBtn}
+                  >
+                    <Icon
+                      name="trash-2"
+                      size={20}
+                      color="#fff"
+                      style={{ marginRight: 8 }}
+                    />
+                    <Text style={{ color: "#fff", fontWeight: "bold" }}>
+                      Remove Image
+                    </Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             )}
           </ScrollView>
 
           {/* Sticky bottom nav */}
-          <View style={styles.navStickyContainer}>
+          <View style={[styles.navStickyContainer, stickyFooter]}>
             <TouchableOpacity
               style={styles.stepFormNavBtn}
               onPress={() => setCurrentStep(2)}
@@ -486,7 +554,7 @@ export default function ApplicationforDeans() {
                 styles.stepFormNavBtn,
                 { backgroundColor: gradesImageUri ? "#007bff" : "#ccc" },
               ]}
-              onPress={() => setCurrentStep(4)} // or whatever the next step is
+              onPress={() => setCurrentStep(4)}
               disabled={!gradesImageUri}
             >
               <Text style={styles.navButtonText}>Next →</Text>
@@ -494,6 +562,6 @@ export default function ApplicationforDeans() {
           </View>
         </View>
       )}
-    </ScrollView>
+    </View>
   );
 }

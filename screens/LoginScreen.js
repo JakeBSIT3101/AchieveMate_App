@@ -28,19 +28,31 @@ const LoginScreen = ({ navigation }) => {
       return;
     }
 
-    setLoading(true); // Show loading GIF immediately
+    setLoading(true);
 
     try {
-      const response = await fetch(`${BASE_URL}/login`, {
+      const response = await fetch(`${BASE_URL}/login.php`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
       });
 
-      const result = await response.json();
+      // 👀 Debug raw response
+      const textResponse = await response.text();
+      console.log("📥 Raw server response:", textResponse);
+
+      // Try parsing JSON safely
+      let result;
+      try {
+        result = JSON.parse(textResponse);
+      } catch (e) {
+        console.error("❌ Response is not valid JSON!");
+        Alert.alert("❌ Error", "Server did not return JSON.");
+        setLoading(false);
+        return;
+      }
 
       if (response.ok && result.success) {
-        // Wait 1.5s before navigation
         setTimeout(() => {
           setLoading(false);
           navigation.replace("DrawerNavigator");

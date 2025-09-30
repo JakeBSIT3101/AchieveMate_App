@@ -1,60 +1,62 @@
+7/22/25, 4:46 PM
+
 Reference No. BatStateU-FO-REG-1
+
+Certificate of Registration
 
 Effectivity: May 18, 2022
 
 Republic of the Philippines
-
 BATANGAS STATE UNIVERSITY
-
 The National Engineering University
 ARASOF-Nasugbu Campus
-
 R. Martinez St., Brgy. Bucana, Nasugbu Batangas
 
-College of Teacher Education
+College of Informatics and Computing Sciences
 
-SECOND, 2024-2025
+FIRST, 2022-2023
 
 REGISTRATION FORM
-
-SR Code: 22-73105 Sex: FEMALE
-
-Name: ANDULAN, RECHELLE T. Program:
-
+SR Code: 22-70781 Sex: MALE
+Name: DULUTAN, GERARD ANWEN A. Program:
 COURSE CODE COURSE TITLE UNIT(S)
 SECTION
-EEd 321 Technology Application in Language Teaching 3 (BSED-ENG-3202)
-EEd 322 Literary Criticism 3 (BSED-ENG-3202)
-EEd 323 Contemporary, Popular and Emergent Literature 3 (BSED-ENG-3202)
-EEd 324 — Teaching and Assessment of Literature Studies 3 (BSED-ENG-3202)
-EEd 325 Campus Journalism 3 (BSED-ENG-3202)
-EEd 326 Stylistics and Discourse Analysis 3 (BSED-ENG-3202)
-EEd 327 Research in English 2 1 (BSED-ENG-3202)
-Litr 102 ASEAN Literature 3 (BSED-ENG-3202)
-
-22
+Fili 101 Kontekstwalisadong Komunikasyon sa Filipino 3
+GEd 102 Mathematics in the Modern World 3
+GEd 103 Life and Works of Rizal 3
+GEd 104 The Contemporary World 3
+GEd 108 — Art Appreciation 3
+IT 111 Introduction to Computing 3
+NSTP 111 National Service Training Program 1 3
+PE 101 Physical Fitness, Gymnastics and Aerobics Z
+23
 Scholarship/s:
+Higher Education Support Program : Free Tuition 2022
+(*) Discount has been deducted. Approved by:
 
-Higher Education Support Program : Free Tuition 2024
-(*) Discount has been deducted.
-
-Tuition Fee Discount=4,862.00
-
-Assessment Discount=4,950.00
+Tuition Fee Discount=4,420.00
+Assessment Discount=6,462.00
 
 ENROLLED
 
-Approved by:
-
 RATION SERVICES
-Dafe : 01/02/2025
+Ddfe : 07/08/2022
+
+(IT-1101)
+(IT-1101)
+(IT-1101)
+(IT-1101)
+(IT-1101)
+(IT-1101)
+(IT-1101)
+(IT-1101)
 
 Revision No. 02
 
-Bachelor of Secondary Education -ENG/THIRD
+BS Information Technology /FIRST
 
 ASSESSMENT
-Tuition Fee (221.00/unit) 4,862.00
+Tuition Fee (221.00/unit) 4,420.00
 
 Library Fee
 Registration Fee
@@ -62,11 +64,20 @@ Athletic Fee
 Publication Fee
 Medical / Dental Fee
 Guidance Fee
+Laboratory Fee
+NSTP
+
+ID Fee
+
+AntiTB
+
 Cultural Fee
 Internet Fee
+Insurance
+
 Security*
 
-HEMF (86.00/unit)*
+HEMF (86.00/unit) *
 SCUAA
 
 DISCOUNT
@@ -80,13 +91,20 @@ TOTAL(PHP)
 380.00
 380.00
 260.00
+751.00
+375.00
+235.00
+15.00
 173.00
 300.00
+50.00
 173.00
-1,892.00
+978.00
 130.00
 
-9,812.00
-(9,812.00)
-0.00
+_
 
+10,882.00
+(10,882.00)
+
+0.00

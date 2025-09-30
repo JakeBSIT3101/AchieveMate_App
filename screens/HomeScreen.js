@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   Animated,
+  Alert,
 } from "react-native";
 import styles from "../styles";
 import { BASE_URL } from "../config/api";
@@ -19,18 +20,23 @@ const HomeScreen = ({ navigation }) => {
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   const fetchAnnouncements = () => {
-    fetch(`${BASE_URL}/post`)
+    console.log("📡 Fetching announcements from hosted database...");
+
+    fetch(`${BASE_URL}/post.php`) // 👈 Updated for PHP backend
       .then((res) => res.json())
       .then((data) => {
         setAnnouncements(data);
         setLoading(false);
         setRefreshing(false);
-        fadeIn(); // trigger animation on fetch
+        fadeIn();
+
+        // ✅ Notify only if data exists
       })
       .catch((error) => {
-        console.error("Error fetching announcements:", error);
+        console.error("❌ Error fetching announcements:", error);
         setLoading(false);
         setRefreshing(false);
+        Alert.alert("❌ Error", "Failed to fetch announcements.");
       });
   };
 
@@ -92,7 +98,7 @@ const HomeScreen = ({ navigation }) => {
               >
                 {item.image ? (
                   <Image
-                    source={{ uri: `data:image/jpeg;base64,${item.image}` }}
+                    source={{ uri: `data:image/jpg;base64,${item.image}` }}
                     style={styles.announcementImage}
                   />
                 ) : (

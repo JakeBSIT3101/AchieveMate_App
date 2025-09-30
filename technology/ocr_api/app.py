@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, send_from_directory
 from PIL import Image, ImageOps
 import pytesseract
 import re
@@ -16,7 +16,14 @@ from datetime import datetime
 from reportlab.lib.pagesizes import letter
 from pdfrw import PdfReader, PdfWriter, PageMerge
 from reportlab.pdfgen import canvas
+import os  # <-- ADDED
+
 app = Flask(__name__)
+
+# === Paths ===
+BASE_DIR = os.path.dirname(__file__)
+RESULTS_DIR = os.path.join(BASE_DIR, "results")
+os.makedirs(RESULTS_DIR, exist_ok=True)  # ensure results/ exists
 
 # === Image Scaling Only ===
 def scale_image(image, scale_factor=2):
@@ -145,6 +152,11 @@ def process_ocr_text(raw_text):
     result += "COURSE CODE{\n" + ",\n".join(course_codes) + ",\n}"
     return result
 
+# === Serve results/ files so RN <Image> can load the cropped preview ===
+@app.route('/results/<path:filename>')
+def serve_results(filename):
+    return send_from_directory(RESULTS_DIR, filename, as_attachment=False)
+
 # === Flask Routes ===
 @app.route('/upload_registration_summary_pdf', methods=['POST'])
 def upload_registration_summary_pdf():
@@ -174,15 +186,12 @@ def upload_registration_summary_pdf():
     left = 0
     top = 0
     right = width
-    bottom = int(height * 0.60)  # Crop 25% from the bottom, keep 75%
+    bottom = int(height * 0.60)  # keep top 60%
 
     cropped_image = original_image.crop((left, top, right, bottom))
 
     # 💾 Save the cropped image to /results folder
-    import os
-    output_dir = os.path.join(os.path.dirname(__file__), "results")
-    os.makedirs(output_dir, exist_ok=True)
-    cropped_path = os.path.join(output_dir, "COR_pdf_image.png")
+    cropped_path = os.path.join(RESULTS_DIR, "COR_pdf_image.png")
     cropped_image.save(cropped_path)
 
     # 🔍 Scale and OCR
@@ -190,27 +199,34 @@ def upload_registration_summary_pdf():
     raw_text = pytesseract.image_to_string(scaled)
 
     # 💾 Save the raw OCR text to a file
-    raw_ocr_path = os.path.join(output_dir, "raw_certificate_of_enrollment.txt")
+    raw_ocr_path = os.path.join(RESULTS_DIR, "raw_certificate_of_enrollment.txt")
     with open(raw_ocr_path, "w", encoding="utf-8") as f:
         f.write(raw_text)
 
-    # Parse the OCR text to extract specific data (you can add your custom parsing logic here)
-    parsed_data = process_ocr_text(raw_text)  # Assuming process_ocr_text is your custom parser function
+    # Parse OCR
+    parsed_data = process_ocr_text(raw_text)
 
-    # Save the parsed OCR result to a text file
-    ocr_result_path = os.path.join(output_dir, "result_certificate_of_enrollment.txt")
+    # Save parsed OCR result
+    ocr_result_path = os.path.join(RESULTS_DIR, "result_certificate_of_enrollment.txt")
     with open(ocr_result_path, "w", encoding="utf-8") as f:
         f.write(parsed_data)
+
+    # Build absolute URL for RN <Image>
+    # e.g. http://192.168.254.107:5000/results/COR_pdf_image.png
+    base = request.host_url.rstrip('/')
+    saved_image_rel = "results/COR_pdf_image.png"
+    saved_image_url = f"{base}/{saved_image_rel}"
 
     # Return the result with saved file paths and preview
     return jsonify({
         "message": "COR top section cropped and processed.",
-        "saved_image": "results/COR_pdf_image.png",
+        "saved_image": saved_image_rel,                     # relative (kept for compatibility)
+        "saved_image_url": saved_image_url,                 # absolute (use this in RN)
         "raw_ocr_text_file": "results/raw_certificate_of_enrollment.txt",
         "ocr_text_file": "results/result_certificate_of_enrollment.txt",
-        "ocr_preview": parsed_data[:500]
+        "ocr_preview": parsed_data[:500],
+        "result": parsed_data
     })
-
 
 
 @app.route('/upload', methods=['POST'])
@@ -243,7 +259,8 @@ def upload_image():
         driver.get(qr_data)
         time.sleep(3)
 
-        screenshot_path = "qr_website_screenshot.png"
+        # save inside results/ for consistency
+        screenshot_path = os.path.join(RESULTS_DIR, "qr_website_screenshot.png")
         driver.save_screenshot(screenshot_path)
         driver.quit()
 
@@ -251,23 +268,30 @@ def upload_image():
         scaled_image = scale_image(screenshot, scale_factor=2)
         raw_text = pytesseract.image_to_string(scaled_image)
 
-        with open("raw_ocr_text.txt", "w", encoding="utf-8") as f:
+        raw_txt_path = os.path.join(RESULTS_DIR, "raw_ocr_text.txt")
+        with open(raw_txt_path, "w", encoding="utf-8") as f:
             f.write(raw_text)
 
         lines = raw_text.splitlines()
         filtered_lines = [line.strip() for line in lines if line.strip() and not re.fullmatch(r"[#,\]\|\“”=()\-_. ]+", line)]
         grouped_result, skipped = extract_course_grade_only(filtered_lines)
-        with open("parsed_course_grade_result.txt", "w", encoding="utf-8") as f:
+
+        parsed_out_path = os.path.join(RESULTS_DIR, "parsed_course_grade_result.txt")
+        with open(parsed_out_path, "w", encoding="utf-8") as f:
             f.write(grouped_result)
 
         return jsonify({
             "mode": "qr + ocr + parse",
             "qr_url": qr_data,
+            "saved_image": "results/qr_website_screenshot.png",
+            "raw_ocr_text_file": "results/raw_ocr_text.txt",
+            "ocr_text_file": "results/parsed_course_grade_result.txt",
             "extracted_count": len(filtered_lines),
             "grouped_result": grouped_result,
             "skipped_count": len(skipped),
             "skipped_lines": skipped[:10],
-            "ocr_preview": raw_text[:500]
+            "ocr_preview": raw_text[:500],
+            "result": grouped_result
         })
 
     except Exception as e:
