@@ -1,22 +1,19 @@
-from flask import Flask, request, jsonify, send_file, send_from_directory
-from PIL import Image, ImageOps
+from flask import Flask, request, jsonify, send_from_directory
+from PIL import Image
 import pytesseract
 import re
 import io
-import base64
 from pdf2image import convert_from_bytes
-from io import BytesIO
 from pyzbar.pyzbar import decode
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 import time
-from datetime import datetime
 from reportlab.lib.pagesizes import letter
 from pdfrw import PdfReader, PdfWriter, PageMerge
 from reportlab.pdfgen import canvas
-import os  # <-- ADDED
+import os
 
 app = Flask(__name__)
 
@@ -82,7 +79,6 @@ def extract_course_grade_only(lines):
     result += "Grade{\n" + "\n".join(grades) + "\n};\n"
 
     return result, skipped_lines
-
 
 def extract_metadata(lines):
     sr_code = sex = name = program = ""
@@ -152,6 +148,159 @@ def process_ocr_text(raw_text):
     result += "COURSE CODE{\n" + ",\n".join(course_codes) + ",\n}"
     return result
 
+# ---------- Cross-check helpers ----------
+SEMESTER_MAP = {
+    "FIRST": "1st", "1ST": "1st", "1": "1st",
+    "SECOND": "2nd", "2ND": "2nd", "2": "2nd",
+    "MIDYEAR": "midyear", "MID-YEAR": "midyear", "MID YEAR": "midyear",
+    "SUMMER": "summer"
+}
+YEARLEVEL_MAP = {
+    "FIRST": "1", "1ST": "1", "1": "1",
+    "SECOND": "2", "2ND": "2", "2": "2",
+    "THIRD": "3", "3RD": "3", "3": "3",
+    "FOURTH": "4", "4TH": "4", "4": "4"
+}
+
+def _digits_only(s: str) -> str:
+    return re.sub(r"\D+", "", s or "")
+
+def _norm_sr_code(s: str) -> str:
+    return _digits_only(s)
+
+def _norm_acad_year(s: str) -> str:
+    m = re.search(r"(20\d{2})\s*[-/–]\s*(20\d{2})", s or "", flags=re.I)
+    if not m:
+        return ""
+    a, b = m.group(1), m.group(2)
+    return f"{a}-{b}"
+
+def _norm_semester_token(tok: str) -> str:
+    up = (tok or "").upper()
+    if "MID" in up and "YEAR" in up:
+        return "midyear"
+    for k, v in SEMESTER_MAP.items():
+        if re.fullmatch(k, up):
+            return v
+    return SEMESTER_MAP.get(up, "")
+
+def _norm_semester(s: str) -> str:
+    up = (s or "").upper()
+    if "MID" in up and "YEAR" in up:
+        return "midyear"
+    # FIRST / SECOND / 1ST / 2ND / SUMMER
+    m = re.search(r"\b(FIRST|SECOND|1ST|2ND|MID[- ]?YEAR|SUMMER)\b", up)
+    if m:
+        return _norm_semester_token(m.group(1))
+    # "1st Semester"
+    m = re.search(r"\b(1ST|2ND)\s+SEM(ESTER)?\b", up)
+    if m:
+        return _norm_semester_token(m.group(1))
+    return ""
+
+def _norm_year_level(s: str) -> str:
+    up = (s or "").upper()
+    m = re.search(r"\b(FIRST|SECOND|THIRD|FOURTH|1ST|2ND|3RD|4TH|[1-4])\b", up)
+    if not m:
+        return ""
+    tok = m.group(1)
+    return YEARLEVEL_MAP.get(tok, tok if tok in {"1", "2", "3", "4"} else "")
+
+def parse_from_coe(raw_text: str) -> dict:
+    """
+    raw_certificate_of_enrollment.txt structure (sample):
+      'SECOND, 2024-2025'
+      'SR Code: 22-73105'
+      'Bachelor of Secondary Education -ENG/THIRD'
+    """
+    txt = raw_text or ""
+
+    # Semester + AY often on one line: 'SECOND, 2024-2025'
+    sem = ""
+    ay = ""
+    m = re.search(
+        r"\b(FIRST|SECOND|1ST|2ND|MID[- ]?YEAR|SUMMER)\b\s*[, ]+\s*(20\d{2}\s*[-/–]\s*20\d{2})",
+        txt, flags=re.I
+    )
+    if m:
+        sem = _norm_semester(m.group(1))
+        ay = _norm_acad_year(m.group(2))
+    else:
+        # fallback: search separately
+        ay_m = re.search(r"(20\d{2}\s*[-/–]\s*20\d{2})", txt)
+        if ay_m:
+            ay = _norm_acad_year(ay_m.group(1))
+        sem = _norm_semester(txt)
+
+    # SR Code
+    sr = ""
+    m = re.search(r"\bSR\s*Code\s*:\s*([A-Za-z0-9\- ]+)", txt, flags=re.I)
+    if m:
+        sr = _norm_sr_code(m.group(1))
+
+    # Year Level — appears like '/THIRD' at the tail of degree line
+    yl = ""
+    m = re.search(r"/\s*(FIRST|SECOND|THIRD|FOURTH|1ST|2ND|3RD|4TH)\b", txt, flags=re.I)
+    if m:
+        yl = _norm_year_level(m.group(1))
+    else:
+        # alternative phrasing
+        m = re.search(r"YEAR\s*LEVEL\s*:?\s*(FIRST|SECOND|THIRD|FOURTH|1ST|2ND|3RD|4TH|[1-4])", txt, flags=re.I)
+        if m:
+            yl = _norm_year_level(m.group(1))
+
+    return {
+        "sr_code": sr,
+        "academic_year": ay,
+        "semester": sem,
+        "year_level": yl
+    }
+
+def parse_from_cog(raw_text: str) -> dict:
+    """
+    raw_cog_text.txt structure (sample):
+      'SRCODE : 22-77832'
+      'Academic Year : 2022-2023'
+      'Semester : FIRST'
+      'Year Level : FIRST'
+    """
+    txt = raw_text or ""
+
+    sr = ""
+    m = re.search(r"\bSR\s*CODE\s*:\s*([A-Za-z0-9\- ]+)", txt, flags=re.I)
+    if not m:
+        m = re.search(r"\bSRCODE\s*:\s*([A-Za-z0-9\- ]+)", txt, flags=re.I)
+    if m:
+        sr = _norm_sr_code(m.group(1))
+
+    ay = ""
+    m = re.search(r"\bAcademic\s*Year\s*:\s*(20\d{2}\s*[-/–]\s*20\d{2})", txt, flags=re.I)
+    if m:
+        ay = _norm_acad_year(m.group(1))
+
+    sem = ""
+    m = re.search(r"\bSemester\s*:\s*([A-Za-z0-9\- ]+)", txt, flags=re.I)
+    if m:
+        sem = _norm_semester(m.group(1))
+
+    yl = ""
+    m = re.search(r"\bYear\s*Level\s*:\s*([A-Za-z0-9\- ]+)", txt, flags=re.I)
+    if m:
+        yl = _norm_year_level(m.group(1))
+
+    return {
+        "sr_code": sr,
+        "academic_year": ay,
+        "semester": sem,
+        "year_level": yl
+    }
+
+def compare_fields(a: dict, b: dict) -> dict:
+    keys = ["sr_code", "academic_year", "semester", "year_level"]
+    matches = {k: (a.get(k, "") == b.get(k, "")) for k in keys}
+    all_match = all(matches.values())
+    return {"matches": matches, "all_match": all_match}
+
 # === Serve results/ files so RN <Image> can load the cropped preview ===
 @app.route('/results/<path:filename>')
 def serve_results(filename):
@@ -171,7 +320,7 @@ def upload_registration_summary_pdf():
             pdf_bytes,
             first_page=1,
             last_page=1,
-            poppler_path=r"C:\poppler-24.08.0\Library\bin"
+            poppler_path=r"C:\poppler-24.08.0\Library\bin"  # adjust for your environment
         )
     except Exception as e:
         return jsonify({"error": f"PDF conversion failed: {str(e)}"}), 500
@@ -212,7 +361,6 @@ def upload_registration_summary_pdf():
         f.write(parsed_data)
 
     # Build absolute URL for RN <Image>
-    # e.g. http://192.168.254.107:5000/results/COR_pdf_image.png
     base = request.host_url.rstrip('/')
     saved_image_rel = "results/COR_pdf_image.png"
     saved_image_url = f"{base}/{saved_image_rel}"
@@ -227,7 +375,6 @@ def upload_registration_summary_pdf():
         "ocr_preview": parsed_data[:500],
         "result": parsed_data
     })
-
 
 @app.route('/upload', methods=['POST'])
 def upload_image():
@@ -268,8 +415,14 @@ def upload_image():
         scaled_image = scale_image(screenshot, scale_factor=2)
         raw_text = pytesseract.image_to_string(scaled_image)
 
+        # Save raw OCR in both names (existing + canonical for validation)
         raw_txt_path = os.path.join(RESULTS_DIR, "raw_ocr_text.txt")
         with open(raw_txt_path, "w", encoding="utf-8") as f:
+            f.write(raw_text)
+
+        # NEW: canonical file used by validator
+        raw_cog_path = os.path.join(RESULTS_DIR, "raw_cog_text.txt")
+        with open(raw_cog_path, "w", encoding="utf-8") as f:
             f.write(raw_text)
 
         lines = raw_text.splitlines()
@@ -297,6 +450,32 @@ def upload_image():
     except Exception as e:
         return jsonify({"error": f"Failed to process: {str(e)}"}), 500
 
+# -------- New: Cross-field validation route --------
+@app.route('/validate_cross_fields', methods=['GET'])
+def validate_cross_fields():
+    coe_path = os.path.join(RESULTS_DIR, "raw_certificate_of_enrollment.txt")
+    cog_path = os.path.join(RESULTS_DIR, "raw_cog_text.txt")
+
+    if not os.path.exists(coe_path):
+        return jsonify({"error": "raw_certificate_of_enrollment.txt not found"}), 400
+    if not os.path.exists(cog_path):
+        return jsonify({"error": "raw_cog_text.txt not found"}), 400
+
+    with open(coe_path, "r", encoding="utf-8") as f:
+        coe_text = f.read()
+    with open(cog_path, "r", encoding="utf-8") as f:
+        cog_text = f.read()
+
+    coe = parse_from_coe(coe_text)
+    cog = parse_from_cog(cog_text)
+    verdict = compare_fields(coe, cog)
+
+    return jsonify({
+        "coe": coe,
+        "cog": cog,
+        "verdict": verdict
+    })
+
 # Route to Generate PDF with Template and Data
 @app.route('/generate_pdf_with_data', methods=['POST'])
 def generate_pdf_with_data():
@@ -313,7 +492,7 @@ def generate_pdf_with_data():
         # Step 1: Prepare the content for the new PDF using ReportLab (overlaying Name and Program)
         packet = io.BytesIO()
         c = canvas.Canvas(packet, pagesize=letter)
-        
+
         # Set font
         c.setFont("Helvetica", 12)
 
@@ -349,4 +528,5 @@ def generate_pdf_with_data():
         return jsonify({"error": f"Failed to generate PDF: {str(e)}"}), 500
 
 if __name__ == '__main__':
+    # Tip: set TESSDATA_PREFIX / poppler path per env as needed.
     app.run(host="0.0.0.0", port=5000, debug=True)

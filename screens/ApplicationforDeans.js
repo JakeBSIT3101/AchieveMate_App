@@ -8,6 +8,7 @@ import {
   Image,
   Animated,
   ActivityIndicator,
+  Modal,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import styles from "../styles";
@@ -16,12 +17,142 @@ import Icon from "react-native-vector-icons/Feather";
 import * as FileSystem from "expo-file-system";
 import * as DocumentPicker from "expo-document-picker";
 
+/* ---------- Reusable Notice Modal ---------- */
+function NoticeModal({ visible, title = "Notice", message, onOk, onReupload }) {
+  return (
+    <Modal visible={visible} animationType="fade" transparent>
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: "rgba(0,0,0,0.45)",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 22,
+        }}
+      >
+        <View
+          style={{
+            width: "100%",
+            maxWidth: 420,
+            backgroundColor: "#fff",
+            borderRadius: 20,
+            paddingVertical: 22,
+            paddingHorizontal: 20,
+            shadowColor: "#000",
+            shadowOpacity: 0.2,
+            shadowRadius: 20,
+            elevation: 8,
+          }}
+        >
+          {/* Red circle with X */}
+          <View style={{ alignItems: "center", marginBottom: 12 }}>
+            <View
+              style={{
+                width: 84,
+                height: 84,
+                borderRadius: 42,
+                borderWidth: 4,
+                borderColor: "#F2545B",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <View
+                style={{
+                  width: 36,
+                  height: 4,
+                  backgroundColor: "#F2545B",
+                  transform: [{ rotate: "45deg" }],
+                }}
+              />
+              <View
+                style={{
+                  position: "absolute",
+                  width: 36,
+                  height: 4,
+                  backgroundColor: "#F2545B",
+                  transform: [{ rotate: "-45deg" }],
+                }}
+              />
+            </View>
+          </View>
+
+          <Text
+            style={{
+              fontSize: 20,
+              fontWeight: "800",
+              textAlign: "center",
+              color: "#333",
+            }}
+          >
+            {title}
+          </Text>
+
+          {!!message && (
+            <Text
+              style={{
+                marginTop: 10,
+                fontSize: 15,
+                color: "#666",
+                textAlign: "center",
+                lineHeight: 22,
+              }}
+            >
+              {message}
+            </Text>
+          )}
+
+          <View
+            style={{
+              marginTop: 18,
+              flexDirection: "row",
+              justifyContent: "center",
+            }}
+          >
+            {/* Re-upload button is optional; pass onReupload when you need it */}
+            {onReupload && (
+              <TouchableOpacity
+                onPress={onReupload}
+                style={{
+                  paddingVertical: 12,
+                  paddingHorizontal: 18,
+                  borderRadius: 12,
+                  backgroundColor: "#FFE4E6",
+                  borderWidth: 1,
+                  borderColor: "#F2545B",
+                  marginRight: 12,
+                }}
+              >
+                <Text style={{ color: "#C81E1E", fontWeight: "700" }}>
+                  RE-UPLOAD
+                </Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              onPress={onOk}
+              style={{
+                paddingVertical: 12,
+                paddingHorizontal: 18,
+                borderRadius: 12,
+                backgroundColor: "#53B1FD",
+              }}
+            >
+              <Text style={{ color: "#fff", fontWeight: "700" }}>OK</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+/* -------------------------------------------------------------------- */
+
 export default function ApplicationforDeans() {
   const [currentStep, setCurrentStep] = useState(1);
   const [ocrResult, setOcrResult] = useState("");
   const [gradesImageUri, setGradesImageUri] = useState(null);
 
-  // Original file URI of the chosen COR PDF (we still keep this if you need it)
+  // Original file URI of the chosen COR PDF
   const [certificateImageUri, setCertificateImageUri] = useState(null);
   // Cropped image served by Flask (results/COR_pdf_image.png as absolute URL)
   const [certificatePreviewUri, setCertificatePreviewUri] = useState(null);
@@ -34,6 +165,16 @@ export default function ApplicationforDeans() {
   const [previewImage, setPreviewImage] = useState(null);
   const [convertedImage, setConvertedImage] = useState(null);
   const [pdfFile, setPdfFile] = useState(null);
+
+  // Cross-field validation state
+  const [validationOk, setValidationOk] = useState(false);
+  const [validationDetail, setValidationDetail] = useState(null);
+
+  // Modal state
+  const [noticeOpen, setNoticeOpen] = useState(false);
+  const [noticeTitle, setNoticeTitle] = useState("Notice");
+  const [noticeMessage, setNoticeMessage] = useState("");
+  const [noticeReupload, setNoticeReupload] = useState(null); // function or null
 
   // --- Sticky footer config ---
   const FOOTER_HEIGHT = 72;
@@ -71,10 +212,7 @@ export default function ApplicationforDeans() {
       shadowOffset: { width: 0, height: 4 },
       elevation: 3,
     },
-    uploadBtn: {
-      alignSelf: "stretch",
-      borderRadius: 12,
-    },
+    uploadBtn: { alignSelf: "stretch", borderRadius: 12 },
     removeBtn: {
       flexDirection: "row",
       alignItems: "center",
@@ -111,25 +249,72 @@ export default function ApplicationforDeans() {
     );
   }, [gradesImageUri]);
 
+  /* ---------- 7-step flow ---------- */
   const steps = [
-    "Guideline",
-    "Uploading Certificate of Enrollment",
-    "Uploading Copy of Grades",
+    "Guidelines",
+    "Upload COR ",
+    "Upload COG",
     "Validation",
-    "Confirmation",
+    "Consent",
+    "Reviewing",
+    "Generation",
   ];
+
+  // ===== NEW: spacing between steps =====
+  const STEP_GAP = 28; // tweak this value to increase/decrease spacing
+  // =====================================
 
   const animateProgress = (progress) => {
     Animated.timing(progressAnim, {
-      toValue: progress, // you're passing 0..100; okay given your existing interpolation
+      toValue: progress,
       duration: 300,
       useNativeDriver: false,
     }).start();
   };
 
-  // Upload with fetch (unchanged logic)
+  // --- call backend validator after Step 3 upload succeeds (uses modal UI)
+  const runCrossValidation = async () => {
+    try {
+      const res = await fetch(`${OCR_URL}/validate_cross_fields`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Validation failed");
+
+      setValidationDetail(json);
+      const ok = !!json?.verdict?.all_match;
+      setValidationOk(ok);
+
+      if (ok) {
+        // ✅ PASS: no popup, just return true
+        return true;
+      }
+
+      // ❌ FAIL — show “Notice” without mismatch list
+      setNoticeTitle("Notice");
+      setNoticeMessage(
+        "Your uploaded file doesn't match your registration form."
+      );
+      setNoticeReupload(() => () => {
+        setNoticeOpen(false);
+        handleRemoveGradesImage(); // clears the image to re-upload
+      });
+      setNoticeOpen(true);
+      return false;
+    } catch (e) {
+      console.error("Cross-validation error:", e);
+      setValidationOk(false);
+      setNoticeTitle("Notice");
+      setNoticeMessage(e.message || "Validation error.");
+      setNoticeReupload(null);
+      setNoticeOpen(true);
+      return false;
+    }
+  };
+
+  // Upload with fetch
   const handleUpload = async (docType) => {
     let file;
+
+    // ---- Pick file/image ----
     if (docType === "Certificate of Enrollment") {
       const result = await DocumentPicker.getDocumentAsync({
         type: "application/pdf",
@@ -156,6 +341,7 @@ export default function ApplicationforDeans() {
       file = result.assets[0];
     }
 
+    // ---- Build form data ----
     const formData = new FormData();
     formData.append(docType === "Certificate of Enrollment" ? "pdf" : "image", {
       uri: file.uri,
@@ -202,13 +388,25 @@ export default function ApplicationforDeans() {
         );
 
         await saveToTxtFile("result_certificate_of_enrollment.txt", resultText);
+
+        setValidationOk(false);
+        setValidationDetail(null);
+
+        Alert.alert(
+          "Uploaded",
+          "Certificate of Enrollment uploaded successfully."
+        );
       } else {
         setGradesImageUri(file.uri);
         setGradesResult(resultText);
         await saveToTxtFile("result_copy_of_grade.txt", resultText);
-      }
 
-      Alert.alert("Uploaded", `${docType} uploaded successfully.`);
+        const ok = await runCrossValidation();
+
+        if (ok) {
+          Alert.alert("Uploaded", "Copy of Grades uploaded successfully.");
+        }
+      }
     } catch (err) {
       setUploading(false);
       console.error("Upload failed:", err);
@@ -230,6 +428,8 @@ export default function ApplicationforDeans() {
     setGradesImageUri(null);
     setOcrResult("");
     setGradesResult("");
+    setValidationOk(false);
+    setValidationDetail(null);
   };
 
   const handleRemoveCertificateImage = () => {
@@ -237,6 +437,8 @@ export default function ApplicationforDeans() {
     setCertificatePreviewUri(null);
     setOcrResult("");
     setEnrollmentResult("");
+    setValidationOk(false);
+    setValidationDetail(null);
   };
 
   // -------- Upload-button visibility control ----------
@@ -255,12 +457,20 @@ export default function ApplicationforDeans() {
         <View
           style={{
             flexDirection: "row",
-            justifyContent: "space-between",
+            alignItems: "center",
+            justifyContent: "flex-start", // was space-between
             marginBottom: 20,
           }}
         >
           {steps.map((step, index) => (
-            <View key={index} style={{ alignItems: "center", flex: 1 }}>
+            <View
+              key={index}
+              style={{
+                alignItems: "center",
+                // marginRight gap for all but last item:
+                marginRight: index !== steps.length - 1 ? STEP_GAP : 0,
+              }}
+            >
               <View
                 style={{
                   backgroundColor: currentStep > index ? "#00C881" : "#E6E6E6",
@@ -283,13 +493,13 @@ export default function ApplicationforDeans() {
                   marginTop: 4,
                 }}
               >
-                {step.split(" ")[0]}
+                {step}
               </Text>
             </View>
           ))}
         </View>
 
-        {/* Line Indicator */}
+        {/* Line Indicator (unchanged) */}
         <View
           style={{
             position: "absolute",
@@ -311,7 +521,7 @@ export default function ApplicationforDeans() {
         </View>
       </View>
 
-      {/* Step 1: Guidelines (scrollable) */}
+      {/* Step 1: Guidelines */}
       {currentStep === 1 && (
         <ScrollView
           keyboardShouldPersistTaps="handled"
@@ -369,7 +579,7 @@ export default function ApplicationforDeans() {
         </ScrollView>
       )}
 
-      {/* Step 2: Upload Certificate (scrollable) */}
+      {/* Step 2: Upload COR */}
       {currentStep === 2 && (
         <View style={{ flex: 1 }}>
           <ScrollView
@@ -384,9 +594,7 @@ export default function ApplicationforDeans() {
                 style={[styles.blueButtonupload, ui.uploadBtn]}
                 onPress={() => handleUpload("Certificate of Enrollment")}
               >
-                <Text style={styles.uploadButtonText}>
-                  Upload Certificate of Enrollment
-                </Text>
+                <Text style={styles.uploadButtonText}>Upload COR</Text>
               </TouchableOpacity>
             )}
 
@@ -466,7 +674,7 @@ export default function ApplicationforDeans() {
         </View>
       )}
 
-      {/* Step 3: Upload Copy of Grades (scrollable) */}
+      {/* Step 3: Upload Grades */}
       {currentStep === 3 && (
         <View style={{ flex: 1 }}>
           <ScrollView
@@ -481,9 +689,7 @@ export default function ApplicationforDeans() {
                 style={[styles.blueButtonupload, ui.uploadBtn]}
                 onPress={() => handleUpload("Copy of Grades")}
               >
-                <Text style={styles.uploadButtonText}>
-                  Upload Copy of Grades
-                </Text>
+                <Text style={styles.uploadButtonText}>Upload Grades</Text>
               </TouchableOpacity>
             )}
 
@@ -552,16 +758,149 @@ export default function ApplicationforDeans() {
             <TouchableOpacity
               style={[
                 styles.stepFormNavBtn,
-                { backgroundColor: gradesImageUri ? "#007bff" : "#ccc" },
+                {
+                  backgroundColor:
+                    gradesImageUri && validationOk ? "#007bff" : "#ccc",
+                },
               ]}
               onPress={() => setCurrentStep(4)}
-              disabled={!gradesImageUri}
+              disabled={!(gradesImageUri && validationOk)}
             >
               <Text style={styles.navButtonText}>Next →</Text>
             </TouchableOpacity>
           </View>
         </View>
       )}
+
+      {/* Step 4: Validation (summary) */}
+      {currentStep === 4 && (
+        <View style={{ flex: 1, padding: 20 }}>
+          <View style={[ui.card]}>
+            <Text style={{ fontWeight: "700", fontSize: 16, marginBottom: 8 }}>
+              Validation
+            </Text>
+            <Text style={{ color: "#666" }}>
+              Files validated {validationOk ? "successfully." : "not yet."}
+            </Text>
+          </View>
+
+          <View style={[styles.navStickyContainer, stickyFooter]}>
+            <TouchableOpacity
+              style={styles.stepFormNavBtn}
+              onPress={() => setCurrentStep(3)}
+            >
+              <Text style={styles.navButtonText}>← Back</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.stepFormNavBtn, { backgroundColor: "#007bff" }]}
+              onPress={() => setCurrentStep(5)}
+            >
+              <Text style={styles.navButtonText}>Next →</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* Step 5: Consent */}
+      {currentStep === 5 && (
+        <View style={{ flex: 1, padding: 20 }}>
+          <View style={[ui.card]}>
+            <Text style={{ fontWeight: "700", fontSize: 16, marginBottom: 8 }}>
+              Consent
+            </Text>
+            <Text style={{ color: "#666" }}>
+              Add your consent UI here (checkboxes/terms).
+            </Text>
+          </View>
+
+          <View style={[styles.navStickyContainer, stickyFooter]}>
+            <TouchableOpacity
+              style={styles.stepFormNavBtn}
+              onPress={() => setCurrentStep(4)}
+            >
+              <Text style={styles.navButtonText}>← Back</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.stepFormNavBtn, { backgroundColor: "#007bff" }]}
+              onPress={() => setCurrentStep(6)}
+            >
+              <Text style={styles.navButtonText}>Next →</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* Step 6: Review & Confirm */}
+      {currentStep === 6 && (
+        <View style={{ flex: 1, padding: 20 }}>
+          <View style={[ui.card]}>
+            <Text style={{ fontWeight: "700", fontSize: 16, marginBottom: 8 }}>
+              Review & Confirm
+            </Text>
+            <Text style={{ color: "#666" }}>
+              Show a summary of extracted data for user review.
+            </Text>
+          </View>
+
+          <View style={[styles.navStickyContainer, stickyFooter]}>
+            <TouchableOpacity
+              style={styles.stepFormNavBtn}
+              onPress={() => setCurrentStep(5)}
+            >
+              <Text style={styles.navButtonText}>← Back</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.stepFormNavBtn, { backgroundColor: "#007bff" }]}
+              onPress={() => setCurrentStep(7)}
+            >
+              <Text style={styles.navButtonText}>Next →</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* Step 7: Generate Application */}
+      {currentStep === 7 && (
+        <View style={{ flex: 1, padding: 20 }}>
+          <View style={[ui.card]}>
+            <Text style={{ fontWeight: "700", fontSize: 16, marginBottom: 8 }}>
+              Generate Application
+            </Text>
+            <Text style={{ color: "#666" }}>
+              Trigger your /generate_pdf_with_data or final submit here.
+            </Text>
+          </View>
+
+          <View style={[styles.navStickyContainer, stickyFooter]}>
+            <TouchableOpacity
+              style={styles.stepFormNavBtn}
+              onPress={() => setCurrentStep(6)}
+            >
+              <Text style={styles.navButtonText}>← Back</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.stepFormNavBtn, { backgroundColor: "#00C881" }]}
+              onPress={() => {
+                Alert.alert(
+                  "Generate",
+                  "Stub: call /generate_pdf_with_data here."
+                );
+              }}
+            >
+              <Text style={styles.navButtonText}>Generate →</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* Single instance of the modal */}
+      <NoticeModal
+        visible={noticeOpen}
+        title={noticeTitle}
+        message={noticeMessage}
+        onOk={() => setNoticeOpen(false)}
+        onReupload={noticeReupload}
+      />
     </View>
   );
 }

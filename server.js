@@ -3,8 +3,10 @@ const mysql = require("mysql2");
 const bcrypt = require("bcryptjs"); // Import bcrypt for password hashing
 const session = require("express-session"); // Import session for session management
 const cors = require("cors"); // Enable CORS for cross-origin requests
+require("dotenv").config(); // Load environment variables
+
 const app = express();
-const port = 3000;
+const port = process.env.PORT || 3000;
 
 // Middleware
 app.use(cors());
@@ -13,19 +15,19 @@ app.use(express.json());
 // Session middleware
 app.use(
   session({
-    secret: "your-secret-key", // You can replace this with a secure key
+    secret: "your-secret-key", // Replace with secure key in production
     resave: false,
     saveUninitialized: true,
-    cookie: { secure: false }, // Set to true if using https
+    cookie: { secure: false }, // Set to true if using HTTPS
   })
 );
 
 // MySQL connection
 const db = mysql.createConnection({
-  host: "localhost",
-  user: "root",
-  password: "", // Change if you have a password
-  database: "achievemate",
+  host: process.env.DB_HOST || "localhost",
+  user: process.env.DB_USER || "u780655614_achievemate",
+  password: process.env.DB_PASS || "Jaztintampis@18",
+  database: process.env.DB_NAME || "u780655614_achievemate",
 });
 
 // Connect to MySQL
@@ -112,6 +114,7 @@ app.post("/logout", (req, res) => {
   });
 });
 
+// Fetch posts
 app.get("/post", (req, res) => {
   const query = `
     SELECT 
