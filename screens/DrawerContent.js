@@ -22,6 +22,11 @@ const menuItems = [
     screen: "LatinHonor",
   },
   {
+    title: "Application for Graduation",
+    icon: require("../assets/latinhonor.png"),
+    screen: "Graudation",
+  },
+  {
     title: "Application Status",
     icon: require("../assets/status.png"),
     screen: "Status",
