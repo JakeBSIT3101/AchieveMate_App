@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import {
   View,
   Text,
@@ -19,29 +19,8 @@ const HomeScreen = ({ navigation }) => {
   const [refreshing, setRefreshing] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
-  const fetchAnnouncements = () => {
-    console.log("📡 Fetching announcements from hosted database...");
-
-    fetch(`${BASE_URL}/post.php`) // 👈 Updated for PHP backend
-      .then((res) => res.json())
-      .then((data) => {
-        setAnnouncements(data);
-        setLoading(false);
-        setRefreshing(false);
-        fadeIn();
-
-        // ✅ Notify only if data exists
-      })
-      .catch((error) => {
-        console.error("❌ Error fetching announcements:", error);
-        setLoading(false);
-        setRefreshing(false);
-        Alert.alert("❌ Error", "Failed to fetch announcements.");
-      });
-  };
-
   const fadeIn = () => {
-    fadeAnim.setValue(0); // reset
+    fadeAnim.setValue(0);
     Animated.timing(fadeAnim, {
       toValue: 1,
       duration: 500,
@@ -49,13 +28,63 @@ const HomeScreen = ({ navigation }) => {
     }).start();
   };
 
+  const fetchAnnouncements = useCallback(async () => {
+    try {
+      console.log("📡 Fetching announcements from hosted database...");
+      setLoading(true);
+      const res = await fetch(`${BASE_URL}/post.php`); // ✅ use posts.php
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+
+      // Ensure we always store an array for stable rendering
+      const arr = Array.isArray(json) ? json : [];
+      setAnnouncements(arr);
+      fadeIn();
+    } catch (err) {
+      console.error("❌ Error fetching announcements:", err);
+      Alert.alert("❌ Error", "Failed to fetch announcements.");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [BASE_URL]);
+
   useEffect(() => {
     fetchAnnouncements();
-  }, []);
+  }, [fetchAnnouncements]);
 
   const onRefresh = () => {
     setRefreshing(true);
     fetchAnnouncements();
+  };
+
+  const handlePress = (item) => {
+    const t = (item?.Title || "").toLowerCase();
+    if (t.includes("dean's list") || t.includes("deans list")) {
+      navigation.navigate("ApplicationforDeans");
+    }
+  };
+
+  const renderImage = (item) => {
+    // Server now provides: item.image_url (e.g., https://.../post-image.php?id=123)
+    const uri = item?.image_url || null;
+    if (!uri) {
+      return (
+        <Image
+          source={require("../assets/placeholder.png")}
+          style={styles.announcementImage}
+        />
+      );
+    }
+    return (
+      <Image
+        source={{ uri }}
+        style={styles.announcementImage}
+        onError={() => console.warn("Image failed:", item?.Post_id)}
+        // defaultSource works on iOS only; harmless on Android
+        defaultSource={require("../assets/placeholder.png")}
+      />
+    );
   };
 
   return (
@@ -73,10 +102,7 @@ const HomeScreen = ({ navigation }) => {
 
         {/* Announcements */}
         <Animated.View
-          style={[
-            styles.announcementsContainer,
-            { opacity: fadeAnim }, // fade animation
-          ]}
+          style={[styles.announcementsContainer, { opacity: fadeAnim }]}
         >
           {loading ? (
             <ActivityIndicator size="large" color="#0249AD" />
@@ -85,34 +111,18 @@ const HomeScreen = ({ navigation }) => {
           ) : (
             announcements.map((item, index) => (
               <TouchableOpacity
-                key={index}
+                key={item?.Post_id ?? index}
                 style={styles.announcementCard}
-                onPress={() => {
-                  if (
-                    item.Title.toLowerCase().includes("dean's list") ||
-                    item.Title.toLowerCase().includes("deans list")
-                  ) {
-                    navigation.navigate("ApplicationforDeans");
-                  }
-                }}
+                onPress={() => handlePress(item)}
+                activeOpacity={0.8}
               >
-                {item.image ? (
-                  <Image
-                    source={{ uri: `data:image/jpg;base64,${item.image}` }}
-                    style={styles.announcementImage}
-                  />
-                ) : (
-                  <Image
-                    source={require("../assets/placeholder.png")}
-                    style={styles.announcementImage}
-                  />
-                )}
-                <Text style={styles.announcementTitle}>{item.Title}</Text>
+                {renderImage(item)}
+                <Text style={styles.announcementTitle}>{item?.Title}</Text>
                 <Text style={styles.announcementDate}>
-                  {item.Start_date} to {item.End_date}
+                  {item?.Start_date} to {item?.End_date}
                 </Text>
                 <Text style={styles.announcementDescription}>
-                  {item.Announcement}
+                  {item?.Announcement}
                 </Text>
               </TouchableOpacity>
             ))
