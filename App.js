@@ -8,7 +8,7 @@ import HomeScreen from "./screens/HomeScreen";
 import ViewPortfolio from "./screens/ViewPortfolio";
 import DrawerContent from "./screens/DrawerContent";
 import ApplicationforDeans from "./screens/ApplicationforDeans";
-import ApplicationforGraduation from "./screens/Graduation"
+import ApplicationForGraduation from "./screens/ApplicationForGraduation";
 
 const Stack = createStackNavigator();
 const Drawer = createDrawerNavigator();
@@ -22,7 +22,7 @@ const DrawerNavigator = () => (
   >
     <Drawer.Screen name="Home" component={HomeScreen} options={{ title: "" }} />
     <Drawer.Screen name="ViewPortfolio" component={ViewPortfolio} />
-    <Drawer.Screen name="Graduation" component={Graduation} />
+    <Drawer.Screen name="ApplicationForGraduation" component={ApplicationForGraduation} />
     <Drawer.Screen
       name="ApplicationforDeans"
       component={ApplicationforDeans}
