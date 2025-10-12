@@ -1,18 +1,17 @@
-SR Code: 22-70781
-Sex: MALE
-Name: DULUTAN, GERARD ANWEN A.
-Program: 1 3
+SR Code: 22-78222
+Sex: 
+Name: SAMONTANEZ, JAKE A.
+Program: :
 track:
 Semester : FIRST
-Year Level : FIRST
+Year Level : THIRD
 
 COURSE CODE{
-FILI 101,
-GED 102,
-GED 103,
-GED 104,
-GED 108,
-IT 111,
-NSTP 111,
-PE 101,
+BAT 401,
+BAT 402,
+GED 107,
+IT 311,
+IT 312,
+IT 313,
+IT 314,
 }

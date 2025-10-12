@@ -18,6 +18,7 @@ import * as DocumentPicker from "expo-document-picker";
 import Icon from "react-native-vector-icons/Feather";
 import styles from "../styles";
 import { OCR_URL, BASE_URL } from "../config/api";
+import { CheckBox } from "react-native-elements"; // Add this import at the top
 
 /* ---------- Reusable Notice Modal ---------- */
 function NoticeModal({ visible, title = "Notice", message, onOk, onReupload }) {
@@ -183,6 +184,46 @@ export default function ApplicationforDeans() {
   const [tamperLoading, setTamperLoading] = useState(false);
   const [tamperReport, setTamperReport] = useState(null); // { exact_match, ... } or { error }
   const [tamperOk, setTamperOk] = useState(false);
+
+  // NEW: Grade value validation state (Step 4)
+  const [gradeValueLoading, setGradeValueLoading] = useState(false);
+  const [gradeValueOk, setGradeValueOk] = useState(false);
+  const [gradeValueReport, setGradeValueReport] = useState(null); // { found: [], ok: boolean }
+  // Grade value validation (Step 4)
+  const validateGradeValues = async () => {
+    setGradeValueLoading(true);
+    setGradeValueOk(false);
+    setGradeValueReport(null);
+    try {
+      // Path to grade_pdf_ocr.txt (adjust if needed)
+      const fileUri = FileSystem.documentDirectory + "grade_pdf_ocr.txt";
+      let content = "";
+      try {
+        content = await FileSystem.readAsStringAsync(fileUri);
+      } catch (e) {
+        // fallback: try static path (for dev)
+        content = await fetch(
+          "file:///d:/AchieveMate_App-master/technology/ocr_api/results/grade_pdf_ocr.txt"
+        )
+          .then((r) => r.text())
+          .catch(() => "");
+      }
+      const patterns = ["3.00", "4.00", "5.00", "INC", "DROP"];
+      const found = patterns.filter((p) =>
+        new RegExp(`\\b${p}\\b`, "i").test(content)
+      );
+      const ok = found.length === 0;
+      setGradeValueOk(ok);
+      setGradeValueReport({ found, ok });
+      return { found, ok };
+    } catch (e) {
+      setGradeValueOk(false);
+      setGradeValueReport({ found: [], ok: false, error: e.message });
+      return { found: [], ok: false, error: e.message };
+    } finally {
+      setGradeValueLoading(false);
+    }
+  };
 
   // Modal state
   const [noticeOpen, setNoticeOpen] = useState(false);
@@ -629,10 +670,14 @@ export default function ApplicationforDeans() {
     // Reset + start loaders
     setTamperLoading(true);
     setCurriculumLoading(true);
+
     setTamperOk(false);
     setCurriculumOk(false);
     setTamperReport(null);
     setCurriculumReport(null);
+    setGradeValueOk(false);
+    setGradeValueReport(null);
+    setGradeValueLoading(true);
 
     try {
       // Read codes (for curriculum)
@@ -642,13 +687,14 @@ export default function ApplicationforDeans() {
       const tamperBase = forceTamperPass
         ? Promise.resolve({ exact_match: true, forced: true })
         : validateTamper();
-
       const curriculumBase = validateAgainstCurriculum(codes);
+      const gradeValueBase = validateGradeValues();
 
       // Run concurrently
-      const [tamperRes, curriculumRes] = await Promise.all([
+      const [tamperRes, curriculumRes, gradeValueRes] = await Promise.all([
         tamperBase,
         curriculumBase,
+        gradeValueBase,
       ]);
 
       // Tamper result
@@ -674,11 +720,23 @@ export default function ApplicationforDeans() {
         });
         setCurriculumOk(false);
       }
+      // Grade value result
+      if (gradeValueRes && gradeValueRes.ok) {
+        setGradeValueOk(true);
+      } else {
+        setGradeValueOk(false);
+      }
     } finally {
       setTamperLoading(false);
       setCurriculumLoading(false);
+      setGradeValueLoading(false);
     }
   };
+
+  // Consent state for Step 5
+  const [consent1, setConsent1] = useState(false);
+  const [consent2, setConsent2] = useState(false);
+  const [consent3, setConsent3] = useState(false);
 
   return (
     <View style={[styles.container1, { flex: 1 }]}>
@@ -1036,8 +1094,7 @@ export default function ApplicationforDeans() {
         </View>
       )}
 
-      {/* Step 4: Validation (two-line checklist: Tampering + Curriculum) */}
-      {/* Step 4: Validation (two-line checklist: Tampering + Curriculum) */}
+      {/* Step 4: Validation (three-line checklist: Tampering + Curriculum + Grade Value) */}
       {currentStep === 4 && (
         <View style={{ flex: 1, padding: 20 }}>
           <View style={[ui.card]}>
@@ -1108,6 +1165,36 @@ export default function ApplicationforDeans() {
                 )}
               </Text>
             </View>
+
+            {/* 3) Grade Value Check */}
+            <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
+              <Text style={{ color: "#111827", fontWeight: "600" }}>
+                3.&nbsp;
+              </Text>
+              <Text style={{ color: "#111827", fontWeight: "600" }}>
+                Grade Value Check –{" "}
+              </Text>
+              <Text
+                style={{
+                  marginLeft: 4,
+                  fontWeight: "700",
+                  color: gradeValueOk ? "#0B7A5C" : "#AB1F2B",
+                }}
+              >
+                {gradeValueLoading ? (
+                  <ActivityIndicator size="small" color="#00C881" />
+                ) : gradeValueOk ? (
+                  "✅ Passed (No invalid grades)"
+                ) : gradeValueReport?.found &&
+                  gradeValueReport.found.length > 0 ? (
+                  `❌ Failed (Found: ${gradeValueReport.found.join(", ")})`
+                ) : gradeValueReport?.error ? (
+                  `❌ Failed (${gradeValueReport.error})`
+                ) : (
+                  "❌ Failed (Invalid grade present)"
+                )}
+              </Text>
+            </View>
           </View>
 
           {/* Sticky footer */}
@@ -1115,7 +1202,7 @@ export default function ApplicationforDeans() {
             <TouchableOpacity
               style={styles.stepFormNavBtn}
               onPress={() => setCurrentStep(3)}
-              disabled={tamperLoading || curriculumLoading}
+              disabled={tamperLoading || curriculumLoading || gradeValueLoading}
             >
               <Text style={styles.navButtonText}>← Back</Text>
             </TouchableOpacity>
@@ -1124,14 +1211,17 @@ export default function ApplicationforDeans() {
                 styles.stepFormNavBtn,
                 {
                   backgroundColor:
-                    tamperOk && curriculumOk ? "#007bff" : "#ccc",
+                    tamperOk && curriculumOk && gradeValueOk
+                      ? "#007bff"
+                      : "#ccc",
                 },
               ]}
               onPress={() => setCurrentStep(5)}
               disabled={
                 tamperLoading ||
                 curriculumLoading ||
-                !(tamperOk && curriculumOk)
+                gradeValueLoading ||
+                !(tamperOk && curriculumOk && gradeValueOk)
               }
             >
               <Text style={styles.navButtonText}>Next →</Text>
@@ -1147,9 +1237,39 @@ export default function ApplicationforDeans() {
             <Text style={{ fontWeight: "700", fontSize: 16, marginBottom: 8 }}>
               Consent
             </Text>
-            <Text style={{ color: "#666" }}>
-              Add your consent UI here (checkboxes/terms).
+            <Text style={{ fontWeight: "700", fontSize: 20, marginBottom: 12 }}>
+              Informed Consent Declaration
             </Text>
+            <CheckBox
+              checked={consent1}
+              onPress={() => setConsent1(!consent1)}
+              title="I have read and understand the terms and conditions."
+              containerStyle={{
+                backgroundColor: "transparent",
+                borderWidth: 0,
+                marginLeft: 0,
+              }}
+            />
+            <CheckBox
+              checked={consent2}
+              onPress={() => setConsent2(!consent2)}
+              title="I grant permission for the forms and documents to be recorded and saved for review."
+              containerStyle={{
+                backgroundColor: "transparent",
+                borderWidth: 0,
+                marginLeft: 0,
+              }}
+            />
+            <CheckBox
+              checked={consent3}
+              onPress={() => setConsent3(!consent3)}
+              title="I grant permission for the data generated to be posted if needed."
+              containerStyle={{
+                backgroundColor: "transparent",
+                borderWidth: 0,
+                marginLeft: 0,
+              }}
+            />
           </View>
 
           <View style={[styles.navStickyContainer, stickyFooter]}>
@@ -1160,8 +1280,14 @@ export default function ApplicationforDeans() {
               <Text style={styles.navButtonText}>← Back</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.stepFormNavBtn, { backgroundColor: "#007bff" }]}
+              style={[
+                styles.stepFormNavBtn,
+                {
+                  backgroundColor: consent1 && consent2 ? "#007bff" : "#ccc",
+                },
+              ]}
               onPress={() => setCurrentStep(6)}
+              disabled={!(consent1 && consent2)}
             >
               <Text style={styles.navButtonText}>Next →</Text>
             </TouchableOpacity>
