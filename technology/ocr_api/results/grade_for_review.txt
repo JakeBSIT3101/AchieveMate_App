@@ -1,0 +1,33 @@
+BATANGAS STATE UNIVERSITY
+
+ARASOF-Nasugbu Campus
+
+Student's Copy of Grades
+
+General Weighted Average (GWA)
+
+22-78222
+
+Fullname : SAMONTANEZ, JAKE A. SRCODE
+ SRCODE : 22-78222
+
+College : College of Informatics and Computing Sciences Academic Year
+ Academic Year : 2024-2025
+
+Program : BS Information Technology Semester
+ Semester : FIRST
+
+Year Level : THIRD
+
+# Course Code Course Title Units Grade Section Instructor
+1 BAT 401 Fundamentals of Business Analytics 3 2.50 IT-BA-3101 SALAC, DJOANNA MARIE V.
+2 BAT 402 Fundamentals of Analytics Modeling 3 2.00 IT-BA-3101 ATIENZA, ALFREDO V. JR
+3 GEd 107 Ethics 3 2.50 IT-BA-3101 JAPAY, MARIA VANETTE 0.
+4 IT 311 Systems Administration and Maintenance 3 1.75 IT-BA-3101 DE JESUS, NOELYN M.
+5 IT 312 Systems Integration and Architecture 3 2.00 IT-BA-3101 HERNANDEZ, OLIVER M.
+6 IT 313 System Analysis and Design 3 2.25 IT-BA-3101 SAMONTE, BENJIE R.
+7 IT 314 Web Systems and Technologies 3 2.00 IT-BA-3101 MAGSINO, JASON C.
+** NOTHING FOLLOWS **
+** NOTHING FOLLOWS **
+Total no of Course 7
+Total no of Units 21

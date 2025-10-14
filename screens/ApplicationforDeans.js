@@ -863,41 +863,123 @@ export default function ApplicationforDeans() {
   const loadReviewData = async () => {
     setReviewLoading(true);
     try {
-      const coeTxt = await fetchText(`${OCR_URL}/results/raw_cog_text.txt`);
-      const meta = parseCoeMeta(coeTxt);
-      const courseCodes = parseBlock("COURSE\\s*CODE", coeTxt);
+      // Use grade_for_review.txt instead of raw_cog_text.txt
+      const coeTxt = await fetchText(`${OCR_URL}/results/grade_for_review.txt`);
+      // Parse meta fields from grade_for_review.txt
+      const meta = {
+        fullname: (() => {
+          const m = coeTxt.match(/Fullname\s*:\s*([^\n]+?)(?:\s*SRCODE|$)/i);
+          return m ? m[1].trim() : "";
+        })(),
+        srcode: (() => {
+          const m = coeTxt.match(/SRCODE\s*:\s*([^\n]+)/i);
+          return m ? m[1].trim() : "";
+        })(),
+        college: (() => {
+          const m = coeTxt.match(/College\s*:\s*([^\n]+)/i);
+          return m ? m[1].trim() : "";
+        })(),
+        academic_year: (() => {
+          const m = coeTxt.match(/Academic Year\s*:\s*([^\n]+)/i);
+          return m ? m[1].trim() : "";
+        })(),
+        program: (() => {
+          const m = coeTxt.match(/Program\s*:\s*([^\n]+)/i);
+          return m ? m[1].trim() : "";
+        })(),
+        semester: (() => {
+          const m = coeTxt.match(/Semester\s*:\s*([^\n]+)/i);
+          return m ? m[1].trim() : "";
+        })(),
+        year_level: (() => {
+          const m = coeTxt.match(/Year Level\s*:\s*([^\n]+)/i);
+          return m ? m[1].trim() : "";
+        })(),
+      };
 
-      const gradesTxt = await fetchText(
-        `${OCR_URL}/results/grade_pdf_ocr.txt`
-      ).catch(() => "");
-      const pdfGrades = gradesTxt ? parseGrades(gradesTxt) : [];
-
-      const webTxt = await fetchText(
-        `${OCR_URL}/results/grade_webpage.txt`
-      ).catch(() => "");
-      const webGrades = webTxt ? parseGrades(webTxt) : [];
-
-      const maxLen = Math.max(courseCodes.length, pdfGrades.length);
-      const rows = [];
-      for (let i = 0; i < maxLen; i++) {
-        const code = courseCodes[i] || "";
-        const grade = pdfGrades[i] || "";
-        const qr = webGrades[i] || "";
-        rows.push({
-          idx: i + 1,
-          code,
-          title: "",
-          units: "",
-          grade,
-          section: "",
-          instructor: "",
-          mismatchQr: qr && qr !== grade ? qr : "",
-        });
+      // Parse table rows from grade_for_review.txt
+      const tableLines = [];
+      const lines = coeTxt.split("\n");
+      let inTable = false;
+      for (let ln of lines) {
+        if (ln.startsWith("# Course Code")) {
+          inTable = true;
+          continue;
+        }
+        if (inTable) {
+          if (
+            ln.trim().startsWith("** NOTHING FOLLOWS **") ||
+            ln.trim().startsWith("Total no of Course") ||
+            ln.trim().startsWith("Total no of Units")
+          ) {
+            break;
+          }
+          if (/^\d+\s/.test(ln)) {
+            tableLines.push(ln.trim());
+          }
+        }
       }
+
+      // Parse each line into columns
+      const rows = tableLines.map((ln, idx) => {
+        // Example line: 1 BAT 401 Fundamentals of Business Analytics 3 2.50 IT-BA-3101 SALAC, DJOANNA MARIE V.
+        const tokens = ln.split(/\s+/);
+        // Find course code (e.g., BAT 401)
+        let code = "";
+        let codeIdx = -1;
+        for (let i = 1; i < tokens.length - 1; i++) {
+          if (
+            /^[A-Za-z]{2,6}$/.test(tokens[i]) &&
+            /^\d{3}$/.test(tokens[i + 1])
+          ) {
+            code = `${tokens[i]} ${tokens[i + 1]}`;
+            codeIdx = i;
+            break;
+          }
+        }
+        // Extract other fields based on known positions
+        let title = "";
+        let units = "";
+        let grade = "";
+        let section = "";
+        let instructor = "";
+        if (codeIdx !== -1) {
+          // Title: tokens after codeIdx+2 up to next number (units)
+          let titleStart = codeIdx + 2;
+          let titleEnd = titleStart;
+          while (titleEnd < tokens.length && !/^\d+$/.test(tokens[titleEnd])) {
+            titleEnd++;
+          }
+          title = tokens.slice(titleStart, titleEnd).join(" ");
+          units = tokens[titleEnd] || "";
+          grade = tokens[titleEnd + 1] || "";
+          section = tokens[titleEnd + 2] || "";
+          instructor = tokens.slice(titleEnd + 3).join(" ");
+        }
+        return {
+          idx: idx + 1,
+          code,
+          title,
+          units,
+          grade,
+          section,
+          instructor,
+          mismatchQr: "", // Not available in grade_for_review.txt
+        };
+      });
+
+      // Parse summary
+      const totalCoursesMatch = coeTxt.match(/Total no of Course\s*(\d+)/i);
+      const totalUnitsMatch = coeTxt.match(/Total no of Units\s*(\d+)/i);
+      const summary = {
+        totalCourses: totalCoursesMatch ? totalCoursesMatch[1] : rows.length,
+        totalUnits: totalUnitsMatch ? totalUnitsMatch[1] : "—",
+        gwa: "—", // Not present in grade_for_review.txt, can compute if needed
+      };
 
       setReviewMeta(meta);
       setReviewRows(rows);
-      setReviewSummary(computeSummary(rows));
+      setReviewSummary(summary);
     } catch (e) {
       console.warn("Step 6 loadReviewData error:", e.message);
       setReviewMeta((m) => ({ ...m }));

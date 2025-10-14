@@ -985,7 +985,8 @@ def upload_grade_pdf():
   raw_pdf_text = "\n".join(raw_pdf_text_parts)
 
   # Save raw for cross-field parsing; this replaces old raw_cog_text from image flow
-  atomic_write_text(os.path.join(RESULTS_DIR, "raw_cog_text.txt"), raw_pdf_text)
+  raw_cog_path = os.path.join(RESULTS_DIR, "raw_cog_text.txt")
+  atomic_write_text(raw_cog_path, raw_pdf_text)
 
   # Save parsed grade block from PDF OCR
   atomic_write_text(os.path.join(RESULTS_DIR, "grade_pdf_ocr.txt"),
@@ -994,6 +995,16 @@ def upload_grade_pdf():
   # Also keep a grouped result file for debugging/consistency
   atomic_write_text(os.path.join(RESULTS_DIR, "result_course_grade.txt"),
                     "Grade{\n" + "\n".join(grades_all) + "\n}\n")
+
+  # --- NEW: After writing raw_cog_text.txt, also write grade_for_review.txt ---
+  try:
+    with open(raw_cog_path, "r", encoding="utf-8") as f:
+      raw_cog_text = f.read()
+    grade_for_review_str = parse_grade_for_review(raw_cog_text)
+    atomic_write_text(os.path.join(RESULTS_DIR, "grade_for_review.txt"), grade_for_review_str)
+  except Exception as e:
+    # Log or ignore error, but don't break upload
+    print(f"[grade_for_review] Failed to generate: {e}")
 
   base = request.host_url.rstrip('/')
   saved_preview_url = f"{base}/results/{os.path.basename(preview_png)}"
