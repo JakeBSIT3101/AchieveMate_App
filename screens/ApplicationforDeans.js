@@ -151,6 +151,19 @@ function NoticeModal({ visible, title = "Notice", message, onOk, onReupload }) {
 /* -------------------------------------------------------------------- */
 
 export default function ApplicationforDeans() {
+  // Column spec for Step 6 table (label, width, align)
+  const COLS = [
+    ["#", 40, "center"],
+    ["Course Code", 110, "left"],
+    ["Course Title", 160, "left"],
+    ["Units", 60, "center"],
+    ["Grade", 70, "center"],
+    ["Section", 90, "center"],
+    ["Instructor", 160, "left"],
+  ];
+
+  const TABLE_WIDTH = COLS.reduce((sum, [, w]) => sum + w, 0);
+
   const [currentStep, setCurrentStep] = useState(1);
   const [ocrResult, setOcrResult] = useState("");
   // Step 2: COR
@@ -738,6 +751,169 @@ export default function ApplicationforDeans() {
   const [consent2, setConsent2] = useState(false);
   const [consent3, setConsent3] = useState(false);
 
+  // Step 6: Review & Confirm state
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewMeta, setReviewMeta] = useState({
+    fullname: "",
+    srcode: "",
+    college: "",
+    academic_year: "",
+    program: "",
+    semester: "",
+    year_level: "",
+  });
+  const [reviewRows, setReviewRows] = useState([]); // [{idx, code, title, units, grade, section, instructor, mismatchQr}]
+  const [reviewSummary, setReviewSummary] = useState({
+    totalCourses: "—",
+    totalUnits: "—",
+    gwa: "—",
+  });
+
+  // --- tiny fetch helper
+  const fetchText = async (url) => {
+    const res = await fetch(
+      url + (url.includes("?") ? "" : `?t=${Date.now()}`)
+    );
+    if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+    return await res.text();
+  };
+
+  // --- parse a block like NAME{ ... }
+  const parseBlock = (label, text) => {
+    const re = new RegExp(`${label}\\s*\\{\\s*([^}]*)\\}`, "i");
+    const m = text.match(re);
+    if (!m) return [];
+    return m[1]
+      .split(/[\n,]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  };
+
+  // --- parse Grade block
+  const parseGrades = (text) => parseBlock("Grade", text);
+
+  // --- extract simple fields from result_certificate_of_enrollment.txt produced by Flask
+  const parseCoeMeta = (txt) => {
+    const take = (label) => {
+      const re = new RegExp(`^${label}\\s*:\\s*(.*)$`, "mi");
+      const m = txt.match(re);
+      return m ? m[1].trim() : "";
+    };
+    const fullname = take("Name");
+    const srcode = take("SR Code");
+    const program = take("Program");
+    const semester = take("Semester");
+    const year_level = take("Year Level");
+    return {
+      fullname,
+      srcode,
+      college: "",
+      academic_year: "",
+      program,
+      semester,
+      year_level,
+    };
+  };
+
+  // --- numeric grade from token (ignores INC/DROP)
+  const toNumericGrade = (g) => {
+    if (!g) return NaN;
+    const t = String(g).toUpperCase().trim();
+    if (t === "INC" || t === "DROP") return NaN;
+    const n = parseFloat(t.replace(/[^0-9.]/g, ""));
+    return Number.isFinite(n) ? n : NaN;
+  };
+
+  // --- compute simple GWA (unweighted if units missing)
+  const computeSummary = (rows) => {
+    const totalCourses = rows.length;
+    const numericUnits = rows
+      .map((r) => parseFloat(r.units))
+      .filter((u) => Number.isFinite(u));
+    const totalUnits =
+      numericUnits.length === rows.length
+        ? numericUnits.reduce((a, b) => a + b, 0)
+        : "—";
+    const grades = rows
+      .map((r) => toNumericGrade(r.grade))
+      .filter((n) => Number.isFinite(n));
+    let gwa = "—";
+    if (grades.length) {
+      if (numericUnits.length === rows.length) {
+        let sum = 0,
+          w = 0;
+        rows.forEach((r, i) => {
+          const g = toNumericGrade(r.grade);
+          const u = parseFloat(r.units);
+          if (Number.isFinite(g) && Number.isFinite(u)) {
+            sum += g * u;
+            w += u;
+          }
+        });
+        if (w > 0) gwa = (sum / w).toFixed(4);
+      } else {
+        const mean = grades.reduce((a, b) => a + b, 0) / grades.length;
+        gwa = mean.toFixed(4);
+      }
+    }
+    return { totalCourses, totalUnits, gwa };
+  };
+
+  // --- build Step 6 data by reading server outputs
+  const loadReviewData = async () => {
+    setReviewLoading(true);
+    try {
+      const coeTxt = await fetchText(`${OCR_URL}/results/raw_cog_text.txt`);
+      const meta = parseCoeMeta(coeTxt);
+      const courseCodes = parseBlock("COURSE\\s*CODE", coeTxt);
+
+      const gradesTxt = await fetchText(
+        `${OCR_URL}/results/grade_pdf_ocr.txt`
+      ).catch(() => "");
+      const pdfGrades = gradesTxt ? parseGrades(gradesTxt) : [];
+
+      const webTxt = await fetchText(
+        `${OCR_URL}/results/grade_webpage.txt`
+      ).catch(() => "");
+      const webGrades = webTxt ? parseGrades(webTxt) : [];
+
+      const maxLen = Math.max(courseCodes.length, pdfGrades.length);
+      const rows = [];
+      for (let i = 0; i < maxLen; i++) {
+        const code = courseCodes[i] || "";
+        const grade = pdfGrades[i] || "";
+        const qr = webGrades[i] || "";
+        rows.push({
+          idx: i + 1,
+          code,
+          title: "",
+          units: "",
+          grade,
+          section: "",
+          instructor: "",
+          mismatchQr: qr && qr !== grade ? qr : "",
+        });
+      }
+
+      setReviewMeta(meta);
+      setReviewRows(rows);
+      setReviewSummary(computeSummary(rows));
+    } catch (e) {
+      console.warn("Step 6 loadReviewData error:", e.message);
+      setReviewMeta((m) => ({ ...m }));
+      setReviewRows([]);
+      setReviewSummary({ totalCourses: "—", totalUnits: "—", gwa: "—" });
+    } finally {
+      setReviewLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (currentStep === 6) {
+      loadReviewData();
+    }
+  }, [currentStep]);
+
   return (
     <View style={[styles.container1, { flex: 1 }]}>
       {/* Step Progress (header) */}
@@ -1298,15 +1474,224 @@ export default function ApplicationforDeans() {
       {/* Step 6: Review & Confirm */}
       {currentStep === 6 && (
         <View style={{ flex: 1, padding: 20 }}>
-          <View style={[ui.card]}>
-            <Text style={{ fontWeight: "700", fontSize: 16, marginBottom: 8 }}>
-              Review & Confirm
-            </Text>
-            <Text style={{ color: "#666" }}>
-              Show a summary of extracted data for user review.
-            </Text>
-          </View>
-
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{ paddingBottom: FOOTER_HEIGHT + 24 }}
+          >
+            <View style={[ui.card, { marginBottom: 12 }]}>
+              <Text
+                style={{ fontWeight: "700", fontSize: 16, marginBottom: 6 }}
+              >
+                Review & Confirm
+              </Text>
+              <Text style={{ color: "#6B7280", marginBottom: 10 }}>
+                Review your details and extracted grades before final
+                submission.
+              </Text>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
+                {[
+                  ["Fullname", reviewMeta.fullname],
+                  ["SRCODE", reviewMeta.srcode],
+                  ["College", reviewMeta.college],
+                  ["Academic Year", reviewMeta.academic_year],
+                  ["Program", reviewMeta.program],
+                  ["Semester", reviewMeta.semester],
+                  ["Year Level", reviewMeta.year_level],
+                ].map(([label, val], idx) => (
+                  <View key={idx} style={{ width: "48%" }}>
+                    <Text
+                      style={{
+                        fontSize: 12,
+                        color: "#6B7280",
+                        marginBottom: 4,
+                      }}
+                    >
+                      {label}
+                    </Text>
+                    <View
+                      style={{
+                        borderWidth: 1,
+                        borderColor: "#e6e6e6",
+                        borderRadius: 8,
+                        paddingHorizontal: 10,
+                        paddingVertical: 10,
+                        backgroundColor: "#fafafa",
+                      }}
+                    >
+                      <Text style={{ color: "#111827" }}>
+                        {val ? String(val) : "—"}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </View>
+            <View style={[ui.card, { padding: 0 }]}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  paddingVertical: 10,
+                  paddingHorizontal: 12,
+                  backgroundColor: "#f7f7f7",
+                  borderTopLeftRadius: 16,
+                  borderTopRightRadius: 16,
+                }}
+              >
+                {[
+                  ["#", 40, "center"],
+                  ["Course Code", 110, "left"],
+                  ["Course Title", 160, "left"],
+                  ["Units", 60, "center"],
+                  ["Grade", 70, "center"],
+                  ["Section", 90, "center"],
+                  ["Instructor", 160, "left"],
+                ].map(([h, w, align], i) => (
+                  <View key={i} style={{ width: w, paddingRight: 6 }}>
+                    <Text
+                      style={{
+                        fontWeight: "700",
+                        fontSize: 12,
+                        textAlign: align,
+                        color: "#374151",
+                      }}
+                    >
+                      {h}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+              {reviewLoading ? (
+                <View style={{ padding: 16, alignItems: "center" }}>
+                  <ActivityIndicator size="small" />
+                  <Text style={{ marginTop: 6, color: "#6B7280" }}>
+                    Loading extracted rows…
+                  </Text>
+                </View>
+              ) : reviewRows.length === 0 ? (
+                <View style={{ padding: 16 }}>
+                  <Text style={{ color: "#6B7280", textAlign: "center" }}>
+                    No rows detected. Please re-upload a clearer image.
+                  </Text>
+                </View>
+              ) : (
+                <>
+                  {reviewRows.map((r, idx) => (
+                    <View
+                      key={idx}
+                      style={{
+                        flexDirection: "row",
+                        paddingVertical: 10,
+                        paddingHorizontal: 12,
+                        backgroundColor: r.mismatchQr ? "#FFF5F5" : "#fff",
+                        borderTopWidth: idx === 0 ? 0 : 1,
+                        borderColor: "#f0f0f0",
+                      }}
+                    >
+                      <View style={{ width: 40 }}>
+                        <Text style={{ textAlign: "center" }}>{r.idx}</Text>
+                      </View>
+                      <View style={{ width: 110, paddingRight: 6 }}>
+                        <Text>{r.code || ""}</Text>
+                      </View>
+                      <View style={{ width: 160, paddingRight: 6 }}>
+                        <Text numberOfLines={1}>{r.title || ""}</Text>
+                      </View>
+                      <View style={{ width: 60, paddingRight: 6 }}>
+                        <Text style={{ textAlign: "center" }}>
+                          {r.units || ""}
+                        </Text>
+                      </View>
+                      <View style={{ width: 70, paddingRight: 6 }}>
+                        {r.mismatchQr ? (
+                          <View style={{ alignItems: "center" }}>
+                            <Text
+                              style={{
+                                textAlign: "center",
+                                fontWeight: "700",
+                                color: "#AB1F2B",
+                              }}
+                            >
+                              {r.grade || ""}
+                            </Text>
+                            <Text
+                              style={{
+                                fontSize: 10,
+                                color: "#AB1F2B",
+                                marginTop: 2,
+                                textAlign: "center",
+                              }}
+                            >
+                              QR: {r.mismatchQr}
+                            </Text>
+                          </View>
+                        ) : (
+                          <Text style={{ textAlign: "center" }}>
+                            {r.grade || ""}
+                          </Text>
+                        )}
+                      </View>
+                      <View style={{ width: 90, paddingRight: 6 }}>
+                        <Text style={{ textAlign: "center" }}>
+                          {r.section || ""}
+                        </Text>
+                      </View>
+                      <View style={{ width: 160, paddingRight: 6 }}>
+                        <Text numberOfLines={1}>{r.instructor || ""}</Text>
+                      </View>
+                    </View>
+                  ))}
+                  <View
+                    style={{
+                      paddingVertical: 10,
+                      paddingHorizontal: 12,
+                      borderTopWidth: 1,
+                      borderColor: "#f0f0f0",
+                      backgroundColor: "#fafafa",
+                      borderBottomLeftRadius: 16,
+                      borderBottomRightRadius: 16,
+                    }}
+                  >
+                    <Text style={{ textAlign: "center", color: "#9CA3AF" }}>
+                      ** NOTHING FOLLOWS **
+                    </Text>
+                  </View>
+                </>
+              )}
+            </View>
+            <View style={[ui.card, { marginTop: 12 }]}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  flexWrap: "wrap",
+                  alignItems: "center",
+                  gap: 16,
+                }}
+              >
+                <Text>
+                  <Text style={{ fontWeight: "700" }}>
+                    Total no of Course:{" "}
+                  </Text>
+                  {reviewSummary.totalCourses}
+                </Text>
+                <Text>
+                  <Text style={{ fontWeight: "700" }}>Total no of Units: </Text>
+                  {String(reviewSummary.totalUnits)}
+                </Text>
+                <Text>
+                  <Text style={{ fontWeight: "700" }}>
+                    General Weighted Average (GWA):{" "}
+                  </Text>
+                  {reviewSummary.gwa}
+                </Text>
+              </View>
+            </View>
+            <View style={{ marginTop: 10, alignItems: "flex-end" }}>
+              <Text style={{ color: "#9CA3AF", fontSize: 12 }}>
+                Reads: /results/result_certificate_of_enrollment.txt,
+                /results/grade_pdf_ocr.txt, /results/grade_webpage.txt
+              </Text>
+            </View>
+          </ScrollView>
           <View style={[styles.navStickyContainer, stickyFooter]}>
             <TouchableOpacity
               style={styles.stepFormNavBtn}
