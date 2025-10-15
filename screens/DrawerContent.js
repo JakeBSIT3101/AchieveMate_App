@@ -19,17 +19,17 @@ const menuItems = [
   {
     title: "Apply Latin Honor",
     icon: require("../assets/latinhonor.png"),
-    screen: "LatinHonor",
+    screen: "Application For Latin Honors",
   },
   {
     title: "Application for Graduation",
     icon: require("../assets/latinhonor.png"),
-    screen: "ApplicationForGraduation",
+    screen: "Application For Graduation",
   },
   {
     title: "Application Status",
     icon: require("../assets/status.png"),
-    screen: "Status",
+    screen: "Application Status",
   },
 ];
 
