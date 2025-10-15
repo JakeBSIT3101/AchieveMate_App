@@ -11,10 +11,10 @@ General Weighted Average (GWA)
 Fullname : SAMONTANEZ, JAKE A. SRCODE
  SRCODE : 22-78222
 
-College : College of Informatics and Computing Sciences Academic Year
+College : College of Informatics and Computing Sciences
  Academic Year : 2024-2025
 
-Program : BS Information Technology Semester
+Program : BS Information Technology
  Semester : FIRST
 
 Year Level : THIRD

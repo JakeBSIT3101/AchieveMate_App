@@ -1570,176 +1570,320 @@ export default function ApplicationforDeans() {
                 Review your details and extracted grades before final
                 submission.
               </Text>
+              {/* Custom layout */}
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
-                {[
-                  ["Fullname", reviewMeta.fullname],
-                  ["SRCODE", reviewMeta.srcode],
-                  ["College", reviewMeta.college],
-                  ["Academic Year", reviewMeta.academic_year],
-                  ["Program", reviewMeta.program],
-                  ["Semester", reviewMeta.semester],
-                  ["Year Level", reviewMeta.year_level],
-                ].map(([label, val], idx) => (
-                  <View key={idx} style={{ width: "48%" }}>
-                    <Text
-                      style={{
-                        fontSize: 12,
-                        color: "#6B7280",
-                        marginBottom: 4,
-                      }}
-                    >
-                      {label}
-                    </Text>
-                    <View
-                      style={{
-                        borderWidth: 1,
-                        borderColor: "#e6e6e6",
-                        borderRadius: 8,
-                        paddingHorizontal: 10,
-                        paddingVertical: 10,
-                        backgroundColor: "#fafafa",
-                      }}
-                    >
-                      <Text style={{ color: "#111827" }}>
-                        {val ? String(val) : "—"}
-                      </Text>
-                    </View>
-                  </View>
-                ))}
-              </View>
-            </View>
-            <View style={[ui.card, { padding: 0 }]}>
-              <View
-                style={{
-                  flexDirection: "row",
-                  paddingVertical: 10,
-                  paddingHorizontal: 12,
-                  backgroundColor: "#f7f7f7",
-                  borderTopLeftRadius: 16,
-                  borderTopRightRadius: 16,
-                }}
-              >
-                {[
-                  ["#", 40, "center"],
-                  ["Course Code", 110, "left"],
-                  ["Course Title", 160, "left"],
-                  ["Units", 60, "center"],
-                  ["Grade", 70, "center"],
-                  ["Section", 90, "center"],
-                  ["Instructor", 160, "left"],
-                ].map(([h, w, align], i) => (
-                  <View key={i} style={{ width: w, paddingRight: 6 }}>
-                    <Text
-                      style={{
-                        fontWeight: "700",
-                        fontSize: 12,
-                        textAlign: align,
-                        color: "#374151",
-                      }}
-                    >
-                      {h}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-              {reviewLoading ? (
-                <View style={{ padding: 16, alignItems: "center" }}>
-                  <ActivityIndicator size="small" />
-                  <Text style={{ marginTop: 6, color: "#6B7280" }}>
-                    Loading extracted rows…
-                  </Text>
-                </View>
-              ) : reviewRows.length === 0 ? (
-                <View style={{ padding: 16 }}>
-                  <Text style={{ color: "#6B7280", textAlign: "center" }}>
-                    No rows detected. Please re-upload a clearer image.
-                  </Text>
-                </View>
-              ) : (
-                <>
-                  {reviewRows.map((r, idx) => (
-                    <View
-                      key={idx}
-                      style={{
-                        flexDirection: "row",
-                        paddingVertical: 10,
-                        paddingHorizontal: 12,
-                        backgroundColor: r.mismatchQr ? "#FFF5F5" : "#fff",
-                        borderTopWidth: idx === 0 ? 0 : 1,
-                        borderColor: "#f0f0f0",
-                      }}
-                    >
-                      <View style={{ width: 40 }}>
-                        <Text style={{ textAlign: "center" }}>{r.idx}</Text>
-                      </View>
-                      <View style={{ width: 110, paddingRight: 6 }}>
-                        <Text>{r.code || ""}</Text>
-                      </View>
-                      <View style={{ width: 160, paddingRight: 6 }}>
-                        <Text numberOfLines={1}>{r.title || ""}</Text>
-                      </View>
-                      <View style={{ width: 60, paddingRight: 6 }}>
-                        <Text style={{ textAlign: "center" }}>
-                          {r.units || ""}
-                        </Text>
-                      </View>
-                      <View style={{ width: 70, paddingRight: 6 }}>
-                        {r.mismatchQr ? (
-                          <View style={{ alignItems: "center" }}>
-                            <Text
-                              style={{
-                                textAlign: "center",
-                                fontWeight: "700",
-                                color: "#AB1F2B",
-                              }}
-                            >
-                              {r.grade || ""}
-                            </Text>
-                            <Text
-                              style={{
-                                fontSize: 10,
-                                color: "#AB1F2B",
-                                marginTop: 2,
-                                textAlign: "center",
-                              }}
-                            >
-                              QR: {r.mismatchQr}
-                            </Text>
-                          </View>
-                        ) : (
-                          <Text style={{ textAlign: "center" }}>
-                            {r.grade || ""}
-                          </Text>
-                        )}
-                      </View>
-                      <View style={{ width: 90, paddingRight: 6 }}>
-                        <Text style={{ textAlign: "center" }}>
-                          {r.section || ""}
-                        </Text>
-                      </View>
-                      <View style={{ width: 160, paddingRight: 6 }}>
-                        <Text numberOfLines={1}>{r.instructor || ""}</Text>
-                      </View>
-                    </View>
-                  ))}
-                  <View
+                {/* Fullname and SRCODE side by side */}
+                <View style={{ width: "48%" }}>
+                  <Text
                     style={{
-                      paddingVertical: 10,
-                      paddingHorizontal: 12,
-                      borderTopWidth: 1,
-                      borderColor: "#f0f0f0",
-                      backgroundColor: "#fafafa",
-                      borderBottomLeftRadius: 16,
-                      borderBottomRightRadius: 16,
+                      fontSize: 12,
+                      color: "#6B7280",
+                      marginBottom: 4,
                     }}
                   >
-                    <Text style={{ textAlign: "center", color: "#9CA3AF" }}>
-                      ** NOTHING FOLLOWS **
+                    Fullname
+                  </Text>
+                  <View
+                    style={{
+                      borderWidth: 1,
+                      borderColor: "#e6e6e6",
+                      borderRadius: 8,
+                      paddingHorizontal: 10,
+                      paddingVertical: 10,
+                      backgroundColor: "#fafafa",
+                    }}
+                  >
+                    <Text style={{ color: "#111827" }}>
+                      {reviewMeta.fullname ? String(reviewMeta.fullname) : "—"}
                     </Text>
                   </View>
-                </>
-              )}
+                </View>
+                <View style={{ width: "48%" }}>
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      color: "#6B7280",
+                      marginBottom: 4,
+                    }}
+                  >
+                    SRCODE
+                  </Text>
+                  <View
+                    style={{
+                      borderWidth: 1,
+                      borderColor: "#e6e6e6",
+                      borderRadius: 8,
+                      paddingHorizontal: 10,
+                      paddingVertical: 10,
+                      backgroundColor: "#fafafa",
+                    }}
+                  >
+                    <Text style={{ color: "#111827" }}>
+                      {reviewMeta.srcode ? String(reviewMeta.srcode) : "—"}
+                    </Text>
+                  </View>
+                </View>
+                {/* College full width */}
+                <View style={{ width: "100%" }}>
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      color: "#6B7280",
+                      marginBottom: 4,
+                    }}
+                  >
+                    College
+                  </Text>
+                  <View
+                    style={{
+                      borderWidth: 1,
+                      borderColor: "#e6e6e6",
+                      borderRadius: 8,
+                      paddingHorizontal: 10,
+                      paddingVertical: 10,
+                      backgroundColor: "#fafafa",
+                    }}
+                  >
+                    <Text style={{ color: "#111827" }}>
+                      {reviewMeta.college ? String(reviewMeta.college) : "—"}
+                    </Text>
+                  </View>
+                </View>
+                {/* Program and Semester side by side */}
+                <View style={{ width: "48%" }}>
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      color: "#6B7280",
+                      marginBottom: 4,
+                    }}
+                  >
+                    Program
+                  </Text>
+                  <View
+                    style={{
+                      borderWidth: 1,
+                      borderColor: "#e6e6e6",
+                      borderRadius: 8,
+                      paddingHorizontal: 10,
+                      paddingVertical: 10,
+                      backgroundColor: "#fafafa",
+                    }}
+                  >
+                    <Text style={{ color: "#111827" }}>
+                      {reviewMeta.program ? String(reviewMeta.program) : "—"}
+                    </Text>
+                  </View>
+                </View>
+                <View style={{ width: "48%" }}>
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      color: "#6B7280",
+                      marginBottom: 4,
+                    }}
+                  >
+                    Semester
+                  </Text>
+                  <View
+                    style={{
+                      borderWidth: 1,
+                      borderColor: "#e6e6e6",
+                      borderRadius: 8,
+                      paddingHorizontal: 10,
+                      paddingVertical: 10,
+                      backgroundColor: "#fafafa",
+                    }}
+                  >
+                    <Text style={{ color: "#111827" }}>
+                      {reviewMeta.semester ? String(reviewMeta.semester) : "—"}
+                    </Text>
+                  </View>
+                </View>
+                {/* Academic Year and Year Level side by side */}
+                <View style={{ width: "48%" }}>
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      color: "#6B7280",
+                      marginBottom: 4,
+                    }}
+                  >
+                    Academic Year
+                  </Text>
+                  <View
+                    style={{
+                      borderWidth: 1,
+                      borderColor: "#e6e6e6",
+                      borderRadius: 8,
+                      paddingHorizontal: 10,
+                      paddingVertical: 10,
+                      backgroundColor: "#fafafa",
+                    }}
+                  >
+                    <Text style={{ color: "#111827" }}>
+                      {reviewMeta.academic_year
+                        ? String(reviewMeta.academic_year)
+                        : "—"}
+                    </Text>
+                  </View>
+                </View>
+                <View style={{ width: "48%" }}>
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      color: "#6B7280",
+                      marginBottom: 4,
+                    }}
+                  >
+                    Year Level
+                  </Text>
+                  <View
+                    style={{
+                      borderWidth: 1,
+                      borderColor: "#e6e6e6",
+                      borderRadius: 8,
+                      paddingHorizontal: 10,
+                      paddingVertical: 10,
+                      backgroundColor: "#fafafa",
+                    }}
+                  >
+                    <Text style={{ color: "#111827" }}>
+                      {reviewMeta.year_level
+                        ? String(reviewMeta.year_level)
+                        : "—"}
+                    </Text>
+                  </View>
+                </View>
+              </View>
             </View>
+            {/* Make the table horizontally scrollable */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={true}>
+              <View style={[ui.card, { padding: 0, minWidth: TABLE_WIDTH }]}>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    paddingVertical: 10,
+                    paddingHorizontal: 12,
+                    backgroundColor: "#f7f7f7",
+                    borderTopLeftRadius: 16,
+                    borderTopRightRadius: 16,
+                  }}
+                >
+                  {COLS.map(([h, w, align], i) => (
+                    <View key={i} style={{ width: w, paddingRight: 6 }}>
+                      <Text
+                        style={{
+                          fontWeight: "700",
+                          fontSize: 12,
+                          textAlign: align,
+                          color: "#374151",
+                        }}
+                      >
+                        {h}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+                {reviewLoading ? (
+                  <View style={{ padding: 16, alignItems: "center" }}>
+                    <ActivityIndicator size="small" />
+                    <Text style={{ marginTop: 6, color: "#6B7280" }}>
+                      Loading extracted rows…
+                    </Text>
+                  </View>
+                ) : reviewRows.length === 0 ? (
+                  <View style={{ padding: 16 }}>
+                    <Text style={{ color: "#6B7280", textAlign: "center" }}>
+                      No rows detected. Please re-upload a clearer image.
+                    </Text>
+                  </View>
+                ) : (
+                  <>
+                    {reviewRows.map((r, idx) => (
+                      <View
+                        key={idx}
+                        style={{
+                          flexDirection: "row",
+                          paddingVertical: 10,
+                          paddingHorizontal: 12,
+                          backgroundColor: r.mismatchQr ? "#FFF5F5" : "#fff",
+                          borderTopWidth: idx === 0 ? 0 : 1,
+                          borderColor: "#f0f0f0",
+                        }}
+                      >
+                        <View style={{ width: 40 }}>
+                          <Text style={{ textAlign: "center" }}>{r.idx}</Text>
+                        </View>
+                        <View style={{ width: 110, paddingRight: 6 }}>
+                          <Text>{r.code || ""}</Text>
+                        </View>
+                        <View style={{ width: 160, paddingRight: 6 }}>
+                          <Text numberOfLines={1}>{r.title || ""}</Text>
+                        </View>
+                        <View style={{ width: 60, paddingRight: 6 }}>
+                          <Text style={{ textAlign: "center" }}>
+                            {r.units || ""}
+                          </Text>
+                        </View>
+                        <View style={{ width: 70, paddingRight: 6 }}>
+                          {r.mismatchQr ? (
+                            <View style={{ alignItems: "center" }}>
+                              <Text
+                                style={{
+                                  textAlign: "center",
+                                  fontWeight: "700",
+                                  color: "#AB1F2B",
+                                }}
+                              >
+                                {r.grade || ""}
+                              </Text>
+                              <Text
+                                style={{
+                                  fontSize: 10,
+                                  color: "#AB1F2B",
+                                  marginTop: 2,
+                                  textAlign: "center",
+                                }}
+                              >
+                                QR: {r.mismatchQr}
+                              </Text>
+                            </View>
+                          ) : (
+                            <Text style={{ textAlign: "center" }}>
+                              {r.grade || ""}
+                            </Text>
+                          )}
+                        </View>
+                        <View style={{ width: 90, paddingRight: 6 }}>
+                          <Text style={{ textAlign: "center" }}>
+                            {r.section || ""}
+                          </Text>
+                        </View>
+                        <View style={{ width: 160, paddingRight: 6 }}>
+                          <Text numberOfLines={1}>{r.instructor || ""}</Text>
+                        </View>
+                      </View>
+                    ))}
+                    <View
+                      style={{
+                        paddingVertical: 10,
+                        paddingHorizontal: 12,
+                        borderTopWidth: 1,
+                        borderColor: "#f0f0f0",
+                        backgroundColor: "#fafafa",
+                        borderBottomLeftRadius: 16,
+                        borderBottomRightRadius: 16,
+                      }}
+                    >
+                      <Text style={{ textAlign: "center", color: "#9CA3AF" }}>
+                        ** NOTHING FOLLOWS **
+                      </Text>
+                    </View>
+                  </>
+                )}
+              </View>
+            </ScrollView>
             <View style={[ui.card, { marginTop: 12 }]}>
               <View
                 style={{

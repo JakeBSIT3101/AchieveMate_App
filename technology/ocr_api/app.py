@@ -58,119 +58,32 @@ def parse_grade_for_review(raw_text: str) -> str:
       if m:
         total_units = m.group(1)
 
-  from flask import Flask, request, jsonify, send_from_directory, Response  # <-- added Response
-  from PIL import Image, ImageOps  # <-- added ImageOps for inversion
-  import pytesseract
-  import re
-  import io
-  from pdf2image import convert_from_bytes
-  from pyzbar.pyzbar import decode
-  from selenium import webdriver
-  from selenium.webdriver.chrome.options import Options
-  from selenium.webdriver.chrome.service import Service
-  from webdriver_manager.chrome import ChromeDriverManager
-  import time
-  from reportlab.lib.pagesizes import letter
-  from pdfrw import PdfReader, PdfWriter, PageMerge
-  from reportlab.pdfgen import canvas
-  import os
-  import tempfile  # for DPI preprocessing
-  from datetime import datetime
+  # Format output
+  out = []
+  out.append("BATANGAS STATE UNIVERSITY\n")
+  out.append("ARASOF-Nasugbu Campus\n")
+  out.append("Student's Copy of Grades\n")
+  out.append("General Weighted Average (GWA)\n")
+  out.append(f"{sr_code}\n")
+  out.append(f"Fullname : {fullname}")
+  out.append(f" SRCODE : {sr_code}")
+  # Remove 'Academic Year' from college if present
+  clean_college = re.sub(r"\s*Academic\s*Year.*$", "", college, flags=re.I).strip()
+  out.append(f"\nCollege : {clean_college}")
+  out.append(f" Academic Year : {academic_year}")
+  # Remove 'Semester' from program if present
+  clean_program = re.sub(r"\s*Semester.*$", "", program, flags=re.I).strip()
+  out.append(f"\nProgram : {clean_program}")
+  out.append(f" Semester : {semester}")
+  out.append(f"\nYear Level : {year_level}\n")
+  out.append("# Course Code Course Title Units Grade Section Instructor")
+  for cl in course_lines:
+    out.append(cl)
+  out.append("** NOTHING FOLLOWS **")
+  out.append(f"Total no of Course {total_courses}")
+  out.append(f"Total no of Units {total_units}\n")
+  return "\n".join(out)
 
-  app = Flask(__name__)
-
-  # --- grade_for_review parser and endpoint ---
-  def parse_grade_for_review(raw_text: str) -> str:
-    """
-    Parse the raw COG text and return a formatted string for 'grade_for_review'.
-    """
-    lines = [ln.strip() for ln in raw_text.splitlines() if ln.strip()]
-    # Extract header fields
-    sr_code = ""
-    fullname = ""
-    college = ""
-    academic_year = ""
-    program = ""
-    semester = ""
-    year_level = ""
-    course_lines = []
-    total_courses = ""
-    total_units = ""
-    header_found = False
-    for i, line in enumerate(lines):
-      if not sr_code:
-        m = re.search(r"SRCODE\s*:?\s*([\d\-]+)", line, re.I)
-        if m:
-          sr_code = m.group(1)
-      if not fullname:
-        m = re.search(r"Fullname\s*:?\s*([^:]+)", line, re.I)
-        if m:
-          fullname = m.group(1).strip()
-      if not college and "College" in line:
-        m = re.search(r"College\s*:?\s*([^:]+)", line, re.I)
-        if m:
-          college = m.group(1).strip()
-      if not academic_year and "Academic Year" in line:
-        m = re.search(r"Academic Year\s*:?\s*([\d\-/]+)", line, re.I)
-        if m:
-          academic_year = m.group(1).strip()
-      if not program and "Program" in line:
-        m = re.search(r"Program\s*:?\s*([^:]+)", line, re.I)
-        if m:
-          program = m.group(1).strip()
-      if not semester and "Semester" in line:
-        m = re.search(r"Semester\s*:?\s*([A-Z]+)", line, re.I)
-        if m:
-          semester = m.group(1).strip()
-      if not year_level and "Year Level" in line:
-        m = re.search(r"Year Level\s*:?\s*([A-Z]+)", line, re.I)
-        if m:
-          year_level = m.group(1).strip()
-      if line.startswith("# Course Code"):
-        header_found = True
-        continue
-      if header_found and (re.match(r"^\d+ ", line) or line.startswith("** NOTHING FOLLOWS **")):
-        course_lines.append(line)
-      if "Total no of Course" in line:
-        m = re.search(r"Total no of Course\s*(\d+)", line)
-        if m:
-          total_courses = m.group(1)
-      if "Total no of Units" in line:
-        m = re.search(r"Total no of Units\s*(\d+)", line)
-        if m:
-          total_units = m.group(1)
-
-    # Format output
-    out = []
-    out.append("BATANGAS STATE UNIVERSITY\n")
-    out.append("ARASOF-Nasugbu Campus\n")
-    out.append("Student's Copy of Grades\n")
-    out.append("General Weighted Average (GWA)\n")
-    out.append(f"{sr_code}\n")
-    out.append(f"Fullname : {fullname}")
-    out.append(f" SRCODE : {sr_code}")
-    out.append(f"\nCollege : {college}")
-    out.append(f" Academic Year : {academic_year}")
-    out.append(f"\nProgram : {program}")
-    out.append(f" Semester : {semester}")
-    out.append(f"\nYear Level : {year_level}\n")
-    out.append("# Course Code Course Title Units Grade Section Instructor")
-    for cl in course_lines:
-      out.append(cl)
-    out.append("** NOTHING FOLLOWS **")
-    out.append(f"Total no of Course {total_courses}")
-    out.append(f"Total no of Units {total_units}\n")
-    return "\n".join(out)
-
-  @app.route('/grade_for_review', methods=['GET'])
-  def grade_for_review():
-    raw_cog_path = os.path.join(RESULTS_DIR, "raw_cog_text.txt")
-    if not os.path.exists(raw_cog_path):
-      return jsonify({"error": "raw_cog_text.txt not found"}), 400
-    with open(raw_cog_path, "r", encoding="utf-8") as f:
-      raw_text = f.read()
-    result = parse_grade_for_review(raw_text)
-    return Response(result, mimetype="text/plain")
 from flask import Flask, request, jsonify, send_from_directory, Response  # <-- added Response
 from PIL import Image, ImageOps  # <-- added ImageOps for inversion
 import pytesseract
@@ -263,9 +176,13 @@ def parse_grade_for_review(raw_text: str) -> str:
   out.append(f"{sr_code}\n")
   out.append(f"Fullname : {fullname}")
   out.append(f" SRCODE : {sr_code}")
-  out.append(f"\nCollege : {college}")
+  # Remove 'Academic Year' from college if present
+  clean_college = re.sub(r"\s*Academic\s*Year.*$", "", college, flags=re.I).strip()
+  out.append(f"\nCollege : {clean_college}")
   out.append(f" Academic Year : {academic_year}")
-  out.append(f"\nProgram : {program}")
+  # Remove 'Semester' from program if present
+  clean_program = re.sub(r"\s*Semester.*$", "", program, flags=re.I).strip()
+  out.append(f"\nProgram : {clean_program}")
   out.append(f" Semester : {semester}")
   out.append(f"\nYear Level : {year_level}\n")
   out.append("# Course Code Course Title Units Grade Section Instructor")
