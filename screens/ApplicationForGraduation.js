@@ -10,7 +10,11 @@ import {
   Alert,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
+import { WebView } from 'react-native-webview';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from "expo-document-picker";
+import Pdf from 'react-native-pdf';
 import Icon from "react-native-vector-icons/MaterialCommunityIcons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Checkbox, Provider as PaperProvider } from "react-native-paper";
@@ -88,22 +92,42 @@ export default function ApplicationForGraduation() {
   }, [form]);
 
   const pickFile = async (type) => {
-  try {
-    const result = await DocumentPicker.getDocumentAsync({
-      type: "application/pdf",
-      copyToCacheDirectory: true,
-    });
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: "application/pdf",
+        copyToCacheDirectory: true,
+      });
 
-    if (result.type === "success") {
-      const fileData = { uri: result.uri, name: result.name };
+      if (result.type === "cancel") return;
 
-      if (type === "grades") setGrades(fileData);
-      if (type === "coe") setCoe(fileData);
+      const fileUri = result.uri;
+      const fileName = result.name;
+
+      if (type === "grades") {
+        setGrades(fileUri);
+      } else if (type === "coe") {
+        setCoe(fileUri);
+      }
+
+      Alert.alert("Success", `${fileName} uploaded successfully!`);
+    } catch (error) {
+      console.error("File picker error:", error);
+      Alert.alert("Error", "Failed to pick file.");
     }
-  } catch (error) {
-    console.warn("File picker error:", error);
-  }
-};
+  };
+
+  const openPDF = async (uri) => {
+    try {
+      const fileUri = FileSystem.cacheDirectory + uri.split('/').pop();
+      await FileSystem.copyAsync({
+        from: uri,
+        to: fileUri,
+      });
+      await Sharing.shareAsync(fileUri);
+    } catch (error) {
+      console.log("Error opening PDF:", error);
+    }
+  };
 
   const nextStep = () =>
     setCurrentStep((prev) => (prev < steps.length ? prev + 1 : prev));
@@ -277,10 +301,12 @@ export default function ApplicationForGraduation() {
             </View>
           )}
 
-          {/* STEP 2 - Upload Grades */}
+          {/* STEP 2 - Upload Copy of Grades */}
           {currentStep === 2 && (
             <View>
-              <Text style={styles.stepTitle}>Step 2: Upload Grades</Text>
+              <Text style={styles.stepTitle}>Step 2: Upload Copy of Grades</Text>
+
+              {/* Upload Box */}
               <TouchableOpacity
                 style={styles.uploadBox}
                 onPress={() => pickFile("grades")}
@@ -289,40 +315,71 @@ export default function ApplicationForGraduation() {
                   <View style={{ alignItems: "center" }}>
                     <Icon name="file-pdf-box" size={50} color="#e74c3c" />
                     <Text style={{ marginTop: 8, fontWeight: "600", color: "#333" }}>
-                      {grades.name}
+                      {grades.split("/").pop()}
                     </Text>
-                    <Text style={{ fontSize: 12, color: "#666" }}>PDF uploaded successfully</Text>
+                    <Text style={{ fontSize: 12, color: "#666" }}>
+                      PDF uploaded successfully
+                    </Text>
                   </View>
                 ) : (
                   <>
                     <Icon name="upload" size={40} color="#666" />
-                    <Text style={styles.uploadText}>Tap to upload your copy of grades (PDF only)</Text>
+                    <Text style={styles.uploadText}>
+                      Tap to upload your copy of grades
+                    </Text>
                     <Text style={{ fontSize: 12, color: "#888", marginTop: 4 }}>
                       Only .pdf files are accepted
                     </Text>
                   </>
                 )}
               </TouchableOpacity>
+
               <Text style={{ color: "#666", marginTop: 4, fontSize: 12 }}>
-                Only PDF files are accepted.
+                Note: Only PDF files are accepted.
               </Text>
+
+              {/* PDF Open Button */}
+              {grades && (
+                <View style={{ height: 400, marginTop: 12 }}>
+                  <WebView
+                    source={{ uri: grades }}
+                    style={{ flex: 1 }}
+                    startInLoadingState={true}
+                  />
+                </View>
+              )}
             </View>
           )}
 
           {/* STEP 3 - Upload COR */}
           {currentStep === 3 && (
             <View>
-              <Text style={styles.stepTitle}>Step 3: Upload Certificate of Current Enrollment (COR)</Text>
+              <Text style={styles.stepTitle}>
+                Step 3: Upload Certificate of Current Enrollment (COR)
+              </Text>
               <TouchableOpacity
                 style={styles.uploadBox}
                 onPress={() => pickFile("coe")}
               >
                 {coe ? (
-                  <Text>{coe.split("/").pop()}</Text>
+                  <View style={{ alignItems: "center" }}>
+                    <Icon name="file-pdf-box" size={50} color="#e74c3c" />
+                    <Text
+                      style={{ marginTop: 8, fontWeight: "600", color: "#333" }}
+                    >
+                      {coe.name || coe.split("/").pop()}
+                    </Text>
+                    <Text style={{ fontSize: 12, color: "#666" }}>
+                      PDF uploaded successfully
+                    </Text>
+                  </View>
                 ) : (
                   <>
                     <Icon name="upload" size={40} color="#666" />
                     <Text style={styles.uploadText}>Tap to upload your COR</Text>
+                    <Text style={{ fontSize: 12, color: "#888", marginTop: 4 }}>
+                      Only .pdf files are accepted
+                    </Text>
                   </>
                 )}
               </TouchableOpacity>
