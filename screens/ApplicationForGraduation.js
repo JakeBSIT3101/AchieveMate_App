@@ -10,6 +10,7 @@ import {
   Alert,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
+import * as DocumentPicker from "expo-document-picker";
 import Icon from "react-native-vector-icons/MaterialCommunityIcons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Checkbox, Provider as PaperProvider } from "react-native-paper";
@@ -86,24 +87,23 @@ export default function ApplicationForGraduation() {
     })();
   }, [form]);
 
-  const pickImage = async (type) => {
-    try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        quality: 1,
-      });
-      if (!result.canceled) {
-        const uri = result.assets[0].uri;
-        if (type === "grades") setGrades(uri);
-        if (type === "coe") setCoe(uri);
-        if (type === "approval") setApprovalSheet(uri);
-        if (type === "attachment")
-          setAttachments((prev) => [...prev, { uri, id: Date.now() }]);
-      }
-    } catch (e) {
-      console.warn("Image picker error:", e);
+  const pickFile = async (type) => {
+  try {
+    const result = await DocumentPicker.getDocumentAsync({
+      type: "application/pdf",
+      copyToCacheDirectory: true,
+    });
+
+    if (result.type === "success") {
+      const fileData = { uri: result.uri, name: result.name };
+
+      if (type === "grades") setGrades(fileData);
+      if (type === "coe") setCoe(fileData);
     }
-  };
+  } catch (error) {
+    console.warn("File picker error:", error);
+  }
+};
 
   const nextStep = () =>
     setCurrentStep((prev) => (prev < steps.length ? prev + 1 : prev));
@@ -283,32 +283,42 @@ export default function ApplicationForGraduation() {
               <Text style={styles.stepTitle}>Step 2: Upload Grades</Text>
               <TouchableOpacity
                 style={styles.uploadBox}
-                onPress={() => pickImage("grades")}
+                onPress={() => pickFile("grades")}
               >
                 {grades ? (
-                  <Image source={{ uri: grades }} style={styles.preview} />
+                  <View style={{ alignItems: "center" }}>
+                    <Icon name="file-pdf-box" size={50} color="#e74c3c" />
+                    <Text style={{ marginTop: 8, fontWeight: "600", color: "#333" }}>
+                      {grades.name}
+                    </Text>
+                    <Text style={{ fontSize: 12, color: "#666" }}>PDF uploaded successfully</Text>
+                  </View>
                 ) : (
                   <>
                     <Icon name="upload" size={40} color="#666" />
-                    <Text style={styles.uploadText}>Tap to upload your grades</Text>
+                    <Text style={styles.uploadText}>Tap to upload your copy of grades (PDF only)</Text>
+                    <Text style={{ fontSize: 12, color: "#888", marginTop: 4 }}>
+                      Only .pdf files are accepted
+                    </Text>
                   </>
                 )}
               </TouchableOpacity>
+              <Text style={{ color: "#666", marginTop: 4, fontSize: 12 }}>
+                Only PDF files are accepted.
+              </Text>
             </View>
           )}
 
           {/* STEP 3 - Upload COR */}
           {currentStep === 3 && (
             <View>
-              <Text style={styles.stepTitle}>
-                Step 3: Upload Certificate of Current Enrollment (COR)
-              </Text>
+              <Text style={styles.stepTitle}>Step 3: Upload Certificate of Current Enrollment (COR)</Text>
               <TouchableOpacity
                 style={styles.uploadBox}
-                onPress={() => pickImage("coe")}
+                onPress={() => pickFile("coe")}
               >
                 {coe ? (
-                  <Image source={{ uri: coe }} style={styles.preview} />
+                  <Text>{coe.split("/").pop()}</Text>
                 ) : (
                   <>
                     <Icon name="upload" size={40} color="#666" />
@@ -316,6 +326,9 @@ export default function ApplicationForGraduation() {
                   </>
                 )}
               </TouchableOpacity>
+              <Text style={{ color: "#666", marginTop: 4, fontSize: 12 }}>
+                Only PDF files are accepted.
+              </Text>
             </View>
           )}
 
@@ -608,4 +621,3 @@ const styles = StyleSheet.create({
   list: { paddingLeft: 12, marginTop: 4 },
   listItem: { marginBottom: 4, color: "#555" },
 });
-
