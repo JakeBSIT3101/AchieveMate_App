@@ -20,6 +20,7 @@ export default function ApplicationForGraduation() {
   const [coe, setCoe] = useState(null);
   const [approvalSheet, setApprovalSheet] = useState(null);
   const [consent, setConsent] = useState(false);
+  const [step1Consent, setStep1Consent] = useState(false);
 
   // Guardian and attachments
   const [guardianName, setGuardianName] = useState("");
@@ -56,7 +57,7 @@ export default function ApplicationForGraduation() {
   const steps = [
     "Guidelines",
     "Upload Grades",
-    "Upload COE",
+    "Upload COR",
     "Application Form",
     "Validation & Info",
     "Review & Submit",
@@ -189,21 +190,8 @@ export default function ApplicationForGraduation() {
           {currentStep === 1 && (
             <View>
               <Text style={styles.stepTitle}>Step 1: Guidelines</Text>
-              <View style={styles.card}>
-                <Text style={styles.cardTitle}>DATA PRIVACY AGREEMENT</Text>
-                <Text style={styles.cardText}>
-                  In submitting this form, I agree that my details be utilized for
-                  evaluating my academic records and for other purposes relevant to my
-                  graduation. I also agree that the information I have indicated in this
-                  form be made available to the university, and to other external
-                  agencies, groups and individuals for scholastic, research, and
-                  employment purposes.
-                </Text>
-                <Text style={styles.signature}>
-                  Signature over Printed Name of Student
-                </Text>
-              </View>
 
+              {/* Reminder */}
               <View style={styles.card}>
                 <Text style={styles.cardTitle}>REMINDER</Text>
                 <Text style={styles.cardText}>
@@ -223,6 +211,7 @@ export default function ApplicationForGraduation() {
                 </View>
               </View>
 
+              {/* System-based Procedure */}
               <View style={styles.card}>
                 <Text style={styles.cardTitle}>SYSTEM-BASED PROCEDURE</Text>
                 <Text style={styles.cardText}>
@@ -257,6 +246,34 @@ export default function ApplicationForGraduation() {
                   </Text>
                 </View>
               </View>
+
+              {/* Data Privacy Agreement */}
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>DATA PRIVACY AGREEMENT</Text>
+                <Text style={styles.cardText}>
+                  In submitting this form, I agree that my details be utilized for
+                  evaluating my academic records and for other purposes relevant to my
+                  graduation. I also agree that the information I have indicated in this
+                  form be made available to the university, and to other external
+                  agencies, groups and individuals for scholastic, research, and
+                  employment purposes.
+                </Text>
+                <Text style={styles.signature}>
+                  Signature over Printed Name of Student
+                </Text>
+
+                {/* Checkbox */}
+                <View style={styles.checkboxContainer}>
+                  <Checkbox
+                    status={step1Consent ? "checked" : "unchecked"}
+                    onPress={() => setStep1Consent(!step1Consent)}
+                    color="#0249AD"
+                  />
+                  <Text style={styles.text}>
+                    I have read and agree to the Data Privacy Agreement.
+                  </Text>
+                </View>
+              </View>
             </View>
           )}
 
@@ -280,11 +297,11 @@ export default function ApplicationForGraduation() {
             </View>
           )}
 
-          {/* STEP 3 - Upload COE */}
+          {/* STEP 3 - Upload COR */}
           {currentStep === 3 && (
             <View>
               <Text style={styles.stepTitle}>
-                Step 3: Upload Certificate of Current Enrollment (COE)
+                Step 3: Upload Certificate of Current Enrollment (COR)
               </Text>
               <TouchableOpacity
                 style={styles.uploadBox}
@@ -295,7 +312,7 @@ export default function ApplicationForGraduation() {
                 ) : (
                   <>
                     <Icon name="upload" size={40} color="#666" />
-                    <Text style={styles.uploadText}>Tap to upload your COE</Text>
+                    <Text style={styles.uploadText}>Tap to upload your COR</Text>
                   </>
                 )}
               </TouchableOpacity>
@@ -451,7 +468,7 @@ export default function ApplicationForGraduation() {
                 style={styles.attachmentButton}
                 onPress={() => pickImage("attachment")}
               >
-                <Icon name="paperclip" size={24} color="#00C881" />
+                <Icon name="paperclip" size={24} color="#0249AD" />
                 <Text style={styles.attachmentText}>Attach Document</Text>
               </TouchableOpacity>
 
@@ -525,7 +542,14 @@ export default function ApplicationForGraduation() {
             </TouchableOpacity>
           )}
           {currentStep < steps.length && (
-            <TouchableOpacity style={styles.navButtonPrimary} onPress={nextStep}>
+            <TouchableOpacity
+              style={[
+                styles.navButtonPrimary,
+                currentStep === 1 && !step1Consent && { backgroundColor: "#aaa" },
+              ]}
+              onPress={nextStep}
+              disabled={currentStep === 1 && !step1Consent}
+            >
               <Text style={styles.navButtonTextPrimary}>Next</Text>
             </TouchableOpacity>
           )}
@@ -552,7 +576,7 @@ const styles = StyleSheet.create({
   progressContainer: { flexDirection: "row", justifyContent: "space-between", marginBottom: 20 },
   stepContainer: { alignItems: "center", width: "15%" },
   circle: { width: 30, height: 30, borderRadius: 15, borderWidth: 2, borderColor: "#ccc", alignItems: "center", justifyContent: "center", marginBottom: 4 },
-  activeCircle: { borderColor: "#00C881", backgroundColor: "#00C881" },
+  activeCircle: { borderColor: "#0249AD", backgroundColor: "#0249AD" }, // changed to BSU blue
   stepNumber: { color: "#666", fontWeight: "600" },
   activeStepNumber: { color: "#fff" },
   stepLabel: { fontSize: 10, textAlign: "center" },
@@ -563,11 +587,11 @@ const styles = StyleSheet.create({
   input: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 10, backgroundColor: "#fafafa" },
   gradRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8 },
   checkboxContainer: { flexDirection: "row", alignItems: "center", gap: 8, marginVertical: 12 },
-  submitButton: { backgroundColor: "#00C881", paddingVertical: 12, borderRadius: 8, alignItems: "center" },
+  submitButton: { backgroundColor: "#0249AD", paddingVertical: 12, borderRadius: 8, alignItems: "center" }, // changed to BSU blue
   submitText: { color: "#fff", fontWeight: "600", fontSize: 16 },
   navigation: { flexDirection: "row", justifyContent: "space-between", marginTop: 20 },
   navButton: { backgroundColor: "#eee", paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10 },
-  navButtonPrimary: { backgroundColor: "#00C881", paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10 },
+  navButtonPrimary: { backgroundColor: "#0249AD", paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10 }, // changed to BSU blue
   navButtonText: { color: "#333", fontWeight: "600" },
   navButtonTextPrimary: { color: "#fff", fontWeight: "600" },
   uploadBox: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 20, alignItems: "center", justifyContent: "center", marginTop: 10, backgroundColor: "#fafafa" },
@@ -584,3 +608,4 @@ const styles = StyleSheet.create({
   list: { paddingLeft: 12, marginTop: 4 },
   listItem: { marginBottom: 4, color: "#555" },
 });
+

@@ -9,6 +9,8 @@ import ViewPortfolio from "./screens/ViewPortfolio";
 import DrawerContent from "./screens/DrawerContent";
 import ApplicationforDeans from "./screens/ApplicationforDeans";
 import ApplicationForGraduation from "./screens/ApplicationForGraduation";
+import ApplicationStatus from "./screens/ApplicationStatus";
+import ApplicationForLatinHonors from "./screens/ApplicationForLatinHonors";
 
 const Stack = createStackNavigator();
 const Drawer = createDrawerNavigator();
@@ -22,7 +24,9 @@ const DrawerNavigator = () => (
   >
     <Drawer.Screen name="Home" component={HomeScreen} options={{ title: "" }} />
     <Drawer.Screen name="ViewPortfolio" component={ViewPortfolio} />
-    <Drawer.Screen name="ApplicationForGraduation" component={ApplicationForGraduation} />
+    <Drawer.Screen name="Application For Graduation" component={ApplicationForGraduation} />
+    <Drawer.Screen name="Application Status" component={ApplicationStatus} />
+    <Drawer.Screen name="Application For Latin Honors" component={ApplicationForLatinHonors} />
     <Drawer.Screen
       name="ApplicationforDeans"
       component={ApplicationforDeans}

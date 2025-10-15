@@ -14,9 +14,9 @@ export default function ApplicationForLatinHonors() {
       return;
     }
 
-    // Submit API call goes here
+    // Here you can call your API to submit the application
     Alert.alert("Success", "Your Latin Honors application has been submitted.");
-
+    
     // Reset form
     setFullName("");
     setStudentId("");
@@ -87,7 +87,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 24,
     fontWeight: "bold",
-    color: "#0249AD",
+    color: "#1E90FF",
     marginBottom: 20,
     textAlign: "center",
   },
@@ -95,7 +95,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "bold",
     marginBottom: 6,
-    color: "#0249AD",
+    color: "#333",
   },
   input: {
     backgroundColor: "#fff",
@@ -108,7 +108,7 @@ const styles = StyleSheet.create({
     borderColor: "#ddd",
   },
   submitButton: {
-    backgroundColor: "#0249AD",
+    backgroundColor: "#1E90FF",
     borderRadius: 8,
     paddingVertical: 14,
     alignItems: "center",
