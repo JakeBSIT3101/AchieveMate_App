@@ -9,12 +9,12 @@ import {
   TextInput,
   Alert,
 } from "react-native";
+import PdfUploader from "../components/PdfUploader";
 import * as ImagePicker from "expo-image-picker";
 import { WebView } from 'react-native-webview';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import * as DocumentPicker from "expo-document-picker";
-import Pdf from 'react-native-pdf';
 import Icon from "react-native-vector-icons/MaterialCommunityIcons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Checkbox, Provider as PaperProvider } from "react-native-paper";
@@ -98,34 +98,34 @@ export default function ApplicationForGraduation() {
         copyToCacheDirectory: true,
       });
 
-      if (result.type === "cancel") return;
+      // If user cancels
+      if (result.canceled || result.type === "cancel") return;
 
-      const fileUri = result.uri;
-      const fileName = result.name;
+      // Support for both new and old expo-document-picker formats
+      const file = result.assets ? result.assets[0] : result;
+      const fileUri = file.uri;
+      const fileName = file.name || "document.pdf";
 
+      console.log("Picked file:", fileUri);
+
+      // Save to cache so WebView can access it safely
+      const newPath = `${FileSystem.cacheDirectory}${fileName}`;
+      await FileSystem.copyAsync({
+        from: fileUri,
+        to: newPath,
+      });
+
+      // Update the correct state
       if (type === "grades") {
-        setGrades(fileUri);
+        setGrades(newPath);
       } else if (type === "coe") {
-        setCoe(fileUri);
+        setCoe(newPath);
       }
 
       Alert.alert("Success", `${fileName} uploaded successfully!`);
     } catch (error) {
       console.error("File picker error:", error);
       Alert.alert("Error", "Failed to pick file.");
-    }
-  };
-
-  const openPDF = async (uri) => {
-    try {
-      const fileUri = FileSystem.cacheDirectory + uri.split('/').pop();
-      await FileSystem.copyAsync({
-        from: uri,
-        to: fileUri,
-      });
-      await Sharing.shareAsync(fileUri);
-    } catch (error) {
-      console.log("Error opening PDF:", error);
     }
   };
 
@@ -301,92 +301,24 @@ export default function ApplicationForGraduation() {
             </View>
           )}
 
-          {/* STEP 2 - Upload Copy of Grades */}
+          {/* STEP 2 - Upload Grades */}
           {currentStep === 2 && (
-            <View>
-              <Text style={styles.stepTitle}>Step 2: Upload Copy of Grades</Text>
-
-              {/* Upload Box */}
-              <TouchableOpacity
-                style={styles.uploadBox}
-                onPress={() => pickFile("grades")}
-              >
-                {grades ? (
-                  <View style={{ alignItems: "center" }}>
-                    <Icon name="file-pdf-box" size={50} color="#e74c3c" />
-                    <Text style={{ marginTop: 8, fontWeight: "600", color: "#333" }}>
-                      {grades.split("/").pop()}
-                    </Text>
-                    <Text style={{ fontSize: 12, color: "#666" }}>
-                      PDF uploaded successfully
-                    </Text>
-                  </View>
-                ) : (
-                  <>
-                    <Icon name="upload" size={40} color="#666" />
-                    <Text style={styles.uploadText}>
-                      Tap to upload your copy of grades
-                    </Text>
-                    <Text style={{ fontSize: 12, color: "#888", marginTop: 4 }}>
-                      Only .pdf files are accepted
-                    </Text>
-                  </>
-                )}
-              </TouchableOpacity>
-
-              <Text style={{ color: "#666", marginTop: 4, fontSize: 12 }}>
-                Note: Only PDF files are accepted.
-              </Text>
-
-              {/* PDF Open Button */}
-              {grades && (
-                <View style={{ height: 400, marginTop: 12 }}>
-                  <WebView
-                    source={{ uri: grades }}
-                    style={{ flex: 1 }}
-                    startInLoadingState={true}
-                  />
-                </View>
-              )}
-            </View>
+            <PdfUploader
+              label="Copy of Grades"
+              fileUri={grades}
+              onPickFile={(uri) => setGrades(uri)}
+              webviewHeight={400}
+            />
           )}
 
-          {/* STEP 3 - Upload COR */}
+         {/* STEP 3 - Upload COR */}
           {currentStep === 3 && (
-            <View>
-              <Text style={styles.stepTitle}>
-                Step 3: Upload Certificate of Current Enrollment (COR)
-              </Text>
-              <TouchableOpacity
-                style={styles.uploadBox}
-                onPress={() => pickFile("coe")}
-              >
-                {coe ? (
-                  <View style={{ alignItems: "center" }}>
-                    <Icon name="file-pdf-box" size={50} color="#e74c3c" />
-                    <Text
-                      style={{ marginTop: 8, fontWeight: "600", color: "#333" }}
-                    >
-                      {coe.name || coe.split("/").pop()}
-                    </Text>
-                    <Text style={{ fontSize: 12, color: "#666" }}>
-                      PDF uploaded successfully
-                    </Text>
-                  </View>
-                ) : (
-                  <>
-                    <Icon name="upload" size={40} color="#666" />
-                    <Text style={styles.uploadText}>Tap to upload your COR</Text>
-                    <Text style={{ fontSize: 12, color: "#888", marginTop: 4 }}>
-                      Only .pdf files are accepted
-                    </Text>
-                  </>
-                )}
-              </TouchableOpacity>
-              <Text style={{ color: "#666", marginTop: 4, fontSize: 12 }}>
-                Only PDF files are accepted.
-              </Text>
-            </View>
+            <PdfUploader
+              label="Certificate of Current Enrollment (COR)"
+              fileUri={coe}
+              onPickFile={(uri) => setCoe(uri)}
+              webviewHeight={400}
+            />
           )}
 
           {/* STEP 4 - Application Form */}
