@@ -82,10 +82,12 @@ function NoticeModal({ visible, title = "Notice", message, onOk, onReupload }) {
 
           <Text
             style={{
-              fontSize: 20,
-              fontWeight: "800",
-              textAlign: "center",
-              color: "#0d2f60", // changed color
+              marginLeft: 4,
+              fontWeight: "700",
+              color: "#0d2f60",
+              flexShrink: 1,
+              flexWrap: "wrap",
+              minWidth: 0,
             }}
           >
             {title}
@@ -312,37 +314,60 @@ export default function ApplicationforDeans() {
   const [gradeValueReport, setGradeValueReport] = useState(null); // { found: [], ok: boolean }
   const [confirmOpen, setConfirmOpen] = useState(false);
 
-  // Grade value validation (Step 4)
+  // Grade value validation (Step 4) — safer implementation
   const validateGradeValues = async () => {
     setGradeValueLoading(true);
     setGradeValueOk(false);
     setGradeValueReport(null);
+
     try {
-      // Path to grade_pdf_ocr.txt (adjust if needed)
       const fileUri = FileSystem.documentDirectory + "grade_pdf_ocr.txt";
       let content = "";
+
       try {
         content = await FileSystem.readAsStringAsync(fileUri);
       } catch (e) {
-        // fallback: try static path (for dev)
+        // fallback for local dev environment
         content = await fetch(
           "file:///d:/AchieveMate_App-master/technology/ocr_api/results/grade_pdf_ocr.txt"
         )
           .then((r) => r.text())
           .catch(() => "");
       }
-      const patterns = ["3", "4", "5", "INC", "DROP"];
-      const found = patterns.filter((p) =>
-        new RegExp(`\\b${p}\\b`, "i").test(content)
-      );
+
+      // Prefer scanning only the Grade{ ... } block if present to avoid false positives
+      const gradeBlockMatch = content.match(/Grade\s*\{\s*([\s\S]*?)\s*\}/i);
+      const scanText = gradeBlockMatch ? gradeBlockMatch[1] : content;
+
+      // Regex that matches 3, 3.00, 4, 4.00, 5, 5.00, INC, DROP (case-insensitive)
+      // Use word boundaries to limit accidental matches; allow optional .00 for numbers
+      const badRegex = /\b(?:3(?:\.00)?|4(?:\.00)?|5(?:\.00)?|INC|DROP)\b/gi;
+
+      const matches = [];
+      let m;
+      while ((m = badRegex.exec(scanText)) !== null) {
+        matches.push(m[0].toUpperCase());
+      }
+
+      // Build counts and unique found tokens
+      const counts = matches.reduce((acc, tok) => {
+        acc[tok] = (acc[tok] || 0) + 1;
+        return acc;
+      }, {});
+      const found = Object.keys(counts);
       const ok = found.length === 0;
+
       setGradeValueOk(ok);
-      setGradeValueReport({ found, ok });
-      return { found, ok };
+      setGradeValueReport({ found, counts, ok });
+      return { found, counts, ok };
     } catch (e) {
       setGradeValueOk(false);
-      setGradeValueReport({ found: [], ok: false, error: e.message });
-      return { found: [], ok: false, error: e.message };
+      setGradeValueReport({
+        found: [],
+        ok: false,
+        error: e?.message || String(e),
+      });
+      return { found: [], ok: false, error: e?.message || String(e) };
     } finally {
       setGradeValueLoading(false);
     }
@@ -1501,6 +1526,9 @@ export default function ApplicationforDeans() {
                   marginLeft: 4,
                   fontWeight: "700",
                   color: tamperOk ? "#0B7A5C" : "#AB1F2B",
+                  flexShrink: 1,
+                  flexWrap: "wrap",
+                  minWidth: 0,
                 }}
               >
                 {tamperLoading ? (

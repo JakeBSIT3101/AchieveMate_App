@@ -329,9 +329,12 @@ def _normalize_grade_token(token: str) -> str | None:
   if _clean_inc_token(t):
     return "INC"
 
-  m_int = re.fullmatch(r"([345])(?:\.00)?", t)
-  if m_int:
-    return m_int.group(1)
+
+  # Only allow 3.00, 4.00, 5.00 as decimals, not as integers
+  # Remove integer match for 3, 4, 5
+  # m_int = re.fullmatch(r"([345])(?:\.00)?", t)
+  # if m_int:
+  #   return m_int.group(1)
 
   m_three = re.fullmatch(r"(\d)(\d{2})", t)
   if m_three:
