@@ -193,14 +193,71 @@ def parse_grade_for_review(raw_text: str) -> str:
   out.append(f"Total no of Units {total_units}\n")
   return "\n".join(out)
 
-@app.route('/grade_for_review', methods=['GET'])
-def grade_for_review():
+# --- NEW: Parse Grades and Units, output Weighted Grades table with totals ---
+def parse_grade_with_units(raw_text: str) -> str:
+    """
+    Parse raw COG text and output a table: Grades | Units | Weighted Grades.
+    Includes a Total row for Units and Weighted Grades, and Weighted Average.
+    """
+    lines = [ln.strip() for ln in raw_text.splitlines() if ln.strip()]
+    table = []
+    header_found = False
+    total_units = 0
+    total_weighted = 0.0
+    for line in lines:
+        if line.startswith("# Course Code"):
+            header_found = True
+            continue
+        if header_found and re.match(r"^\d+ ", line):
+            tokens = line.split()
+            units = None
+            grade = None
+            code_idx = -1
+            for i in range(1, len(tokens) - 1):
+                if re.match(r'^[A-Za-z]{2,6}$', tokens[i]) and re.match(r'^\d{3}$', tokens[i + 1]):
+                    code_idx = i
+                    break
+            if code_idx != -1:
+                for j in range(code_idx + 2, len(tokens)):
+                    if re.match(r"^\d+$", tokens[j]):
+                        units = tokens[j]
+                        if j + 1 < len(tokens):
+                            grade = tokens[j + 1]
+                        break
+            norm_grade = _normalize_grade_token(grade) if grade else None
+            try:
+                g_val = float(norm_grade) if norm_grade and norm_grade not in {"INC", "DROP"} else None
+                u_val = int(units) if units else None
+                weighted = g_val * u_val if g_val is not None and u_val is not None else ""
+                if u_val is not None:
+                    total_units += u_val
+                if weighted != "" and isinstance(weighted, (int, float)):
+                    total_weighted += weighted
+            except Exception:
+                weighted = ""
+            table.append([norm_grade or "", units or "", str(weighted) if weighted != "" else ""])
+    # Build table string
+    out = ["Grades | Units | Weighted Grades |"]
+    for row in table:
+        out.append(f"{row[0]:<6} | {row[1]:<5} | {row[2]:<14}|")
+    # Add totals row
+    out.append(f"Total:   | {total_units:<5} | {total_weighted:<14}|")
+    # Add Weighted Average row
+    weighted_average = round(total_weighted / total_units, 2) if total_units > 0 else ""
+    out.append(f"Weighted Average: {weighted_average}")
+    return "\n".join(out)
+
+# --- Endpoint to serve Grade_with_Units.txt ---
+@app.route('/grade_with_units', methods=['GET'])
+def grade_with_units():
   raw_cog_path = os.path.join(RESULTS_DIR, "raw_cog_text.txt")
   if not os.path.exists(raw_cog_path):
     return jsonify({"error": "raw_cog_text.txt not found"}), 400
   with open(raw_cog_path, "r", encoding="utf-8") as f:
     raw_text = f.read()
-  result = parse_grade_for_review(raw_text)
+  result = parse_grade_with_units(raw_text)
+  # Optionally save to results/Grade_with_Units.txt
+  atomic_write_text(os.path.join(RESULTS_DIR, "Grade_with_Units.txt"), result)
   return Response(result, mimetype="text/plain")
 
 # === Paths ===
@@ -1130,40 +1187,49 @@ def process_ocr_text(raw_text):
 
 @app.route('/generate_pdf_with_data', methods=['POST'])
 def generate_pdf_with_data():
-  try:
-    data = request.json if request.is_json else {}
-    name = data.get('name', '')
-    program = data.get('program', '')
+    try:
+        data = request.json if request.is_json else {}
+        name = data.get('name', '')
+        course = data.get('course', '')
+        yr_sec = data.get('yr_sec', '')
+        scholarship_grant = data.get('scholarship_grant', '')
+        track = data.get('track', '')
+        contact_number = data.get('contact_number', '')
 
-    template_pdf_path = "assets/DL_Template.pdf"
-    output_pdf_path = os.path.join(RESULTS_DIR, "generated_application_filled.pdf")
+        template_pdf_path = "assets/DL_Template.pdf"
+        output_pdf_path = os.path.join(RESULTS_DIR, "generated_application_filled.pdf")
 
-    packet = io.BytesIO()
-    c = canvas.Canvas(packet, pagesize=letter)
-    c.setFont("Helvetica", 12)
-    c.drawString(100, 750, f"Name: {name}")
-    c.drawString(100, 730, f"Program: {program}")
-    c.save()
+        packet = io.BytesIO()
+        c = canvas.Canvas(packet, pagesize=letter)
+        c.setFont("Helvetica", 12)
+        # Adjust coordinates to match your template fields
+        c.drawString(100, 800, f"Name: {name}")
+        c.drawString(100, 780, f"Contact Number: {contact_number}")
+        c.drawString(100, 760, f"Course: {course}")
+        c.drawString(100, 740, f"Yr./Sec.: {yr_sec}")
+        c.drawString(300, 740, f"Track: {track}")
+        c.drawString(100, 720, f"Scholarship Grant: {scholarship_grant}")
+        c.save()
 
-    packet.seek(0)
-    new_pdf = PdfReader(packet)
-    existing_pdf = PdfReader(template_pdf_path)
-    output_pdf = PdfWriter()
+        packet.seek(0)
+        new_pdf = PdfReader(packet)
+        existing_pdf = PdfReader(template_pdf_path)
+        output_pdf = PdfWriter()
 
-    page = existing_pdf.pages[0]
-    merger = PageMerge(page)
-    merger.add(new_pdf.pages[0]).render()
+        page = existing_pdf.pages[0]
+        merger = PageMerge(page)
+        merger.add(new_pdf.pages[0]).render()
 
-    output_pdf.addpage(page)
-    output_pdf.write(output_pdf_path)
+        output_pdf.addpage(page)
+        output_pdf.write(output_pdf_path)
 
-    return jsonify({
-      "message": "PDF generated successfully",
-      "pdf_url": f"results/{os.path.basename(output_pdf_path)}"
-    })
+        return jsonify({
+            "message": "PDF generated successfully",
+            "pdf_url": f"results/{os.path.basename(output_pdf_path)}"
+        })
 
-  except Exception as e:
-    return jsonify({"error": f"Failed to generate PDF: {str(e)}"}), 500
+    except Exception as e:
+        return jsonify({"error": f"Failed to generate PDF: {str(e)}"}), 500
 
 # --- Simple debug endpoint to verify grade_image.txt on the server
 @app.route('/debug/grade_image_txt', methods=['GET'])

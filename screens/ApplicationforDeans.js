@@ -47,7 +47,7 @@ function NoticeModal({ visible, title = "Notice", message, onOk, onReupload }) {
             elevation: 8,
           }}
         >
-          {/* Red circle with X */}
+          {/* Circle with X in #0d2f60 */}
           <View style={{ alignItems: "center", marginBottom: 12 }}>
             <View
               style={{
@@ -55,7 +55,7 @@ function NoticeModal({ visible, title = "Notice", message, onOk, onReupload }) {
                 height: 84,
                 borderRadius: 42,
                 borderWidth: 4,
-                borderColor: "#F2545B",
+                borderColor: "#0d2f60", // changed color
                 alignItems: "center",
                 justifyContent: "center",
               }}
@@ -64,7 +64,7 @@ function NoticeModal({ visible, title = "Notice", message, onOk, onReupload }) {
                 style={{
                   width: 36,
                   height: 4,
-                  backgroundColor: "#F2545B",
+                  backgroundColor: "#0d2f60", // changed color
                   transform: [{ rotate: "45deg" }],
                 }}
               />
@@ -73,7 +73,7 @@ function NoticeModal({ visible, title = "Notice", message, onOk, onReupload }) {
                   position: "absolute",
                   width: 36,
                   height: 4,
-                  backgroundColor: "#F2545B",
+                  backgroundColor: "#0d2f60", // changed color
                   transform: [{ rotate: "-45deg" }],
                 }}
               />
@@ -85,7 +85,7 @@ function NoticeModal({ visible, title = "Notice", message, onOk, onReupload }) {
               fontSize: 20,
               fontWeight: "800",
               textAlign: "center",
-              color: "#333",
+              color: "#0d2f60", // changed color
             }}
           >
             {title}
@@ -112,7 +112,6 @@ function NoticeModal({ visible, title = "Notice", message, onOk, onReupload }) {
               justifyContent: "center",
             }}
           >
-            {/* Re-upload button is optional; pass onReupload when you need it */}
             {onReupload && (
               <TouchableOpacity
                 onPress={onReupload}
@@ -120,13 +119,13 @@ function NoticeModal({ visible, title = "Notice", message, onOk, onReupload }) {
                   paddingVertical: 12,
                   paddingHorizontal: 18,
                   borderRadius: 12,
-                  backgroundColor: "#FFE4E6",
+                  backgroundColor: "#E3EAF3", // lighter blue for re-upload
                   borderWidth: 1,
-                  borderColor: "#F2545B",
+                  borderColor: "#0d2f60", // changed color
                   marginRight: 12,
                 }}
               >
-                <Text style={{ color: "#C81E1E", fontWeight: "700" }}>
+                <Text style={{ color: "#0d2f60", fontWeight: "700" }}>
                   RE-UPLOAD
                 </Text>
               </TouchableOpacity>
@@ -137,7 +136,7 @@ function NoticeModal({ visible, title = "Notice", message, onOk, onReupload }) {
                 paddingVertical: 12,
                 paddingHorizontal: 18,
                 borderRadius: 12,
-                backgroundColor: "#53B1FD",
+                backgroundColor: "#0d2f60", // changed color
               }}
             >
               <Text style={{ color: "#fff", fontWeight: "700" }}>OK</Text>
@@ -149,6 +148,115 @@ function NoticeModal({ visible, title = "Notice", message, onOk, onReupload }) {
   );
 }
 /* -------------------------------------------------------------------- */
+
+// Confirmation modal component
+function ConfirmModal({ visible, onYes, onNo }) {
+  return (
+    <Modal visible={visible} animationType="fade" transparent>
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: "rgba(0,0,0,0.45)",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 22,
+        }}
+      >
+        <View
+          style={{
+            width: "100%",
+            maxWidth: 420,
+            backgroundColor: "#fff",
+            borderRadius: 20,
+            paddingVertical: 22,
+            paddingHorizontal: 20,
+            alignItems: "center",
+            shadowColor: "#000",
+            shadowOpacity: 0.2,
+            shadowRadius: 20,
+            elevation: 8,
+          }}
+        >
+          {/* Circle with question mark */}
+          <View style={{ alignItems: "center", marginBottom: 12 }}>
+            <View
+              style={{
+                width: 84,
+                height: 84,
+                borderRadius: 42,
+                borderWidth: 4,
+                borderColor: "#53B1FD",
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: "#F0F6FF",
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 48,
+                  color: "#53B1FD",
+                  fontWeight: "bold",
+                  marginTop: 8,
+                }}
+              >
+                ?
+              </Text>
+            </View>
+          </View>
+          <Text
+            style={{
+              fontSize: 20,
+              fontWeight: "800",
+              textAlign: "center",
+              color: "#333",
+              marginBottom: 10,
+            }}
+          >
+            Confirmation
+          </Text>
+          <Text
+            style={{
+              fontSize: 15,
+              color: "#666",
+              textAlign: "center",
+              lineHeight: 22,
+              marginBottom: 18,
+            }}
+          >
+            Are you sure about the detail?
+          </Text>
+          <View style={{ flexDirection: "row", justifyContent: "center" }}>
+            <TouchableOpacity
+              onPress={onNo}
+              style={{
+                paddingVertical: 12,
+                paddingHorizontal: 18,
+                borderRadius: 12,
+                backgroundColor: "#F0F6FF",
+                borderWidth: 1,
+                borderColor: "#53B1FD",
+                marginRight: 12,
+              }}
+            >
+              <Text style={{ color: "#53B1FD", fontWeight: "700" }}>NO</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={onYes}
+              style={{
+                paddingVertical: 12,
+                paddingHorizontal: 18,
+                borderRadius: 12,
+                backgroundColor: "#53B1FD",
+              }}
+            >
+              <Text style={{ color: "#fff", fontWeight: "700" }}>YES</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
 
 export default function ApplicationforDeans() {
   // Column spec for Step 6 table (label, width, align)
@@ -202,6 +310,8 @@ export default function ApplicationforDeans() {
   const [gradeValueLoading, setGradeValueLoading] = useState(false);
   const [gradeValueOk, setGradeValueOk] = useState(false);
   const [gradeValueReport, setGradeValueReport] = useState(null); // { found: [], ok: boolean }
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
   // Grade value validation (Step 4)
   const validateGradeValues = async () => {
     setGradeValueLoading(true);
@@ -863,9 +973,17 @@ export default function ApplicationforDeans() {
   const loadReviewData = async () => {
     setReviewLoading(true);
     try {
-      // Use grade_for_review.txt instead of raw_cog_text.txt
+      // Fetch grade_for_review.txt for table/meta
       const coeTxt = await fetchText(`${OCR_URL}/results/grade_for_review.txt`);
-      // Parse meta fields from grade_for_review.txt
+      // Fetch Grade_with_Units.txt for Weighted Average
+      const gradeUnitsTxt = await fetchText(
+        `${OCR_URL}/results/Grade_with_Units.txt`
+      );
+      // Extract Weighted Average from Grade_with_Units.txt
+      const gwaMatch = gradeUnitsTxt.match(/Weighted Average:\s*([0-9.]+)/i);
+      const gwa = gwaMatch ? gwaMatch[1] : "—";
+
+      // Use grade_for_review.txt instead of raw_cog_text.txt
       const meta = {
         fullname: (() => {
           const m = coeTxt.match(/Fullname\s*:\s*([^\n]+?)(?:\s*SRCODE|$)/i);
@@ -974,7 +1092,7 @@ export default function ApplicationforDeans() {
       const summary = {
         totalCourses: totalCoursesMatch ? totalCoursesMatch[1] : rows.length,
         totalUnits: totalUnitsMatch ? totalUnitsMatch[1] : "—",
-        gwa: "—", // Not present in grade_for_review.txt, can compute if needed
+        gwa, // <-- set GWA from Grade_with_Units.txt
       };
 
       setReviewMeta(meta);
@@ -1927,11 +2045,19 @@ export default function ApplicationforDeans() {
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.stepFormNavBtn, { backgroundColor: "#007bff" }]}
-              onPress={() => setCurrentStep(7)}
+              onPress={() => setConfirmOpen(true)}
             >
               <Text style={styles.navButtonText}>Next →</Text>
             </TouchableOpacity>
           </View>
+          <ConfirmModal
+            visible={confirmOpen}
+            onYes={() => {
+              setConfirmOpen(false);
+              setCurrentStep(7);
+            }}
+            onNo={() => setConfirmOpen(false)}
+          />
         </View>
       )}
 
