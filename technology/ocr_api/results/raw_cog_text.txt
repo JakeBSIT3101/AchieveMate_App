@@ -1,26 +1,24 @@
 BATANGAS STATE UNIVERSITY
-
 ARASOF-Nasugbu Campus
 
 Student's Copy of Grades
-
+Fullname : SAMONTANEZ, JAKE A. SRCODE : 22-78222
+College : College of Informatics and Computing Sciences Academic Year : 2023-2024
+Program : BS Information Technology Semester : SECOND
+Year Level : SECOND
+# Course Code Course Title Units Grade Section Instructor
+1 ES 101 Environmental Sciences 3 1.75 IT-2203 MERCADO, ALBERT S.
+2 GEd 101 Understanding the Self 3 3.00 IT-2203 JOSE, RODELON G.
+3 GEd 106 Purposive Communication 3 2.50 IT-2203 GARCIA, LORIE JOY C.
+4 IT 221 Information Management 3 2.25 IT-2203 SAMONTE, BENJIE R.
+5 IT 222 Advanced Database Management System 3 2.50 IT-2203 SALAC, DJOANNA MARIE V.
+6 IT 223 Computer Networking 2 3 2.00 IT-2203 MERCADO, ALBERT S.
+7 MATH 408 Data Analysis 3 2.00 IT-2203 MAANO, JOHN DENVER M.
+8 PE 104 Team Sports 2 1.25 IT-2203 ANDINO, JOHN LESTER O.
+** NOTHING FOLLOWS **
+Total no of Course 8
+Total no of Units 23
 General Weighted Average (GWA)
 
 22-78222
-
-Fullname : SAMONTANEZ, JAKE A. SRCODE : 22-78222
-College : College of Informatics and Computing Sciences Academic Year : 2024-2025
-Program : BS Information Technology Semester : FIRST
-Year Level : THIRD
-# Course Code Course Title Units Grade Section Instructor
-1 BAT 401 Fundamentals of Business Analytics 3 2.50 IT-BA-3101 SALAC, DJOANNA MARIE V.
-2 BAT 402 Fundamentals of Analytics Modeling 3 2.00 IT-BA-3101 ATIENZA, ALFREDO V. JR
-3 GEd 107 Ethics 3 2.50 IT-BA-3101 JAPAY, MARIA VANETTE 0.
-4 IT 311 Systems Administration and Maintenance 3 1.75 IT-BA-3101 DE JESUS, NOELYN M.
-5 IT 312 Systems Integration and Architecture 3 2.00 IT-BA-3101 HERNANDEZ, OLIVER M.
-6 IT 313 System Analysis and Design 3 2.25 IT-BA-3101 SAMONTE, BENJIE R.
-7 IT 314 Web Systems and Technologies 3 2.00 IT-BA-3101 MAGSINO, JASON C.
-** NOTHING FOLLOWS **
-Total no of Course 7
-Total no of Units 21
 

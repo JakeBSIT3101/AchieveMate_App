@@ -331,7 +331,7 @@ export default function ApplicationforDeans() {
           .then((r) => r.text())
           .catch(() => "");
       }
-      const patterns = ["3.00", "4.00", "5.00", "INC", "DROP"];
+      const patterns = ["3", "4", "5", "INC", "DROP"];
       const found = patterns.filter((p) =>
         new RegExp(`\\b${p}\\b`, "i").test(content)
       );

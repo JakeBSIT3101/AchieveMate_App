@@ -1,80 +1,40 @@
 Reference No. BatStateU-FO-REG-1
 
+Effectivity: May 18, 2022
+
 Republic of the Philippines
 BATANGAS STATE UNIVERSITY
+
 The National Engineering University
-ARASOF-Nasugbu Campus
+
 R. Martinez St., Brgy. Bucana, Nasugbu Batangas
 
-Effectivity: May 18, 2022
+ARASOF-Nasugbu Campus
 
 Revision No. 02
 
-SR Code: 22-78222
-Name: SAMONTANEZ, JAKE A.
-COURSE CODE COURSE TITLE
-SECTION
-BAT 401 Fundamentals of Business Analytics
-BAT 402 Fundamentals of Analytics Modeling
-GEd 107 Ethics
-IT 311 Systems Administration and Maintenance
-IT 312 Systems Integration and Architecture
-IT 313 System Analysis and Design
-IT 314 Web Systems and Technologies
-
-Scholarship/s:
-
-Higher Education Support Program : Free Tuition 2024
-
-(*) Discount has been deducted.
-Tuition Fee Discount=4,641.00
-Assessment Discount=5,680.00
-
-ENROLLED
-
-ege of Informatics an
-FIRST, 2024-2025
+ollege of Informatics and Computing Sciences
+SECOND, 2023-2024
 REGISTRATION FORM
-
-WWWWWW WwW
-
-NO
-—
-
-RATION SERVICES
-
-omputing Sciences
-
-(IT-BA-3101)
-(IT-BA-3101)
-(IT-BA-3101)
-(IT-BA-3101)
-(IT-BA-3101)
-(IT-BA-3101)
-(IT-BA-3101)
-
-BS Information Technology -BA/THIRD
-
-ASSESSMENT
-
-(221 00/unit) 4,641.00
-Library Fee 622.00
-Registration Fee 260.00
-Athletic Fee 380.00
-Publication Fee 380.00
-Medical / Dental Fee 380.00
-Guidance Fee 260.00
-Laboratory Fee 751.00
-AntiTB 15.00
-Cultural Fee 173.00
+SR Code: 22-78222 Sex: MALE
+Name: SAMONTANEZ, JAKE A. Program: BS Information Technology /SECOND
+COURSE CODE COURSE TITLE UNIT(S) ASSESSMENT
+SECTION Tuition Fee 5083.00
+ES101 —_ Environmental Sciences 3 (IT-2203) (221.00/unit) aaa
+GEd 101 ~=Understanding the Self 3 (IT-2203) Library Fee 622.00
+GEd 106 Purposive Communication 3 (IT-2203) Registration Fee 260.00
+IT 221 Information Management 3 (IT-2203) Athletic Fee 380.00
+IT222 Advanced Database Management System 3 (IT-2203) Publication Fee 380.00
+IT 223. | Computer Networking 2 3 (IT-2203) Medical / DentallFee 380.00
+PE 104 Team Sports 2 wi2ans) Laboratory Fee 751.00
+23 Cultural Fee 173.00
 Internet Fee 300.00
-Insurance 50.00
-Security* 173.00
-HEMF (86.00/unit)* 1,806.00
-SCUAA 130.00
+Scholarship/s: Security* 173.00
+Higher Education Support Program : Free Tuition 2023 Approved by: HEMF (86.00/unit)* 1,978.00
+(*) Discount has been deducted. SCUAA 130.00
+Tuition Fee Discount=5,083.00 10,870.00
+Assessment Discount=5,787.00 DISCOUNT (10,870.00)
+ENROLLED — emttfhan omen a
+HEAD, REGISWRATION SERVICES
+Daye : 01/04/2024 * under appeal
 
-10,321.00
-DISCOUNT (10,321.00)
-TOTAL(PHP) ~ 0.00
-
-* under appeal

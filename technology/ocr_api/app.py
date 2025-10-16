@@ -303,9 +303,9 @@ def set_image_dpi(file_path, min_width_px=1024, dpi=300):
 
 # ---------------- Grade normalization helpers ----------------
 ALLOWED_GRADES = [
-  "1.00","1.25","1.50","1.75","2.00","2.25","2.50","2.75","3","4","5","INC"
+  "1.00","1.25","1.50","1.75","2.00","2.25","2.50","2.75","3.00","4.00","5.00","INC"
 ]
-ALLOWED_DECIMALS = [1.00,1.25,1.50,1.75,2.00,2.25,2.50,2.75]
+ALLOWED_DECIMALS = [1.00,1.25,1.50,1.75,2.00,2.25,2.50,2.75,3.00,4.00,5.00]
 ALLOWED_STR_TO_FLOAT = {s: float(s) for s in ALLOWED_GRADES if re.fullmatch(r"\d\.\d{2}", s)}
 
 def _num_to_grade_string(x: float) -> str:
