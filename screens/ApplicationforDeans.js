@@ -329,15 +329,43 @@ export default function ApplicationforDeans() {
       } catch (e) {
         // fallback for local dev environment
         content = await fetch(
-          "file:///d:/AchieveMate_App-master/technology/ocr_api/results/grade_pdf_ocr.txt"
+          "file:///C:UsersjakesDownloadsAchieveMate_App\technologyocr_api\resultsgrade_pdf_ocr.txt"
         )
           .then((r) => r.text())
           .catch(() => "");
       }
 
+      // If still empty, try fetching the server copy (when running with OCR_URL available)
+      if (
+        (!content || content.trim() === "") &&
+        typeof OCR_URL === "string" &&
+        OCR_URL
+      ) {
+        try {
+          const url = `${OCR_URL}/results/grade_pdf_ocr.txt`;
+          const res = await fetch(
+            url + (url.includes("?") ? "" : `?t=${Date.now()}`)
+          );
+          if (res.ok) {
+            const txt = await res.text().catch(() => "");
+            if (txt && txt.trim()) content = txt;
+          }
+        } catch (e) {
+          // ignore server fetch error; we'll proceed with whatever content we have
+        }
+      }
+
+      // Normalize some common OCR artifacts (common punctuation variants, non-breaking spaces)
+      let normalized = (content || "").replace(/[\u00A0\u200B\uFEFF]/g, " ");
+      normalized = normalized.replace(/[,·•:;\u00B7]/g, ".");
+
+      // Debug: attach a small preview to the report so you can see what was scanned at runtime
+      const preview = normalized.trim().slice(0, 200).replace(/\n/g, "\\n");
+      console.debug("validateGradeValues: preview ->", preview);
+
       // Prefer scanning only the Grade{ ... } block if present to avoid false positives
-      const gradeBlockMatch = content.match(/Grade\s*\{\s*([\s\S]*?)\s*\}/i);
-      const scanText = gradeBlockMatch ? gradeBlockMatch[1] : content;
+      const gradeBlockMatch = normalized.match(/Grade\s*\{\s*([\s\S]*?)\s*\}/i);
+      const scanText = gradeBlockMatch ? gradeBlockMatch[1] : normalized;
 
       // Regex that matches 3, 3.00, 4, 4.00, 5, 5.00, INC, DROP (case-insensitive)
       // Use word boundaries to limit accidental matches; allow optional .00 for numbers
@@ -358,8 +386,8 @@ export default function ApplicationforDeans() {
       const ok = found.length === 0;
 
       setGradeValueOk(ok);
-      setGradeValueReport({ found, counts, ok });
-      return { found, counts, ok };
+      setGradeValueReport({ found, counts, ok, preview });
+      return { found, counts, ok, preview };
     } catch (e) {
       setGradeValueOk(false);
       setGradeValueReport({

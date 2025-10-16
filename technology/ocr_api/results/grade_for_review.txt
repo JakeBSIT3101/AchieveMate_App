@@ -6,28 +6,28 @@ Student's Copy of Grades
 
 General Weighted Average (GWA)
 
-22-78222
+22-70781
 
-Fullname : SAMONTANEZ, JAKE A. SRCODE
- SRCODE : 22-78222
+Fullname : DULUTAN, GERARD ANWEN A. SRCODE
+ SRCODE : 22-70781
 
 College : College of Informatics and Computing Sciences
- Academic Year : 2023-2024
+ Academic Year : 2022-2023
 
 Program : BS Information Technology
- Semester : SECOND
+ Semester : FIRST
 
-Year Level : SECOND
+Year Level : FIRST
 
 # Course Code Course Title Units Grade Section Instructor
-1 ES 101 Environmental Sciences 3 1.75 IT-2203 MERCADO, ALBERT S.
-2 GEd 101 Understanding the Self 3 3.00 IT-2203 JOSE, RODELON G.
-3 GEd 106 Purposive Communication 3 2.50 IT-2203 GARCIA, LORIE JOY C.
-4 IT 221 Information Management 3 2.25 IT-2203 SAMONTE, BENJIE R.
-5 IT 222 Advanced Database Management System 3 2.50 IT-2203 SALAC, DJOANNA MARIE V.
-6 IT 223 Computer Networking 2 3 2.00 IT-2203 MERCADO, ALBERT S.
-7 MATH 408 Data Analysis 3 2.00 IT-2203 MAANO, JOHN DENVER M.
-8 PE 104 Team Sports 2 1.25 IT-2203 ANDINO, JOHN LESTER O.
+1 Fili 101 Kontekstwalisadong Komunikasyon sa Filipino 3 1.25 IT-1101 PAJO, JOHN CLOYD H.
+2 GEd 102 Mathematics in the Modern World 3 2.50 IT-1101 MAANO, JOHN DENVER M.
+3 GEd 103 Life and Works of Rizal 3 1.75 IT-1101 ROSALES, ANDREALYN R.
+4 GEd 104 The Contemporary World 3 2.25 IT-1101 BATACLAO, AUDREY K.
+5 GEd 108 Art Appreciation 3 1.50 IT-1101 NOLLORA, ANGELICA LOUISSE M.
+6 IT 111 Introduction to Computing 3 1.25 IT-1101 SAMONTE, BENJIE R.
+7 NSTP 111 National Service Training Program 1 3 1.50 IT-1101 MONTANO, FLORIDO L.
+8 PE 101 Physical Fitness, Gymnastics and Aerobics 2 1.50 IT-1101 OPULENCIA, RYAN
 ** NOTHING FOLLOWS **
 ** NOTHING FOLLOWS **
 Total no of Course 8

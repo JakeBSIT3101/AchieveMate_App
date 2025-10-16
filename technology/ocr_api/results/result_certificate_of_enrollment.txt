@@ -1,17 +1,18 @@
-SR Code: 22-78222
+SR Code: 22-70781
 Sex: MALE
-Name: SAMONTANEZ, JAKE A.
-Program: BS Information Technology
+Name: DULUTAN, GERARD ANWEN A.
+Program: 1 3
 track:
-Semester : SECOND
-Year Level : SECOND
+Semester : FIRST
+Year Level : FIRST
 
 COURSE CODE{
-ES 101,
-GED 101,
-GED 106,
-IT 221,
-IT 222,
-IT 223,
-PE 104,
+FILI 101,
+GED 102,
+GED 103,
+GED 104,
+GED 108,
+IT 111,
+NSTP 111,
+PE 101,
 }
