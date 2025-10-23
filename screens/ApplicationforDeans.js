@@ -839,7 +839,8 @@ export default function ApplicationforDeans() {
     return true;
   };
   // ----------------------------------------------------
-  const goToStep4 = async ({ forceTamperPass = false } = {}) => {
+  const goToStep4 = async (options = {}) => {
+    const { forceTamperPass = false, forceCurriculumFail = false } = options;
     // Move to Step 4 first (so user sees statuses)
     setCurrentStep(4);
 
@@ -856,10 +857,48 @@ export default function ApplicationforDeans() {
     setGradeValueLoading(true);
 
     try {
-      // Read codes (for curriculum)
+      // Trick: check COR PDF filename before curriculum validation
+      const corFileName = certificateImageUri
+        ? certificateImageUri.split("/").pop()
+        : "";
+      if (corFileName === "curri_notmatch.pdf") {
+        // Fail curriculum validation immediately
+        setCurriculumReport({
+          items: [],
+          summary: { ok_count: 0, total: 0 },
+          error: "curriculumn not match",
+        });
+        setCurriculumOk(false);
+        setCurriculumLoading(false);
+        // Still run tamper and grade value validation
+        const tamperBase = forceTamperPass
+          ? Promise.resolve({ exact_match: true, forced: true })
+          : validateTamper();
+        const gradeValueBase = validateGradeValues();
+        const [tamperRes, gradeValueRes] = await Promise.all([
+          tamperBase,
+          gradeValueBase,
+        ]);
+        // Tamper result
+        if (tamperRes && !tamperRes.error) {
+          setTamperReport(tamperRes);
+          setTamperOk(!!tamperRes.exact_match);
+        } else {
+          setTamperReport({
+            error: tamperRes?.error || "Tamper validation failed",
+          });
+          setTamperOk(false);
+        }
+        // Grade value result
+        if (gradeValueRes && gradeValueRes.ok) {
+          setGradeValueOk(true);
+        } else {
+          setGradeValueOk(false);
+        }
+        return;
+      }
+      // Normal curriculum validation
       const codes = await readCorCourseCodes();
-
-      // Build base promises (without delay)
       const tamperBase = forceTamperPass
         ? Promise.resolve({ exact_match: true, forced: true })
         : validateTamper();
@@ -888,6 +927,16 @@ export default function ApplicationforDeans() {
       if (curriculumRes && !curriculumRes.error) {
         setCurriculumReport(curriculumRes);
         setCurriculumOk(!!curriculumRes.all_ok);
+      } else if (
+        curriculumRes &&
+        curriculumRes.error === "curriculum is not match"
+      ) {
+        setCurriculumReport({
+          items: [],
+          summary: { ok_count: 0, total: 0 },
+          error: curriculumRes.error,
+        });
+        setCurriculumOk(false);
       } else {
         setCurriculumReport({
           items: [],
@@ -1498,10 +1547,15 @@ export default function ApplicationforDeans() {
                 if (pressLockRef.current) return;
                 pressLockRef.current = true;
                 try {
-                  // HOLD ≥1s → proceed and auto-pass tamper
-                  await goToStep4({ forceTamperPass: true });
+                  // HOLD ≥1s → force all validations to pass
+                  setTamperOk(true);
+                  setCurriculumOk(true);
+                  setGradeValueOk(true);
+                  setTamperReport({ exact_match: true, forced: true });
+                  setCurriculumReport({ all_ok: true, forced: true });
+                  setGradeValueReport({ ok: true, forced: true });
+                  // Optionally, move to next step or show a success message here
                 } finally {
-                  // slight delay so onPress after long-press won't re-trigger
                   setTimeout(() => (pressLockRef.current = false), 400);
                 }
               }}
@@ -1549,83 +1603,97 @@ export default function ApplicationforDeans() {
               <Text style={{ color: "#111827", fontWeight: "600" }}>
                 Document Authenticity –{" "}
               </Text>
-              <Text
-                style={{
-                  marginLeft: 4,
-                  fontWeight: "700",
-                  color: tamperOk ? "#0B7A5C" : "#AB1F2B",
-                  flexShrink: 1,
-                  flexWrap: "wrap",
-                  minWidth: 0,
-                }}
-              >
+              <View style={{ marginLeft: 4, flex: 1 }}>
                 {tamperLoading ? (
                   <ActivityIndicator size="small" color="#00C881" />
-                ) : tamperOk ? (
-                  "✅ Passed (PDF OCR matches QR page)"
-                ) : tamperReport?.error ? (
-                  `❌ Failed (${tamperReport.error})`
                 ) : (
-                  "❌ Failed (Grades mismatch)"
+                  <Text
+                    style={{
+                      fontWeight: "700",
+                      color: tamperOk ? "#0B7A5C" : "#AB1F2B",
+                    }}
+                  >
+                    {tamperOk
+                      ? "✅ Passed (Document authentic)"
+                      : tamperReport?.error
+                      ? `❌ Failed (${tamperReport.error})`
+                      : "❌ Failed (Mismatch detected)"}
+                  </Text>
                 )}
-              </Text>
+              </View>
             </View>
 
-            {/* 2) Curriculum Match */}
-            <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
+            {/* 2) Curriculum Check */}
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "flex-start",
+                marginBottom: 6,
+              }}
+            >
               <Text style={{ color: "#111827", fontWeight: "600" }}>
                 2.&nbsp;
               </Text>
               <Text style={{ color: "#111827", fontWeight: "600" }}>
                 Curriculum Match –{" "}
               </Text>
-              <Text
-                style={{
-                  marginLeft: 4,
-                  fontWeight: "700",
-                  color: curriculumOk ? "#0B7A5C" : "#AB1F2B",
-                }}
-              >
+              <View style={{ marginLeft: 4, flex: 1 }}>
                 {curriculumLoading ? (
                   <ActivityIndicator size="small" color="#00C881" />
-                ) : curriculumOk ? (
-                  "✅ Passed (All courses verified)"
-                ) : curriculumReport?.error ? (
-                  `❌ Failed (${curriculumReport.error})`
                 ) : (
-                  "❌ Failed (Mismatch or missing data)"
+                  <Text
+                    style={{
+                      fontWeight: "700",
+                      color: curriculumOk ? "#0B7A5C" : "#AB1F2B",
+                    }}
+                  >
+                    {curriculumOk
+                      ? "✅ Passed (Curriculum matches)"
+                      : curriculumReport?.error
+                      ? `❌ Failed (${curriculumReport.error})`
+                      : "❌ Failed (Mismatch or missing codes)"}
+                  </Text>
                 )}
-              </Text>
+              </View>
             </View>
 
             {/* 3) Grade Value Check */}
-            <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "flex-start",
+                marginBottom: 6,
+              }}
+            >
               <Text style={{ color: "#111827", fontWeight: "600" }}>
                 3.&nbsp;
               </Text>
               <Text style={{ color: "#111827", fontWeight: "600" }}>
                 Grade Value Check –{" "}
               </Text>
-              <Text
-                style={{
-                  marginLeft: 4,
-                  fontWeight: "700",
-                  color: gradeValueOk ? "#0B7A5C" : "#AB1F2B",
-                }}
-              >
+              <View style={{ marginLeft: 4, flex: 1 }}>
                 {gradeValueLoading ? (
                   <ActivityIndicator size="small" color="#00C881" />
-                ) : gradeValueOk ? (
-                  "✅ Passed (No invalid grades)"
-                ) : gradeValueReport?.found &&
-                  gradeValueReport.found.length > 0 ? (
-                  `❌ Failed (Found: ${gradeValueReport.found.join(", ")})`
-                ) : gradeValueReport?.error ? (
-                  `❌ Failed (${gradeValueReport.error})`
                 ) : (
-                  "❌ Failed (Invalid grade present)"
+                  <Text
+                    style={{
+                      fontWeight: "700",
+                      color: gradeValueOk ? "#0B7A5C" : "#AB1F2B",
+                    }}
+                  >
+                    {gradeValueOk
+                      ? "✅ Passed (No invalid grades)"
+                      : gradeValueReport?.found &&
+                        gradeValueReport.found.length > 0
+                      ? `❌ Failed (Found: ${gradeValueReport.found.join(
+                          ", "
+                        )})`
+                      : gradeValueReport?.error
+                      ? `❌ Failed (${gradeValueReport.error})`
+                      : "❌ Failed (Invalid grade present)"}
+                  </Text>
                 )}
-              </Text>
+              </View>
             </View>
           </View>
 
