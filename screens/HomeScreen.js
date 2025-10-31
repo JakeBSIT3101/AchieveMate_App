@@ -32,7 +32,7 @@ const HomeScreen = ({ navigation }) => {
     try {
       console.log("📡 Fetching announcements from hosted database...");
       setLoading(true);
-      const res = await fetch(`${BASE_URL}/post.php`); // ✅ use posts.php
+      const res = await fetch(`${BASE_URL}/post.php`); // ✅ use /api/post.php
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
 
@@ -68,6 +68,7 @@ const HomeScreen = ({ navigation }) => {
   const renderImage = (item) => {
     // Server now provides: item.image_url (e.g., https://.../post-image.php?id=123)
     const uri = item?.image_url || null;
+    console.log("🖼️ image_url for", item?.Post_id, "→", uri);
     if (!uri) {
       return (
         <Image

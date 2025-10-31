@@ -688,6 +688,7 @@ export default function ApplicationforDeans() {
     if (docType === "Certificate of Enrollment") {
       const result = await DocumentPicker.getDocumentAsync({
         type: "application/pdf",
+        copyToCacheDirectory: true,
       });
       if (result.canceled) return;
       file = result.assets[0];
@@ -695,6 +696,7 @@ export default function ApplicationforDeans() {
       // Copy of Grades now accepts a PDF (DocumentPicker)
       const result = await DocumentPicker.getDocumentAsync({
         type: "application/pdf",
+        copyToCacheDirectory: true,
       });
       if (result.canceled) return;
       file = result.assets[0];

@@ -115,6 +115,7 @@ const LoginScreen = ({ navigation }) => {
           <TextInput
             style={[styles.input, styles.blueField]}
             placeholder="Username"
+            placeholderTextColor="#888"
             value={username}
             onChangeText={setUsername}
             autoCapitalize="none"
@@ -124,6 +125,7 @@ const LoginScreen = ({ navigation }) => {
             <TextInput
               style={[styles.input, styles.blueField]}
               placeholder="Password"
+              placeholderTextColor="#888"
               secureTextEntry={!isPasswordVisible}
               value={password}
               onChangeText={setPassword}
