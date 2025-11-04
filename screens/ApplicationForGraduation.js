@@ -212,103 +212,113 @@ export default function ApplicationForGraduation() {
         <View style={styles.card}>
           {/* STEP 1 - Guidelines */}
           {currentStep === 1 && (
-            <View>
-              <Text style={styles.stepTitle}>Step 1: Guidelines</Text>
+          <View>
+            <Text style={styles.stepTitle}>Step 1: Guidelines</Text>
 
-              {/* Reminder */}
-              <View style={styles.card}>
-                <Text style={styles.cardTitle}>REMINDER</Text>
-                <Text style={styles.cardText}>
-                  It is understood that should this application be approved, the candidate{" "}
-                  <Text style={styles.bold}>
-                    must comply with all requirements for graduation
-                  </Text>{" "}
-                  before the Academic Council Meeting, such as:
-                </Text>
-                <View style={styles.list}>
-                  <Text style={styles.listItem}>
-                    1. Photocopy of the Approval Sheet of Thesis/Dissertation
-                  </Text>
-                  <Text style={styles.listItem}>
-                    2. Certificate of Submission of hardbound copy of thesis in the Library
-                  </Text>
-                </View>
-              </View>
+            {/* Graduation Guidelines */}
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Graduation Guidelines</Text>
+              <Text style={styles.cardText}>
+                A student’s completion of academic requirements is recognized through the
+                Graduation Application Process, which ensures that only qualified candidates
+                are endorsed for graduation.
+              </Text>
 
-              {/* System-based Procedure */}
-              <View style={styles.card}>
-                <Text style={styles.cardTitle}>SYSTEM-BASED PROCEDURE</Text>
-                <Text style={styles.cardText}>
-                  The online steps for graduation application:
+              <View style={styles.list}>
+                <Text style={styles.listItem}>
+                  • apply for graduation within the prescribed schedule set by the university;
                 </Text>
-                <View style={styles.list}>
-                  <Text style={styles.listItem}>
-                    1. Log in to AchieveMate and open the “Application for Graduation” section.
-                  </Text>
-                  <Text style={styles.listItem}>
-                    2. Review the guidelines and agree to the Data Privacy Agreement.
-                  </Text>
-                  <Text style={styles.listItem}>3. Upload your grades.</Text>
-                  <Text style={styles.listItem}>
-                    4. Upload your Certificate of Current Enrollment.
-                  </Text>
-                  <Text style={styles.listItem}>5. Fill out your Application Form.</Text>
-                  <Text style={styles.listItem}>
-                    6. System validates grades and identifies missing subjects.
-                  </Text>
-                  <Text style={styles.listItem}>
-                    7. Fill in Guardian Information and attach required documents.
-                  </Text>
-                  <Text style={styles.listItem}>
-                    8. (Optional) Upload Approval Sheet.
-                  </Text>
-                  <Text style={styles.listItem}>
-                    9. Review any deficiencies before submission.
-                  </Text>
-                  <Text style={styles.listItem}>
-                    10. Wait for confirmation from Registrar’s Office.
-                  </Text>
-                </View>
-              </View>
-
-              {/* Data Privacy Agreement */}
-              <View style={styles.card}>
-                <Text style={styles.cardTitle}>DATA PRIVACY AGREEMENT</Text>
-                <Text style={styles.cardText}>
-                  In submitting this form, I agree that my details be utilized for
-                  evaluating my academic records and for other purposes relevant to my
-                  graduation. I also agree that the information I have indicated in this
-                  form be made available to the university, and to other external
-                  agencies, groups and individuals for scholastic, research, and
-                  employment purposes.
+                <Text style={styles.listItem}>
+                  • upload the required documents in the system, including:
                 </Text>
-                <Text style={styles.signature}>
-                  Signature over Printed Name of Student
+                <Text style={styles.listItem}>  - a copy of the Final Grades, and</Text>
+                <Text style={styles.listItem}>
+                    - a Certificate of Current Enrollment (or Certificate of Registration);
                 </Text>
-
-                {/* Checkbox */}
-                <View style={styles.checkboxContainer}>
-                  <Checkbox
-                    status={step1Consent ? "checked" : "unchecked"}
-                    onPress={() => setStep1Consent(!step1Consent)}
-                    color="#0249AD"
-                  />
-                  <Text style={styles.text}>
-                    I have read and agree to the Data Privacy Agreement.
-                  </Text>
-                </View>
+                <Text style={styles.listItem}>
+                  • ensure that all uploaded grades correspond to the approved curriculum and
+                  that no subjects or grades are missing;
+                </Text>
+                <Text style={styles.listItem}>
+                  • if only the OJT (On-the-Job Training) grade is missing, ensure that the OJT
+                  description in the Certificate of Registration matches the expected subject
+                  description;
+                </Text>
+                <Text style={styles.listItem}>
+                  • upon successful validation, wait for the system prompt indicating status,
+                  such as:
+                </Text>
+                <Text style={styles.listItem}>
+                    “Congratulations! You are eligible for the Dean’s List.”
+                </Text>
+                <Text style={styles.listItem}>
+                    “Congratulations! You are eligible for graduation.”
+                </Text>
+                <Text style={styles.listItem}>
+                  • once declared eligible, accomplish the following:
+                </Text>
+                <Text style={styles.listItem}>  - provide Guardian Information,</Text>
+                <Text style={styles.listItem}>
+                    - attach all required supporting documents, and
+                </Text>
+                <Text style={styles.listItem}>  - (optional) upload the Approval Sheet;</Text>
+                <Text style={styles.listItem}>
+                  • address any noted deficiencies before submitting the graduation application;
+                </Text>
+                <Text style={styles.listItem}>
+                  • and submit the completed Graduation Application Form for Program Chair review.
+                </Text>
               </View>
             </View>
-          )}
+
+            {/* Data Privacy Agreement */}
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>DATA PRIVACY AGREEMENT</Text>
+              <Text style={styles.cardText}>
+                In submitting this form, I agree that my details be utilized for evaluating my
+                academic records and for other purposes relevant to my graduation. I also agree
+                that the information I have indicated in this form be made available to the
+                university, and to other external agencies, groups and individuals for scholastic,
+                research, and employment purposes.
+              </Text>
+              <Text style={styles.signature}>
+                Signature over Printed Name of Student
+              </Text>
+
+              {/* Checkbox */}
+              <View style={styles.checkboxContainer}>
+                <Checkbox
+                  status={step1Consent ? "checked" : "unchecked"}
+                  onPress={() => setStep1Consent(!step1Consent)}
+                  color="#0249AD"
+                />
+                <Text style={styles.text}>
+                  I have read and agree to the Data Privacy Agreement.
+                </Text>
+              </View>
+            </View>
+          </View>
+        )}
 
           {/* STEP 2 - Upload Grades */}
           {currentStep === 2 && (
-            <PdfUploader
-              label="Copy of Grades"
-              fileUri={grades}
-              onPickFile={(uri) => setGrades(uri)}
-              webviewHeight={400}
-            />
+            <View>
+              <Text style={styles.stepTitle}>Step 2: Upload Copy of Grades</Text>
+
+              <Text style={styles.text}>
+                Upload your Copy of Grades{"\n"}
+                Accepted format: PDF only{"\n"}
+                Make sure the file is clear, complete, and official.{"\n"}
+                Example filename: Lastname_Firstname_Grades.pdf
+              </Text>
+
+              <PdfUploader
+                label="Copy of Grades"
+                fileUri={grades}
+                onPickFile={(uri) => setGrades(uri)}
+                webviewHeight={400}
+              />
+            </View>
           )}
 
          {/* STEP 3 - Upload COR */}
