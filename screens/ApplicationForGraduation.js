@@ -15,17 +15,17 @@ import * as DocumentPicker from "expo-document-picker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Checkbox, Provider as PaperProvider } from "react-native-paper";
 
-// Backend OCR function
+// Backend OCR function for PDF (COR) - extracts parsed fields + raw text
 const runOCRBackend = async (fileUri) => {
   try {
     const formData = new FormData();
     formData.append("file", {
       uri: fileUri,
-      name: "upload.jpg",
-      type: "image/jpeg",
+      name: "upload.pdf",
+      type: "application/pdf",
     });
 
-    const response = await fetch("http://192.168.18.250:5000/ocr", {
+    const response = await fetch("http://192.168.254.114:5000/ocr", {
       method: "POST",
       body: formData,
       headers: {
@@ -33,13 +33,153 @@ const runOCRBackend = async (fileUri) => {
       },
     });
 
-    if (!response.ok) throw new Error("OCR failed");
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `OCR failed with status ${response.status}`);
+    }
 
     const data = await response.json();
-    return data.text || "No text detected";
+    return data.raw_text || "No text detected";
   } catch (err) {
     console.error("runOCRBackend error:", err);
     throw err;
+  }
+};
+
+// Backend OCR function for full text extraction from all pages
+const runFullOCRBackend = async (fileUri) => {
+  try {
+    const formData = new FormData();
+    formData.append("file", {
+      uri: fileUri,
+      name: "upload.pdf",
+      type: "application/pdf",
+    });
+
+    const response = await fetch("http://192.168.254.114:5000/ocr/full", {
+      method: "POST",
+      body: formData,
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `Full OCR failed with status ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.full_text || "No text detected";
+  } catch (err) {
+    console.error("runFullOCRBackend error:", err);
+    throw err;
+  }
+};
+
+// Backend OCR function for positioned text extraction (preserves layout)
+const runPositionedOCRBackend = async (fileUri) => {
+  try {
+    const formData = new FormData();
+    formData.append("file", {
+      uri: fileUri,
+      name: "upload.pdf",
+      type: "application/pdf",
+    });
+
+    const response = await fetch("http://192.168.254.114:5000/ocr/positioned", {
+      method: "POST",
+      body: formData,
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `Positioned OCR failed with status ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.full_text || "No text detected";
+  } catch (err) {
+    console.error("runPositionedOCRBackend error:", err);
+    throw err;
+  }
+};
+
+// Backend function for direct PDF text extraction (no image conversion)
+const runDirectPDFBackend = async (fileUri) => {
+  try {
+    const formData = new FormData();
+    formData.append("file", {
+      uri: fileUri,
+      name: "upload.pdf",
+      type: "application/pdf",
+    });
+
+    const response = await fetch("http://192.168.254.114:5000/ocr/direct", {
+      method: "POST",
+      body: formData,
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `Direct PDF extraction failed with status ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.full_text || "No text detected";
+  } catch (err) {
+    console.error("runDirectPDFBackend error:", err);
+    throw err;
+  }
+};
+
+// File picker specifically for Step 2 (COR)
+const pickCORFile = async (setCoe, setOcrText, setOcrLoading) => {
+  try {
+    const result = await DocumentPicker.getDocumentAsync({
+      type: "application/pdf",
+      copyToCacheDirectory: true,
+    });
+
+    if (result.type === "cancel") return;
+
+    const file = result.assets ? result.assets[0] : result;
+    if (!file.uri) throw new Error("No file URI returned from picker");
+
+    const fileUri = file.uri;
+    const fileName = file.name || "document.pdf";
+
+    const newPath = `${FileSystem.cacheDirectory}${fileName}`;
+    await FileSystem.copyAsync({
+      from: fileUri,
+      to: newPath,
+    });
+
+    setCoe(newPath);
+    setOcrText("");
+    setOcrLoading(true);
+
+    try {
+      const text = await runDirectPDFBackend(newPath);
+      setOcrText(text);
+    } catch (error) {
+      console.error("OCR extraction error:", error);
+      Alert.alert("OCR Error", error.message || "Failed to extract text from COR. Please ensure the OCR server is running.");
+      setOcrText("");
+    } finally {
+      setOcrLoading(false);
+    }
+
+    Alert.alert("Success", `${fileName} uploaded successfully!`);
+  } catch (error) {
+    console.error("File picker error:", error);
+    Alert.alert("Error", error.message || "Failed to pick file.");
   }
 };
 
@@ -112,54 +252,6 @@ export default function ApplicationForGraduation() {
       }
     })();
   }, [form]);
-
-  // Updated file picker to use backend OCR
-  const pickFile = async (type) => {
-  try {
-    const result = await DocumentPicker.getDocumentAsync({
-      type: type === "coe" ? "image/*" : "application/pdf",
-      copyToCacheDirectory: true,
-    });
-
-    if (result.type === "cancel") return;
-
-    // Handle modern DocumentPicker format
-    const file = result.assets ? result.assets[0] : result;
-    if (!file.uri) throw new Error("No file URI returned from picker");
-
-    const fileUri = file.uri;
-    const fileName = file.name || "document.pdf";
-
-    const newPath = `${FileSystem.cacheDirectory}${fileName}`;
-
-      await FileSystem.copyAsync({
-        from: fileUri,
-        to: newPath,
-      });
-
-      if (type === "coe") {
-        setCoe(newPath);
-        setOcrText("");
-        setOcrLoading(true);
-
-        try {
-          const text = await runOCRBackend(newPath);
-          setOcrText(text);
-        } catch (error) {
-          Alert.alert("Error", "Failed to extract text from COR.");
-          setOcrText("");
-        } finally {
-          setOcrLoading(false);
-        }
-      } else if (type === "grades") setGrades(newPath);
-      else setAttachments((prev) => [...prev, { id: Date.now(), uri: newPath }]);
-
-      Alert.alert("Success", `${fileName} uploaded successfully!`);
-    } catch (error) {
-      console.error("File picker error:", error);
-      Alert.alert("Error", error.message || "Failed to pick file.");
-    }
-  };
 
   const nextStep = () =>
     setCurrentStep((prev) => (prev < steps.length ? prev + 1 : prev));
@@ -313,7 +405,7 @@ export default function ApplicationForGraduation() {
               <PdfUploader
                 label="Certificate of Current Enrollment (COR)"
                 fileUri={coe}
-                onPickFile={() => pickFile("coe")}
+                onPickFile={() => pickCORFile(setCoe, setOcrText, setOcrLoading)}
                 webviewHeight={400}
               />
 
@@ -328,8 +420,8 @@ export default function ApplicationForGraduation() {
 
               {ocrText && !ocrLoading && (
                 <View style={[styles.card, { marginTop: 12 }]}>
-                  <Text style={styles.cardTitle}>OCR Extracted Text</Text>
-                  <ScrollView style={{ maxHeight: 200 }}>
+                  <Text style={styles.cardTitle}>OCR Extracted Text (Full)</Text>
+                  <ScrollView style={{ maxHeight: 400 }}>
                     <Text style={styles.cardText}>{ocrText}</Text>
                   </ScrollView>
                 </View>
@@ -347,7 +439,18 @@ export default function ApplicationForGraduation() {
               <PdfUploader
                 label="Grades"
                 fileUri={grades}
-                onPickFile={() => pickFile("grades")}
+                onPickFile={async () => {
+                  const result = await DocumentPicker.getDocumentAsync({
+                    type: "application/pdf",
+                    copyToCacheDirectory: true,
+                  });
+                  if (result.type === "cancel") return;
+                  const file = result.assets ? result.assets[0] : result;
+                  const newPath = `${FileSystem.cacheDirectory}${file.name}`;
+                  await FileSystem.copyAsync({ from: file.uri, to: newPath });
+                  setGrades(newPath);
+                  Alert.alert("Success", `${file.name} uploaded successfully!`);
+                }}
               />
             </View>
           )}
@@ -534,15 +637,13 @@ const styles = StyleSheet.create({
   submitButton: { backgroundColor: "#0249AD", paddingVertical: 12, borderRadius: 8, alignItems: "center", marginTop: 12 },
   submitText: { color: "#fff", fontWeight: "600", fontSize: 16 },
   navigation: { flexDirection: "row", justifyContent: "space-between", marginTop: 20 },
-  navButton: { backgroundColor: "#eee", paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10 },
-  navButtonPrimary: { backgroundColor: "#0249AD", paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10 },
+  navButton: { padding: 12, borderRadius: 8, backgroundColor: "#ddd", minWidth: 100, alignItems: "center" },
+  navButtonPrimary: { padding: 12, borderRadius: 8, backgroundColor: "#0249AD", minWidth: 100, alignItems: "center" },
   navButtonText: { color: "#333", fontWeight: "600" },
   navButtonTextPrimary: { color: "#fff", fontWeight: "600" },
-  attachmentButton: { flexDirection: "row", alignItems: "center", gap: 8, padding: 12, borderWidth: 1, borderColor: "#ccc", borderRadius: 8, marginTop: 10, backgroundColor: "#fafafa" },
-  attachmentText: { color: "#333", fontWeight: "600" },
-  list: { paddingLeft: 12, marginTop: 4 },
-  listItem: { marginBottom: 4, color: "#555" },
-  cardTitle: { fontWeight: "700", fontSize: 16, marginBottom: 6 },
-  cardText: { color: "#555", lineHeight: 20 },
-  signature: { marginTop: 10, fontStyle: "italic", color: "#333" },
+  cardTitle: { fontSize: 16, fontWeight: "700", marginBottom: 8 },
+  cardText: { fontSize: 14, lineHeight: 20 },
+  list: { marginTop: 6 },
+  listItem: { fontSize: 14, lineHeight: 20, marginBottom: 2 },
+  signature: { fontStyle: "italic", marginTop: 12, color: "#555" },
 });

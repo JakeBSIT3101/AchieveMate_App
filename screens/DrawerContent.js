@@ -12,6 +12,11 @@ const menuItems = [
     screen: "ViewPortfolio",
   },
   {
+    title: "Upload Grades",
+    icon: require("../assets/status.png"),
+    screen: "Upload Grades",
+  },
+  {
     title: "Apply Dean's List",
     icon: require("../assets/deanslist.png"),
     screen: "ApplicationforDeans",
