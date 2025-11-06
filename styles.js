@@ -540,8 +540,19 @@ export default StyleSheet.create({
     paddingHorizontal: 20,
     borderRadius: 8,
   },
+  stepFormNavBtn2: {
+    backgroundColor: "##cdcdcd",
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+  },
   stepFormNavBtnText: {
     color: "#fff",
+    fontWeight: "bold",
+    fontSize: 16,
+  },
+  stepFormNavBtnText2: {
+    color: "#201f1f",
     fontWeight: "bold",
     fontSize: 16,
   },

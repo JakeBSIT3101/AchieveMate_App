@@ -1,4 +1,5 @@
-// ApplicationforDeans.js
+// ==== ApplicationforDeans.js (full file, with curriculum validation logs/fallbacks) ====
+
 import React, { useState, useRef, useEffect } from "react";
 import {
   View,
@@ -12,13 +13,31 @@ import {
   Modal,
   Vibration,
 } from "react-native";
-// Removed ImagePicker (no longer used for Step 3)
 import * as FileSystem from "expo-file-system";
 import * as DocumentPicker from "expo-document-picker";
 import Icon from "react-native-vector-icons/Feather";
 import styles from "../styles";
 import { OCR_URL, BASE_URL } from "../config/api";
-import { CheckBox } from "react-native-elements"; // Add this import at the top
+import { CheckBox } from "react-native-elements";
+
+/* ──────────────── Debugging helpers ──────────────── */
+const logCurr = (...args) => console.log("🌐[curriculum]", ...args);
+
+const safeJson = (raw) => {
+  if (!raw) return null;
+  // Strip BOM and trim
+  const t = raw.replace(/^\uFEFF/, "").trim();
+  // Cut off anything before first { or [
+  const idxs = [t.indexOf("{"), t.indexOf("[")].filter((i) => i >= 0);
+  const start = idxs.length ? Math.min(...idxs) : -1;
+  const cleaned = start > 0 ? t.slice(start) : t;
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    throw new Error("Server did not return valid JSON");
+  }
+};
+/* ─────────────────────────────────────────────────── */
 
 /* ---------- Reusable Notice Modal ---------- */
 function NoticeModal({ visible, title = "Notice", message, onOk, onReupload }) {
@@ -55,7 +74,7 @@ function NoticeModal({ visible, title = "Notice", message, onOk, onReupload }) {
                 height: 84,
                 borderRadius: 42,
                 borderWidth: 4,
-                borderColor: "#0d2f60", // changed color
+                borderColor: "#0d2f60",
                 alignItems: "center",
                 justifyContent: "center",
               }}
@@ -64,7 +83,7 @@ function NoticeModal({ visible, title = "Notice", message, onOk, onReupload }) {
                 style={{
                   width: 36,
                   height: 4,
-                  backgroundColor: "#0d2f60", // changed color
+                  backgroundColor: "#0d2f60",
                   transform: [{ rotate: "45deg" }],
                 }}
               />
@@ -73,7 +92,7 @@ function NoticeModal({ visible, title = "Notice", message, onOk, onReupload }) {
                   position: "absolute",
                   width: 36,
                   height: 4,
-                  backgroundColor: "#0d2f60", // changed color
+                  backgroundColor: "#0d2f60",
                   transform: [{ rotate: "-45deg" }],
                 }}
               />
@@ -121,9 +140,9 @@ function NoticeModal({ visible, title = "Notice", message, onOk, onReupload }) {
                   paddingVertical: 12,
                   paddingHorizontal: 18,
                   borderRadius: 12,
-                  backgroundColor: "#E3EAF3", // lighter blue for re-upload
+                  backgroundColor: "#E3EAF3",
                   borderWidth: 1,
-                  borderColor: "#0d2f60", // changed color
+                  borderColor: "#0d2f60",
                   marginRight: 12,
                 }}
               >
@@ -138,7 +157,7 @@ function NoticeModal({ visible, title = "Notice", message, onOk, onReupload }) {
                 paddingVertical: 12,
                 paddingHorizontal: 18,
                 borderRadius: 12,
-                backgroundColor: "#0d2f60", // changed color
+                backgroundColor: "#0d2f60",
               }}
             >
               <Text style={{ color: "#fff", fontWeight: "700" }}>OK</Text>
@@ -149,9 +168,8 @@ function NoticeModal({ visible, title = "Notice", message, onOk, onReupload }) {
     </Modal>
   );
 }
-/* -------------------------------------------------------------------- */
 
-// Confirmation modal component
+/* ---------- Confirmation modal ---------- */
 function ConfirmModal({ visible, onYes, onNo }) {
   return (
     <Modal visible={visible} animationType="fade" transparent>
@@ -179,7 +197,6 @@ function ConfirmModal({ visible, onYes, onNo }) {
             elevation: 8,
           }}
         >
-          {/* Circle with question mark */}
           <View style={{ alignItems: "center", marginBottom: 12 }}>
             <View
               style={{
@@ -271,142 +288,60 @@ export default function ApplicationforDeans() {
     ["Section", 90, "center"],
     ["Instructor", 160, "left"],
   ];
-
   const TABLE_WIDTH = COLS.reduce((sum, [, w]) => sum + w, 0);
 
   const [currentStep, setCurrentStep] = useState(1);
   const [ocrResult, setOcrResult] = useState("");
+
   // Step 2: COR
   const [certificateImageUri, setCertificateImageUri] = useState(null);
   const [certificatePreviewUri, setCertificatePreviewUri] = useState(null);
 
-  // Step 3: now using PDF (and server preview)
+  // Step 3: Grades (PDF) + preview png from server
   const [gradesPdfUri, setGradesPdfUri] = useState(null);
   const [gradesPreviewUri, setGradesPreviewUri] = useState(null);
 
   const [uploading, setUploading] = useState(false);
   const progressAnim = useRef(new Animated.Value(0)).current;
+
   const [enrollmentResult, setEnrollmentResult] = useState("");
   const [gradesResult, setGradesResult] = useState("");
-  const [previewImage, setPreviewImage] = useState(null);
-  const [convertedImage, setConvertedImage] = useState(null);
-  const [pdfFile, setPdfFile] = useState(null);
+
+  const [previewImage, setPreviewImage] = useState(null); // kept if you need in the future
+  const [convertedImage, setConvertedImage] = useState(null); // kept if you need in the future
+  const [pdfFile, setPdfFile] = useState(null); // kept if you need in the future
+
   const longPressTamperPassRef = useRef(false);
   const holdTimerRef = useRef(null);
 
-  // Cross-field validation state (COR vs Grades)
+  // Cross-field validation (COR vs Grades)
   const [validationOk, setValidationOk] = useState(false);
   const [validationDetail, setValidationDetail] = useState(null);
 
-  // NEW: Curriculum validation state (Step 4)
+  // Curriculum validation
   const [curriculumLoading, setCurriculumLoading] = useState(false);
-  const [curriculumReport, setCurriculumReport] = useState(null); // {items:[...], summary:{...}, all_ok:boolean}
+  const [curriculumReport, setCurriculumReport] = useState(null); // {items:[], summary:{}, all_ok:boolean}
   const [curriculumOk, setCurriculumOk] = useState(false);
 
-  // NEW: Tamper validation state (Step 4)
+  // Tamper validation
   const [tamperLoading, setTamperLoading] = useState(false);
   const [tamperReport, setTamperReport] = useState(null); // { exact_match, ... } or { error }
   const [tamperOk, setTamperOk] = useState(false);
 
-  // NEW: Grade value validation state (Step 4)
+  // Grade value validation (INC / DROP / 3.00 / 4.00 / 5.00)
   const [gradeValueLoading, setGradeValueLoading] = useState(false);
   const [gradeValueOk, setGradeValueOk] = useState(false);
-  const [gradeValueReport, setGradeValueReport] = useState(null); // { found: [], ok: boolean }
-  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [gradeValueReport, setGradeValueReport] = useState(null); // { found:[], counts:{}, ok, preview }
 
-  // Grade value validation (Step 4) — safer implementation
-  const validateGradeValues = async () => {
-    setGradeValueLoading(true);
-    setGradeValueOk(false);
-    setGradeValueReport(null);
-
-    try {
-      const fileUri = FileSystem.documentDirectory + "grade_pdf_ocr.txt";
-      let content = "";
-
-      try {
-        content = await FileSystem.readAsStringAsync(fileUri);
-      } catch (e) {
-        // fallback for local dev environment
-        content = await fetch(
-          "file:///C:UsersjakesDownloadsAchieveMate_App\technologyocr_api\resultsgrade_pdf_ocr.txt"
-        )
-          .then((r) => r.text())
-          .catch(() => "");
-      }
-
-      // If still empty, try fetching the server copy (when running with OCR_URL available)
-      if (
-        (!content || content.trim() === "") &&
-        typeof OCR_URL === "string" &&
-        OCR_URL
-      ) {
-        try {
-          const url = `${OCR_URL}/results/grade_pdf_ocr.txt`;
-          const res = await fetch(
-            url + (url.includes("?") ? "" : `?t=${Date.now()}`)
-          );
-          if (res.ok) {
-            const txt = await res.text().catch(() => "");
-            if (txt && txt.trim()) content = txt;
-          }
-        } catch (e) {
-          // ignore server fetch error; we'll proceed with whatever content we have
-        }
-      }
-
-      // Normalize some common OCR artifacts (common punctuation variants, non-breaking spaces)
-      let normalized = (content || "").replace(/[\u00A0\u200B\uFEFF]/g, " ");
-      normalized = normalized.replace(/[,·•:;\u00B7]/g, ".");
-
-      // Debug: attach a small preview to the report so you can see what was scanned at runtime
-      const preview = normalized.trim().slice(0, 200).replace(/\n/g, "\\n");
-      console.debug("validateGradeValues: preview ->", preview);
-
-      // Prefer scanning only the Grade{ ... } block if present to avoid false positives
-      const gradeBlockMatch = normalized.match(/Grade\s*\{\s*([\s\S]*?)\s*\}/i);
-      const scanText = gradeBlockMatch ? gradeBlockMatch[1] : normalized;
-
-      // Regex that matches 3, 3.00, 4, 4.00, 5, 5.00, INC, DROP (case-insensitive)
-      // Use word boundaries to limit accidental matches; allow optional .00 for numbers
-      const badRegex = /\b(?:3(?:\.00)?|4(?:\.00)?|5(?:\.00)?|INC|DROP)\b/gi;
-
-      const matches = [];
-      let m;
-      while ((m = badRegex.exec(scanText)) !== null) {
-        matches.push(m[0].toUpperCase());
-      }
-
-      // Build counts and unique found tokens
-      const counts = matches.reduce((acc, tok) => {
-        acc[tok] = (acc[tok] || 0) + 1;
-        return acc;
-      }, {});
-      const found = Object.keys(counts);
-      const ok = found.length === 0;
-
-      setGradeValueOk(ok);
-      setGradeValueReport({ found, counts, ok, preview });
-      return { found, counts, ok, preview };
-    } catch (e) {
-      setGradeValueOk(false);
-      setGradeValueReport({
-        found: [],
-        ok: false,
-        error: e?.message || String(e),
-      });
-      return { found: [], ok: false, error: e?.message || String(e) };
-    } finally {
-      setGradeValueLoading(false);
-    }
-  };
-
-  // Modal state
+  // Notice modal
   const [noticeOpen, setNoticeOpen] = useState(false);
   const [noticeTitle, setNoticeTitle] = useState("Notice");
   const [noticeMessage, setNoticeMessage] = useState("");
-  const [noticeReupload, setNoticeReupload] = useState(null); // function or null
-  const [showDetails, setShowDetails] = useState(false);
+  const [noticeReupload, setNoticeReupload] = useState(null);
+
+  // Confirm modal
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
   const pressLockRef = useRef(false);
 
   // --- Sticky footer config ---
@@ -501,18 +436,17 @@ export default function ApplicationforDeans() {
     ]).then(([value]) => value);
 
   // ===== NEW: scrolling stepper with progress line =====
-  const STEP_GAP = 28; // space between chips
-  const ITEM_WIDTH = 92; // width reserved per chip
+  const STEP_GAP = 28;
+  const ITEM_WIDTH = 92;
   const totalW = steps.length * ITEM_WIDTH + (steps.length - 1) * STEP_GAP;
 
   const progressScrollRef = useRef(null);
-  const progressLine = useRef(new Animated.Value(0)).current; // animated width for the line
+  const progressLine = useRef(new Animated.Value(0)).current;
   const [viewportW, setViewportW] = useState(0);
 
   useEffect(() => {
     if (!progressScrollRef.current || totalW === 0) return;
 
-    // animate the progress line across total content width (proportional to step index)
     const pct = (currentStep - 1) / (steps.length - 1);
     Animated.timing(progressLine, {
       toValue: pct * totalW,
@@ -520,7 +454,6 @@ export default function ApplicationforDeans() {
       useNativeDriver: false,
     }).start();
 
-    // center the active step in the viewport
     const centerX =
       (currentStep - 1) * (ITEM_WIDTH + STEP_GAP) + ITEM_WIDTH / 2;
     const targetX = Math.max(
@@ -529,7 +462,6 @@ export default function ApplicationforDeans() {
     );
     progressScrollRef.current.scrollTo({ x: targetX, y: 0, animated: true });
   }, [currentStep, viewportW, totalW]);
-  // =====================================
 
   const animateProgress = (progress) => {
     Animated.timing(progressAnim, {
@@ -539,7 +471,11 @@ export default function ApplicationforDeans() {
     }).start();
   };
 
-  // --- call backend validator after Step 3 upload succeeds (uses modal UI)
+  /* ──────────────────────────────────────────────────────────────
+     Validators
+     ────────────────────────────────────────────────────────────── */
+
+  // Cross-field validation (server)
   const runCrossValidation = async () => {
     try {
       const res = await fetch(`${OCR_URL}/validate_cross_fields`);
@@ -550,19 +486,15 @@ export default function ApplicationforDeans() {
       const ok = !!json?.verdict?.all_match;
       setValidationOk(ok);
 
-      if (ok) {
-        // ✅ PASS: no popup, just return true
-        return true;
-      }
+      if (ok) return true;
 
-      // ❌ FAIL — show “Notice” without mismatch list
       setNoticeTitle("Notice");
       setNoticeMessage(
         "Your uploaded file doesn't match your registration form."
       );
       setNoticeReupload(() => () => {
         setNoticeOpen(false);
-        handleRemoveGradesImage(); // clears the PDF to re-upload
+        handleRemoveGradesImage();
       });
       setNoticeOpen(true);
       return false;
@@ -577,17 +509,12 @@ export default function ApplicationforDeans() {
     }
   };
 
-  // ─────────────────────────────────────────────────────────────
-  // NEW: Curriculum validation helpers (Step 4) — **with logs & tolerant JSON**
-  // ─────────────────────────────────────────────────────────────
-
   // Read Course Codes from saved COR OCR text file on device
   const readCorCourseCodes = async () => {
     const fileUri =
       FileSystem.documentDirectory + "result_certificate_of_enrollment.txt";
     const content = await FileSystem.readAsStringAsync(fileUri);
 
-    // Prefer a clear block: COURSE CODE{ ... }
     const blockMatch = content.match(/COURSE\s*CODE\s*\{\s*([^}]+)\s*\}/i);
     let codes = [];
     if (blockMatch) {
@@ -597,13 +524,11 @@ export default function ApplicationforDeans() {
         .filter((s) => /^[A-Za-z]{2,6}\s?\d{3}$/.test(s));
     }
 
-    // Fallback if block not found
     if (codes.length === 0) {
       const tokenMatches = content.match(/\b[A-Z]{2,6}\s*\d{3}\b/gi) || [];
       codes = tokenMatches.map((s) => s.replace(/\s+/g, " ").trim());
     }
 
-    // Normalize & dedupe
     const normalized = Array.from(new Set(codes.map((c) => c.toUpperCase())));
     console.log("🔎 parsed codes →", normalized);
 
@@ -612,49 +537,82 @@ export default function ApplicationforDeans() {
     return normalized;
   };
 
-  // Call your hosted PHP endpoint (resilient to noisy output)
+  // Curriculum validation with POST→GET fallback and heavy logs
   const validateAgainstCurriculum = async (codes) => {
-    const url = `${BASE_URL}/validate_curriculum_codes.php`; // <- uses api.js
-    console.log("📦 curriculum codes →", codes);
+    const endpoint = `${BASE_URL}/validate_curriculum_codes.php`;
 
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ codes }),
-    });
+    const cleanCodes = (codes || [])
+      .map((c) => (c || "").toString().trim())
+      .filter(Boolean);
 
-    const raw = await res.text();
-    console.log("🛰️ curriculum status →", res.status, url);
-    console.log("🛰️ curriculum raw →", raw);
+    const reqId = Date.now().toString(36);
+    logCurr(`[${reqId}] endpoint:`, endpoint);
+    logCurr(`[${reqId}] payload:`, { codes: cleanCodes });
 
-    if (!raw || raw.trim() === "") {
-      throw new Error(`Empty response (HTTP ${res.status}) from server`);
-    }
-
-    // Defensive: strip any accidental junk before the first `{`
-    const start = raw.indexOf("{");
-    const cleaned = start >= 0 ? raw.slice(start) : raw;
-
-    let json;
+    // Try POST first
     try {
-      json = JSON.parse(cleaned);
-    } catch {
-      throw new Error("Server did not return valid JSON");
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({ codes: cleanCodes }),
+      });
+
+      const raw = await res.text();
+      logCurr(
+        `[${reqId}] POST status:`,
+        res.status,
+        res.headers.get("content-type")
+      );
+      logCurr(`[${reqId}] POST raw:`, raw);
+
+      const json = safeJson(raw);
+      logCurr(`[${reqId}] POST parsed:`, json);
+
+      if (!res.ok || json?.error)
+        throw new Error(json?.error || `HTTP ${res.status}`);
+      return json;
+    } catch (postErr) {
+      logCurr(
+        `[${reqId}] POST failed — falling back to GET`,
+        String(postErr?.message || postErr)
+      );
+
+      const qs = encodeURIComponent(cleanCodes.join(","));
+      const url = `${endpoint}?codes=${qs}`;
+
+      const res2 = await fetch(url, {
+        method: "GET",
+        headers: { Accept: "application/json" },
+      });
+      const raw2 = await res2.text();
+
+      logCurr(`[${reqId}] GET url:`, url);
+      logCurr(
+        `[${reqId}] GET status:`,
+        res2.status,
+        res2.headers.get("content-type")
+      );
+      logCurr(`[${reqId}] GET raw:`, raw2);
+
+      const json2 = safeJson(raw2);
+      logCurr(`[${reqId}] GET parsed:`, json2);
+
+      if (!res2.ok || json2?.error)
+        throw new Error(json2?.error || `HTTP ${res2.status}`);
+      return json2;
     }
-    if (!res.ok || json.error) {
-      throw new Error(json.error || `HTTP ${res.status}`);
-    }
-    return json; // {items:[], summary:{}, all_ok:boolean}
   };
 
-  // NEW: Tampering validation call (PDF OCR vs QR-page parsed grades)
+  // Tampering validation call (PDF OCR vs QR-page parsed grades)
   const validateTamper = async () => {
     const url = `${OCR_URL}/validate_grade_tamper`;
     const res = await fetch(url);
     const contentType = (res.headers.get("content-type") || "").toLowerCase();
     const body = await res.text();
 
-    // JSON success (exact match)
     if (contentType.includes("application/json")) {
       let json;
       try {
@@ -676,123 +634,94 @@ export default function ApplicationforDeans() {
       };
     }
 
-    // Anything else unexpected
     throw new Error("Unexpected response from server");
   };
 
-  // Upload with fetch
-  const handleUpload = async (docType) => {
-    let file;
-
-    // ---- Pick file ----
-    if (docType === "Certificate of Enrollment") {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: "application/pdf",
-        copyToCacheDirectory: true,
-      });
-      if (result.canceled) return;
-      file = result.assets[0];
-    } else {
-      // Copy of Grades now accepts a PDF (DocumentPicker)
-      const result = await DocumentPicker.getDocumentAsync({
-        type: "application/pdf",
-        copyToCacheDirectory: true,
-      });
-      if (result.canceled) return;
-      file = result.assets[0];
-    }
-
-    // ---- Build form data ----
-    const formData = new FormData();
-    formData.append("pdf", {
-      uri: file.uri,
-      name: "document.pdf",
-      type: "application/pdf",
-    });
-
-    const endpoint =
-      docType === "Certificate of Enrollment"
-        ? `${OCR_URL}/upload_registration_summary_pdf`
-        : `${OCR_URL}/upload_grade_pdf`; // NEW for Step 3
+  // Grade value validation (Step 4)
+  const validateGradeValues = async () => {
+    setGradeValueLoading(true);
+    setGradeValueOk(false);
+    setGradeValueReport(null);
 
     try {
-      setUploading(true);
-      animateProgress(0);
+      const fileUri = FileSystem.documentDirectory + "grade_pdf_ocr.txt";
+      let content = "";
 
-      const res = await fetch(endpoint, {
-        method: "POST",
-        body: formData,
-        // Let RN set the boundary automatically.
+      try {
+        content = await FileSystem.readAsStringAsync(fileUri);
+      } catch (e) {
+        // fallback for local dev environment
+        content = await fetch(
+          "file:///C:UsersjakesDownloadsAchieveMate_App/technologyocr_api/results/grade_pdf_ocr.txt"
+        )
+          .then((r) => r.text())
+          .catch(() => "");
+      }
+
+      // Try server copy as fallback
+      if (
+        (!content || content.trim() === "") &&
+        typeof OCR_URL === "string" &&
+        OCR_URL
+      ) {
+        try {
+          const url = `${OCR_URL}/results/grade_pdf_ocr.txt`;
+          const res = await fetch(
+            url + (url.includes("?") ? "" : `?t=${Date.now()}`)
+          );
+          if (res.ok) {
+            const txt = await res.text().catch(() => "");
+            if (txt && txt.trim()) content = txt;
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      // Normalize artifacts
+      let normalized = (content || "").replace(/[\u00A0\u200B\uFEFF]/g, " ");
+      normalized = normalized.replace(/[,·•:;\u00B7]/g, ".");
+
+      const preview = normalized.trim().slice(0, 200).replace(/\n/g, "\\n");
+      console.debug("validateGradeValues: preview ->", preview);
+
+      const gradeBlockMatch = normalized.match(/Grade\s*\{\s*([\s\S]*?)\s*\}/i);
+      const scanText = gradeBlockMatch ? gradeBlockMatch[1] : normalized;
+
+      const badRegex = /\b(?:3(?:\.00)?|4(?:\.00)?|5(?:\.00)?|INC|DROP)\b/gi;
+
+      const matches = [];
+      let m;
+      while ((m = badRegex.exec(scanText)) !== null) {
+        matches.push(m[0].toUpperCase());
+      }
+
+      const counts = matches.reduce((acc, tok) => {
+        acc[tok] = (acc[tok] || 0) + 1;
+        return acc;
+      }, {});
+      const found = Object.keys(counts);
+      const ok = found.length === 0;
+
+      setGradeValueOk(ok);
+      setGradeValueReport({ found, counts, ok, preview });
+      return { found, counts, ok, preview };
+    } catch (e) {
+      setGradeValueOk(false);
+      setGradeValueReport({
+        found: [],
+        ok: false,
+        error: e?.message || String(e),
       });
-
-      // try JSON always
-      const json = await res.json().catch(() => ({}));
-      setUploading(false);
-
-      if (!res.ok) {
-        const msg = json?.error || "Upload failed";
-        throw new Error(msg);
-      }
-
-      const resultText = json.result ?? "No OCR result available.";
-      setOcrResult(resultText);
-
-      if (docType === "Certificate of Enrollment") {
-        // Step 2 success
-        setCertificateImageUri(file.uri);
-        setEnrollmentResult(resultText);
-
-        const previewUrl =
-          json.saved_image_url || `${OCR_URL}/${json.saved_image}`;
-        setCertificatePreviewUri(
-          previewUrl ? `${previewUrl}?t=${Date.now()}` : null
-        );
-
-        await saveToTxtFile("result_certificate_of_enrollment.txt", resultText);
-
-        // Reset validations because a base artifact changed
-        setValidationOk(false);
-        setValidationDetail(null);
-        setCurriculumOk(false);
-        setCurriculumReport(null);
-        setTamperOk(false);
-        setTamperReport(null);
-        setTamperLoading(false);
-
-        Alert.alert(
-          "Uploaded",
-          "Certificate of Enrollment uploaded successfully."
-        );
-      } else {
-        // Step 3 success (PDF)
-        setGradesPdfUri(file.uri);
-        setGradesResult(resultText);
-        await saveToTxtFile("result_copy_of_grade.txt", resultText);
-
-        // Show preview if provided
-        if (json.saved_preview_url) {
-          setGradesPreviewUri(`${json.saved_preview_url}?t=${Date.now()}`);
-        } else if (json.saved_preview) {
-          setGradesPreviewUri(
-            `${OCR_URL}/${json.saved_preview}?t=${Date.now()}`
-          );
-        }
-
-        const ok = await runCrossValidation();
-
-        if (ok) {
-          Alert.alert(
-            "Uploaded",
-            "Copy of Grades (PDF) uploaded successfully."
-          );
-        }
-      }
-    } catch (err) {
-      setUploading(false);
-      console.error("Upload failed:", err);
-      Alert.alert("Upload Failed", err.message);
+      return { found: [], ok: false, error: e?.message || String(e) };
+    } finally {
+      setGradeValueLoading(false);
     }
   };
+
+  /* ──────────────────────────────────────────────────────────────
+     Uploads
+     ────────────────────────────────────────────────────────────── */
 
   const saveToTxtFile = async (filename, content) => {
     try {
@@ -811,7 +740,6 @@ export default function ApplicationforDeans() {
     setGradesResult("");
     setValidationOk(false);
     setValidationDetail(null);
-    // Invalidate curriculum/tamper checks too
     setCurriculumOk(false);
     setCurriculumReport(null);
     setTamperOk(false);
@@ -833,6 +761,108 @@ export default function ApplicationforDeans() {
     setTamperLoading(false);
   };
 
+  // Upload with fetch
+  const handleUpload = async (docType) => {
+    let file;
+
+    // ---- Pick file ----
+    const picker = await DocumentPicker.getDocumentAsync({
+      type: "application/pdf",
+      copyToCacheDirectory: true,
+    });
+    if (picker.canceled) return;
+    file = picker.assets[0];
+
+    // ---- Build form data ----
+    const formData = new FormData();
+    formData.append("pdf", {
+      uri: file.uri,
+      name: "document.pdf",
+      type: "application/pdf",
+    });
+
+    const endpoint =
+      docType === "Certificate of Enrollment"
+        ? `${OCR_URL}/upload_registration_summary_pdf`
+        : `${OCR_URL}/upload_grade_pdf`;
+
+    try {
+      setUploading(true);
+      animateProgress(0);
+
+      const res = await fetch(endpoint, {
+        method: "POST",
+        body: formData,
+        // RN will set boundary automatically
+      });
+
+      const json = await res.json().catch(() => ({}));
+      setUploading(false);
+
+      if (!res.ok) {
+        const msg = json?.error || "Upload failed";
+        throw new Error(msg);
+      }
+
+      const resultText = json.result ?? "No OCR result available.";
+      setOcrResult(resultText);
+
+      if (docType === "Certificate of Enrollment") {
+        // Step 2 success
+        setCertificateImageUri(file.uri);
+        setEnrollmentResult(resultText);
+
+        const previewUrl =
+          json.saved_image_url ||
+          (json.saved_image ? `${OCR_URL}/${json.saved_image}` : null);
+        setCertificatePreviewUri(
+          previewUrl ? `${previewUrl}?t=${Date.now()}` : null
+        );
+
+        await saveToTxtFile("result_certificate_of_enrollment.txt", resultText);
+
+        // Reset validations because base changed
+        setValidationOk(false);
+        setValidationDetail(null);
+        setCurriculumOk(false);
+        setCurriculumReport(null);
+        setTamperOk(false);
+        setTamperReport(null);
+        setTamperLoading(false);
+
+        Alert.alert(
+          "Uploaded",
+          "Certificate of Enrollment uploaded successfully."
+        );
+      } else {
+        // Step 3 success (PDF)
+        setGradesPdfUri(file.uri);
+        setGradesResult(resultText);
+        await saveToTxtFile("result_copy_of_grade.txt", resultText);
+
+        if (json.saved_preview_url) {
+          setGradesPreviewUri(`${json.saved_preview_url}?t=${Date.now()}`);
+        } else if (json.saved_preview) {
+          setGradesPreviewUri(
+            `${OCR_URL}/${json.saved_preview}?t=${Date.now()}`
+          );
+        }
+
+        const ok = await runCrossValidation();
+        if (ok) {
+          Alert.alert(
+            "Uploaded",
+            "Copy of Grades (PDF) uploaded successfully."
+          );
+        }
+      }
+    } catch (err) {
+      setUploading(false);
+      console.error("Upload failed:", err);
+      Alert.alert("Upload Failed", err.message);
+    }
+  };
+
   // -------- Upload-button visibility control ----------
   const showUploadButton = (type) => {
     if (uploading) return false;
@@ -840,31 +870,34 @@ export default function ApplicationforDeans() {
     if (type === "Copy of Grades") return !gradesPdfUri;
     return true;
   };
-  // ----------------------------------------------------
+
+  /* ──────────────────────────────────────────────────────────────
+     Step 4 orchestration
+     ────────────────────────────────────────────────────────────── */
   const goToStep4 = async (options = {}) => {
-    const { forceTamperPass = false, forceCurriculumFail = false } = options;
-    // Move to Step 4 first (so user sees statuses)
+    const { forceTamperPass = false } = options;
+
+    // Show step 4 immediately
     setCurrentStep(4);
 
     // Reset + start loaders
     setTamperLoading(true);
     setCurriculumLoading(true);
-
     setTamperOk(false);
     setCurriculumOk(false);
     setTamperReport(null);
     setCurriculumReport(null);
+
     setGradeValueOk(false);
     setGradeValueReport(null);
     setGradeValueLoading(true);
 
     try {
-      // Trick: check COR PDF filename before curriculum validation
+      // Quick test: filename to simulate curriculum mismatch
       const corFileName = certificateImageUri
         ? certificateImageUri.split("/").pop()
         : "";
       if (corFileName === "curri_notmatch.pdf") {
-        // Fail curriculum validation immediately
         setCurriculumReport({
           items: [],
           summary: { ok_count: 0, total: 0 },
@@ -872,16 +905,17 @@ export default function ApplicationforDeans() {
         });
         setCurriculumOk(false);
         setCurriculumLoading(false);
-        // Still run tamper and grade value validation
+
         const tamperBase = forceTamperPass
           ? Promise.resolve({ exact_match: true, forced: true })
           : validateTamper();
         const gradeValueBase = validateGradeValues();
+
         const [tamperRes, gradeValueRes] = await Promise.all([
           tamperBase,
           gradeValueBase,
         ]);
-        // Tamper result
+
         if (tamperRes && !tamperRes.error) {
           setTamperReport(tamperRes);
           setTamperOk(!!tamperRes.exact_match);
@@ -891,7 +925,7 @@ export default function ApplicationforDeans() {
           });
           setTamperOk(false);
         }
-        // Grade value result
+
         if (gradeValueRes && gradeValueRes.ok) {
           setGradeValueOk(true);
         } else {
@@ -899,22 +933,28 @@ export default function ApplicationforDeans() {
         }
         return;
       }
-      // Normal curriculum validation
+
+      // Normal path
       const codes = await readCorCourseCodes();
+      logCurr("codes extracted from COR:", codes);
+
       const tamperBase = forceTamperPass
         ? Promise.resolve({ exact_match: true, forced: true })
         : validateTamper();
       const curriculumBase = validateAgainstCurriculum(codes);
       const gradeValueBase = validateGradeValues();
 
-      // Run concurrently
       const [tamperRes, curriculumRes, gradeValueRes] = await Promise.all([
         tamperBase,
         curriculumBase,
         gradeValueBase,
       ]);
 
-      // Tamper result
+      logCurr("tamper response:", tamperRes);
+      logCurr("curriculum response:", curriculumRes);
+      logCurr("gradeValue response:", gradeValueRes);
+
+      // Tamper
       if (tamperRes && !tamperRes.error) {
         setTamperReport(tamperRes);
         setTamperOk(!!tamperRes.exact_match);
@@ -925,7 +965,7 @@ export default function ApplicationforDeans() {
         setTamperOk(false);
       }
 
-      // Curriculum result
+      // Curriculum
       if (curriculumRes && !curriculumRes.error) {
         setCurriculumReport(curriculumRes);
         setCurriculumOk(!!curriculumRes.all_ok);
@@ -947,7 +987,8 @@ export default function ApplicationforDeans() {
         });
         setCurriculumOk(false);
       }
-      // Grade value result
+
+      // Grade values
       if (gradeValueRes && gradeValueRes.ok) {
         setGradeValueOk(true);
       } else {
@@ -960,12 +1001,16 @@ export default function ApplicationforDeans() {
     }
   };
 
-  // Consent state for Step 5
+  /* ──────────────────────────────────────────────────────────────
+     Consent (Step 5)
+     ────────────────────────────────────────────────────────────── */
   const [consent1, setConsent1] = useState(false);
   const [consent2, setConsent2] = useState(false);
   const [consent3, setConsent3] = useState(false);
 
-  // Step 6: Review & Confirm state
+  /* ──────────────────────────────────────────────────────────────
+     Step 6: Review & Confirm
+     ────────────────────────────────────────────────────────────── */
   const [reviewLoading, setReviewLoading] = useState(false);
   const [reviewMeta, setReviewMeta] = useState({
     fullname: "",
@@ -983,7 +1028,6 @@ export default function ApplicationforDeans() {
     gwa: "—",
   });
 
-  // --- tiny fetch helper
   const fetchText = async (url) => {
     const res = await fetch(
       url + (url.includes("?") ? "" : `?t=${Date.now()}`)
@@ -992,44 +1036,6 @@ export default function ApplicationforDeans() {
     return await res.text();
   };
 
-  // --- parse a block like NAME{ ... }
-  const parseBlock = (label, text) => {
-    const re = new RegExp(`${label}\\s*\\{\\s*([^}]*)\\}`, "i");
-    const m = text.match(re);
-    if (!m) return [];
-    return m[1]
-      .split(/[\n,]+/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-  };
-
-  // --- parse Grade block
-  const parseGrades = (text) => parseBlock("Grade", text);
-
-  // --- extract simple fields from result_certificate_of_enrollment.txt produced by Flask
-  const parseCoeMeta = (txt) => {
-    const take = (label) => {
-      const re = new RegExp(`^${label}\\s*:\\s*(.*)$`, "mi");
-      const m = txt.match(re);
-      return m ? m[1].trim() : "";
-    };
-    const fullname = take("Name");
-    const srcode = take("SR Code");
-    const program = take("Program");
-    const semester = take("Semester");
-    const year_level = take("Year Level");
-    return {
-      fullname,
-      srcode,
-      college: "",
-      academic_year: "",
-      program,
-      semester,
-      year_level,
-    };
-  };
-
-  // --- numeric grade from token (ignores INC/DROP)
   const toNumericGrade = (g) => {
     if (!g) return NaN;
     const t = String(g).toUpperCase().trim();
@@ -1038,56 +1044,18 @@ export default function ApplicationforDeans() {
     return Number.isFinite(n) ? n : NaN;
   };
 
-  // --- compute simple GWA (unweighted if units missing)
-  const computeSummary = (rows) => {
-    const totalCourses = rows.length;
-    const numericUnits = rows
-      .map((r) => parseFloat(r.units))
-      .filter((u) => Number.isFinite(u));
-    const totalUnits =
-      numericUnits.length === rows.length
-        ? numericUnits.reduce((a, b) => a + b, 0)
-        : "—";
-    const grades = rows
-      .map((r) => toNumericGrade(r.grade))
-      .filter((n) => Number.isFinite(n));
-    let gwa = "—";
-    if (grades.length) {
-      if (numericUnits.length === rows.length) {
-        let sum = 0,
-          w = 0;
-        rows.forEach((r, i) => {
-          const g = toNumericGrade(r.grade);
-          const u = parseFloat(r.units);
-          if (Number.isFinite(g) && Number.isFinite(u)) {
-            sum += g * u;
-            w += u;
-          }
-        });
-        if (w > 0) gwa = (sum / w).toFixed(4);
-      } else {
-        const mean = grades.reduce((a, b) => a + b, 0) / grades.length;
-        gwa = mean.toFixed(4);
-      }
-    }
-    return { totalCourses, totalUnits, gwa };
-  };
-
-  // --- build Step 6 data by reading server outputs
   const loadReviewData = async () => {
     setReviewLoading(true);
     try {
-      // Fetch grade_for_review.txt for table/meta
+      // grade_for_review.txt contains table + meta
       const coeTxt = await fetchText(`${OCR_URL}/results/grade_for_review.txt`);
-      // Fetch Grade_with_Units.txt for Weighted Average
+      // Weighted Average resides in Grade_with_Units.txt
       const gradeUnitsTxt = await fetchText(
         `${OCR_URL}/results/Grade_with_Units.txt`
       );
-      // Extract Weighted Average from Grade_with_Units.txt
       const gwaMatch = gradeUnitsTxt.match(/Weighted Average:\s*([0-9.]+)/i);
       const gwa = gwaMatch ? gwaMatch[1] : "—";
 
-      // Use grade_for_review.txt instead of raw_cog_text.txt
       const meta = {
         fullname: (() => {
           const m = coeTxt.match(/Fullname\s*:\s*([^\n]+?)(?:\s*SRCODE|$)/i);
@@ -1142,11 +1110,11 @@ export default function ApplicationforDeans() {
         }
       }
 
-      // Parse each line into columns
       const rows = tableLines.map((ln, idx) => {
-        // Example line: 1 BAT 401 Fundamentals of Business Analytics 3 2.50 IT-BA-3101 SALAC, DJOANNA MARIE V.
+        // Example line:
+        // 1 BAT 401 Fundamentals of Business Analytics 3 2.50 IT-BA-3101 SALAC, DJOANNA MARIE V.
         const tokens = ln.split(/\s+/);
-        // Find course code (e.g., BAT 401)
+
         let code = "";
         let codeIdx = -1;
         for (let i = 1; i < tokens.length - 1; i++) {
@@ -1159,14 +1127,14 @@ export default function ApplicationforDeans() {
             break;
           }
         }
-        // Extract other fields based on known positions
+
         let title = "";
         let units = "";
         let grade = "";
         let section = "";
         let instructor = "";
+
         if (codeIdx !== -1) {
-          // Title: tokens after codeIdx+2 up to next number (units)
           let titleStart = codeIdx + 2;
           let titleEnd = titleStart;
           while (titleEnd < tokens.length && !/^\d+$/.test(tokens[titleEnd])) {
@@ -1178,6 +1146,7 @@ export default function ApplicationforDeans() {
           section = tokens[titleEnd + 2] || "";
           instructor = tokens.slice(titleEnd + 3).join(" ");
         }
+
         return {
           idx: idx + 1,
           code,
@@ -1186,17 +1155,16 @@ export default function ApplicationforDeans() {
           grade,
           section,
           instructor,
-          mismatchQr: "", // Not available in grade_for_review.txt
+          mismatchQr: "",
         };
       });
 
-      // Parse summary
       const totalCoursesMatch = coeTxt.match(/Total no of Course\s*(\d+)/i);
       const totalUnitsMatch = coeTxt.match(/Total no of Units\s*(\d+)/i);
       const summary = {
         totalCourses: totalCoursesMatch ? totalCoursesMatch[1] : rows.length,
         totalUnits: totalUnitsMatch ? totalUnitsMatch[1] : "—",
-        gwa, // <-- set GWA from Grade_with_Units.txt
+        gwa,
       };
 
       setReviewMeta(meta);
@@ -1218,6 +1186,9 @@ export default function ApplicationforDeans() {
     }
   }, [currentStep]);
 
+  /* ──────────────────────────────────────────────────────────────
+     Render
+     ────────────────────────────────────────────────────────────── */
   return (
     <View style={[styles.container1, { flex: 1 }]}>
       {/* Step Progress (header) */}
@@ -1229,7 +1200,6 @@ export default function ApplicationforDeans() {
           onLayout={(e) => setViewportW(e.nativeEvent.layout.width)}
           style={{ marginBottom: 20 }}
         >
-          {/* Give the inner content a fixed width so the line spans the whole scrollable area */}
           <View style={{ width: totalW, paddingBottom: 6 }}>
             {/* Track */}
             <View
@@ -1249,7 +1219,7 @@ export default function ApplicationforDeans() {
                 top: 12,
                 left: 0,
                 height: 2,
-                width: progressLine, // animated width
+                width: progressLine,
                 backgroundColor: "#00C881",
               }}
             />
@@ -1360,29 +1330,62 @@ export default function ApplicationforDeans() {
 
       {/* Step 2: Upload COR */}
       {currentStep === 2 && (
-        <View style={{ flex: 1 }}>
-          <ScrollView
-            keyboardShouldPersistTaps="handled"
-            contentContainerStyle={{
-              padding: 20,
-              paddingBottom: FOOTER_HEIGHT + 24,
-            }}
-          >
+        <View style={{ flex: 1, padding: 20 }}>
+          <View style={styles.card}>
+            <Text
+              style={{
+                fontSize: 18,
+                fontWeight: "700",
+                color: "#0249AD",
+                marginBottom: 12,
+              }}
+            >
+              Upload Your Certificate of Registration (COR)
+            </Text>
+
+            <View style={{ marginTop: 6, marginBottom: 18 }}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "flex-start",
+                  marginBottom: 6,
+                }}
+              >
+                <Text
+                  style={{ marginTop: 3, marginRight: 8, color: "#6b7280" }}
+                >
+                  •
+                </Text>
+                <Text style={{ color: "#6b7280" }}>
+                  Accepted format:{" "}
+                  <Text style={{ fontWeight: "700" }}>PDF only</Text>
+                </Text>
+              </View>
+              <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
+                <Text
+                  style={{ marginTop: 3, marginRight: 8, color: "#6b7280" }}
+                >
+                  •
+                </Text>
+                <Text style={{ color: "#6b7280" }}>
+                  Make sure the file is clear, complete, and official
+                </Text>
+              </View>
+            </View>
+
             {showUploadButton("Certificate of Enrollment") && (
               <TouchableOpacity
-                style={[styles.blueButtonupload, ui.uploadBtn]}
+                style={styles.blueButtonupload}
                 onPress={() => handleUpload("Certificate of Enrollment")}
               >
-                <Text style={styles.uploadButtonText}>Upload COR</Text>
+                <Text style={styles.buttonTextupload}>Upload PDF File</Text>
               </TouchableOpacity>
             )}
 
             {uploading && (
-              <>
-                <View style={{ alignItems: "center", marginTop: 16 }}>
-                  <ActivityIndicator size="large" color="#00C881" />
-                  <Text style={{ marginTop: 8 }}>Uploading...</Text>
-                </View>
+              <View style={{ alignItems: "center", marginTop: 16 }}>
+                <ActivityIndicator size="large" color="#00C881" />
+                <Text style={{ marginTop: 8 }}>Uploading...</Text>
                 <Animated.View
                   style={{
                     height: 10,
@@ -1392,13 +1395,14 @@ export default function ApplicationforDeans() {
                       inputRange: [0, 1],
                       outputRange: [0, 300],
                     }),
+                    borderRadius: 6,
                   }}
                 />
-              </>
+              </View>
             )}
 
             {certificatePreviewUri && (
-              <View style={[ui.card, { marginTop: 16 }]}>
+              <View style={{ marginTop: 16 }}>
                 <Image
                   source={{ uri: certificatePreviewUri }}
                   resizeMode="contain"
@@ -1407,37 +1411,34 @@ export default function ApplicationforDeans() {
                     height: undefined,
                     aspectRatio: corAspect,
                     maxHeight: 520,
-                    borderRadius: 8,
-                    backgroundColor: "#f7f7f7",
+                    borderRadius: 10,
+                    backgroundColor: "#f8fafc",
                   }}
                 />
-                <View style={{ alignItems: "center", marginTop: 16 }}>
+                <View style={{ alignItems: "center", marginTop: 14 }}>
                   <TouchableOpacity
                     onPress={handleRemoveCertificateImage}
-                    style={ui.removeBtn}
+                    style={styles.removeImageBtn}
                   >
                     <Icon
                       name="trash-2"
-                      size={20}
+                      size={18}
                       color="#fff"
                       style={{ marginRight: 8 }}
                     />
-                    <Text style={{ color: "#fff", fontWeight: "bold" }}>
-                      Remove File
-                    </Text>
+                    <Text style={styles.removeImageText}>Remove File</Text>
                   </TouchableOpacity>
                 </View>
               </View>
             )}
-          </ScrollView>
+          </View>
 
-          {/* Sticky bottom nav */}
-          <View style={[styles.stepFormStickyFooter, stickyFooter]}>
+          <View style={styles.navStickyContainer}>
             <TouchableOpacity
-              style={styles.stepFormNavBtn}
+              style={styles.stepFormNavBtn2}
               onPress={() => setCurrentStep(1)}
             >
-              <Text style={styles.navButtonText}>← Back</Text>
+              <Text style={styles.navButtonText2}>Back</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[
@@ -1447,7 +1448,7 @@ export default function ApplicationforDeans() {
               onPress={() => setCurrentStep(3)}
               disabled={!certificatePreviewUri}
             >
-              <Text style={styles.navButtonText}>Next →</Text>
+              <Text style={styles.navButtonText}>Next </Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1455,29 +1456,80 @@ export default function ApplicationforDeans() {
 
       {/* Step 3: Upload Grades (PDF) */}
       {currentStep === 3 && (
-        <View style={{ flex: 1 }}>
-          <ScrollView
-            keyboardShouldPersistTaps="handled"
-            contentContainerStyle={{
-              padding: 20,
-              paddingBottom: FOOTER_HEIGHT + 24,
-            }}
-          >
+        <View style={{ flex: 1, padding: 20 }}>
+          <View style={styles.card}>
+            <Text
+              style={{
+                fontSize: 18,
+                fontWeight: "700",
+                color: "#0249AD",
+                marginBottom: 12,
+              }}
+            >
+              Upload Your Copy of Grades
+            </Text>
+
+            <View style={{ marginTop: 6, marginBottom: 18 }}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "flex-start",
+                  marginBottom: 6,
+                }}
+              >
+                <Text
+                  style={{ marginTop: 3, marginRight: 8, color: "#6b7280" }}
+                >
+                  •
+                </Text>
+                <Text style={{ color: "#6b7280" }}>
+                  Accepted format:{" "}
+                  <Text style={{ fontWeight: "700" }}>PDF only</Text>
+                </Text>
+              </View>
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "flex-start",
+                  marginBottom: 6,
+                }}
+              >
+                <Text
+                  style={{ marginTop: 3, marginRight: 8, color: "#6b7280" }}
+                >
+                  •
+                </Text>
+                <Text style={{ color: "#6b7280" }}>
+                  Max file size:{" "}
+                  <Text style={{ fontWeight: "700" }}>5&nbsp;MB</Text>
+                </Text>
+              </View>
+              <View style={{ flexDirection: "row", alignItems: "flex-start" }}>
+                <Text
+                  style={{ marginTop: 3, marginRight: 8, color: "#6b7280" }}
+                >
+                  •
+                </Text>
+                <Text style={{ color: "#6b7280" }}>
+                  Use the official, clear, system-generated PDF (with QR, if
+                  applicable)
+                </Text>
+              </View>
+            </View>
+
             {showUploadButton("Copy of Grades") && (
               <TouchableOpacity
-                style={[styles.blueButtonupload, ui.uploadBtn]}
+                style={styles.blueButtonupload}
                 onPress={() => handleUpload("Copy of Grades")}
               >
-                <Text style={styles.uploadButtonText}>Upload Grades (PDF)</Text>
+                <Text style={styles.buttonTextupload}>Upload PDF File</Text>
               </TouchableOpacity>
             )}
 
             {uploading && (
-              <>
-                <View style={{ alignItems: "center", marginTop: 16 }}>
-                  <ActivityIndicator size="large" color="#00C881" />
-                  <Text style={{ marginTop: 8 }}>Uploading...</Text>
-                </View>
+              <View style={{ alignItems: "center", marginTop: 16 }}>
+                <ActivityIndicator size="large" color="#00C881" />
+                <Text style={{ marginTop: 8 }}>Uploading...</Text>
                 <Animated.View
                   style={{
                     height: 10,
@@ -1487,13 +1539,14 @@ export default function ApplicationforDeans() {
                       inputRange: [0, 1],
                       outputRange: [0, 300],
                     }),
+                    borderRadius: 6,
                   }}
                 />
-              </>
+              </View>
             )}
 
             {gradesPreviewUri && (
-              <View style={[ui.card, { marginTop: 16 }]}>
+              <View style={{ marginTop: 16 }}>
                 <Image
                   source={{ uri: gradesPreviewUri }}
                   resizeMode="contain"
@@ -1502,39 +1555,35 @@ export default function ApplicationforDeans() {
                     height: undefined,
                     aspectRatio: gradesAspect,
                     maxHeight: 520,
-                    borderRadius: 8,
-                    backgroundColor: "#f7f7f7",
+                    borderRadius: 10,
+                    backgroundColor: "#f8fafc",
                   }}
                 />
-                <View style={{ alignItems: "center", marginTop: 16 }}>
+                <View style={{ alignItems: "center", marginTop: 14 }}>
                   <TouchableOpacity
                     onPress={handleRemoveGradesImage}
-                    style={ui.removeBtn}
+                    style={styles.removeImageBtn}
                   >
                     <Icon
                       name="trash-2"
-                      size={20}
+                      size={18}
                       color="#fff"
                       style={{ marginRight: 8 }}
                     />
-                    <Text style={{ color: "#fff", fontWeight: "bold" }}>
-                      Remove PDF
-                    </Text>
+                    <Text style={styles.removeImageText}>Remove PDF</Text>
                   </TouchableOpacity>
                 </View>
               </View>
             )}
-          </ScrollView>
+          </View>
 
-          {/* Sticky bottom nav (Step 3) */}
-          <View style={[styles.navStickyContainer, stickyFooter]}>
+          <View style={styles.navStickyContainer}>
             <TouchableOpacity
-              style={styles.stepFormNavBtn}
+              style={styles.stepFormNavBtn2}
               onPress={() => setCurrentStep(2)}
             >
-              <Text style={styles.navButtonText}>← Back</Text>
+              <Text style={styles.navButtonText2}>← Back</Text>
             </TouchableOpacity>
-
             <TouchableOpacity
               style={[
                 styles.stepFormNavBtn,
@@ -1549,14 +1598,12 @@ export default function ApplicationforDeans() {
                 if (pressLockRef.current) return;
                 pressLockRef.current = true;
                 try {
-                  // HOLD ≥1s → force all validations to pass
                   setTamperOk(true);
                   setCurriculumOk(true);
                   setGradeValueOk(true);
                   setTamperReport({ exact_match: true, forced: true });
                   setCurriculumReport({ all_ok: true, forced: true });
                   setGradeValueReport({ ok: true, forced: true });
-                  // Optionally, move to next step or show a success message here
                 } finally {
                   setTimeout(() => (pressLockRef.current = false), 400);
                 }
@@ -1566,7 +1613,6 @@ export default function ApplicationforDeans() {
                 if (!(gradesPdfUri && validationOk)) return;
                 pressLockRef.current = true;
                 try {
-                  // Quick tap → normal tamper validation
                   await goToStep4({ forceTamperPass: false });
                 } finally {
                   pressLockRef.current = false;
@@ -1579,7 +1625,7 @@ export default function ApplicationforDeans() {
         </View>
       )}
 
-      {/* Step 4: Validation (three-line checklist: Tampering + Curriculum + Grade Value) */}
+      {/* Step 4: Validation (Tampering + Curriculum + Grade Value) */}
       {currentStep === 4 && (
         <View style={{ flex: 1, padding: 20 }}>
           <View style={[ui.card]}>
@@ -1784,9 +1830,7 @@ export default function ApplicationforDeans() {
             <TouchableOpacity
               style={[
                 styles.stepFormNavBtn,
-                {
-                  backgroundColor: consent1 && consent2 ? "#007bff" : "#ccc",
-                },
+                { backgroundColor: consent1 && consent2 ? "#007bff" : "#ccc" },
               ]}
               onPress={() => setCurrentStep(6)}
               disabled={!(consent1 && consent2)}
@@ -1814,16 +1858,11 @@ export default function ApplicationforDeans() {
                 Review your details and extracted grades before final
                 submission.
               </Text>
-              {/* Custom layout */}
+
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
-                {/* Fullname and SRCODE side by side */}
                 <View style={{ width: "48%" }}>
                   <Text
-                    style={{
-                      fontSize: 12,
-                      color: "#6B7280",
-                      marginBottom: 4,
-                    }}
+                    style={{ fontSize: 12, color: "#6B7280", marginBottom: 4 }}
                   >
                     Fullname
                   </Text>
@@ -1844,11 +1883,7 @@ export default function ApplicationforDeans() {
                 </View>
                 <View style={{ width: "48%" }}>
                   <Text
-                    style={{
-                      fontSize: 12,
-                      color: "#6B7280",
-                      marginBottom: 4,
-                    }}
+                    style={{ fontSize: 12, color: "#6B7280", marginBottom: 4 }}
                   >
                     SRCODE
                   </Text>
@@ -1867,14 +1902,10 @@ export default function ApplicationforDeans() {
                     </Text>
                   </View>
                 </View>
-                {/* College full width */}
+
                 <View style={{ width: "100%" }}>
                   <Text
-                    style={{
-                      fontSize: 12,
-                      color: "#6B7280",
-                      marginBottom: 4,
-                    }}
+                    style={{ fontSize: 12, color: "#6B7280", marginBottom: 4 }}
                   >
                     College
                   </Text>
@@ -1893,14 +1924,10 @@ export default function ApplicationforDeans() {
                     </Text>
                   </View>
                 </View>
-                {/* Program and Semester side by side */}
+
                 <View style={{ width: "48%" }}>
                   <Text
-                    style={{
-                      fontSize: 12,
-                      color: "#6B7280",
-                      marginBottom: 4,
-                    }}
+                    style={{ fontSize: 12, color: "#6B7280", marginBottom: 4 }}
                   >
                     Program
                   </Text>
@@ -1921,11 +1948,7 @@ export default function ApplicationforDeans() {
                 </View>
                 <View style={{ width: "48%" }}>
                   <Text
-                    style={{
-                      fontSize: 12,
-                      color: "#6B7280",
-                      marginBottom: 4,
-                    }}
+                    style={{ fontSize: 12, color: "#6B7280", marginBottom: 4 }}
                   >
                     Semester
                   </Text>
@@ -1944,14 +1967,10 @@ export default function ApplicationforDeans() {
                     </Text>
                   </View>
                 </View>
-                {/* Academic Year and Year Level side by side */}
+
                 <View style={{ width: "48%" }}>
                   <Text
-                    style={{
-                      fontSize: 12,
-                      color: "#6B7280",
-                      marginBottom: 4,
-                    }}
+                    style={{ fontSize: 12, color: "#6B7280", marginBottom: 4 }}
                   >
                     Academic Year
                   </Text>
@@ -1974,11 +1993,7 @@ export default function ApplicationforDeans() {
                 </View>
                 <View style={{ width: "48%" }}>
                   <Text
-                    style={{
-                      fontSize: 12,
-                      color: "#6B7280",
-                      marginBottom: 4,
-                    }}
+                    style={{ fontSize: 12, color: "#6B7280", marginBottom: 4 }}
                   >
                     Year Level
                   </Text>
@@ -2001,7 +2016,8 @@ export default function ApplicationforDeans() {
                 </View>
               </View>
             </View>
-            {/* Make the table horizontally scrollable */}
+
+            {/* Scrollable table */}
             <ScrollView horizontal showsHorizontalScrollIndicator={true}>
               <View style={[ui.card, { padding: 0, minWidth: TABLE_WIDTH }]}>
                 <View
@@ -2128,6 +2144,7 @@ export default function ApplicationforDeans() {
                 )}
               </View>
             </ScrollView>
+
             <View style={[ui.card, { marginTop: 12 }]}>
               <View
                 style={{
@@ -2162,6 +2179,7 @@ export default function ApplicationforDeans() {
               </Text>
             </View>
           </ScrollView>
+
           <View style={[styles.navStickyContainer, stickyFooter]}>
             <TouchableOpacity
               style={styles.stepFormNavBtn}
@@ -2176,6 +2194,7 @@ export default function ApplicationforDeans() {
               <Text style={styles.navButtonText}>Next →</Text>
             </TouchableOpacity>
           </View>
+
           <ConfirmModal
             visible={confirmOpen}
             onYes={() => {
@@ -2221,7 +2240,7 @@ export default function ApplicationforDeans() {
         </View>
       )}
 
-      {/* Single instance of the modal */}
+      {/* One NoticeModal instance */}
       <NoticeModal
         visible={noticeOpen}
         title={noticeTitle}

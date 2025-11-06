@@ -1,8 +1,8 @@
 SR Code: 22-78222
-Sex: 
+Sex: MALE
 Name: SAMONTANEZ, JAKE A.
-Program: :
-track:
+Program: BS Information Technology
+track:BA
 Semester : FIRST
 Year Level : THIRD
 

@@ -59,8 +59,10 @@ const HomeScreen = ({ navigation }) => {
   };
 
   const handlePress = (item) => {
+    console.log("Pressed:", item?.Title);
     const t = (item?.Title || "").toLowerCase();
-    if (t.includes("dean's list") || t.includes("deans list")) {
+    if (t.includes("dean") && t.includes("honor list")) {
+      console.log("Navigating to ApplicationforDeans");
       navigation.navigate("ApplicationforDeans");
     }
   };
