@@ -14,6 +14,7 @@ import CheckBox from "expo-checkbox";
 import styles from "../styles";
 import { BASE_URL } from "../config/api";
 import LottieView from "lottie-react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const LoginScreen = ({ navigation }) => {
   const [username, setUsername] = useState("");
@@ -53,6 +54,17 @@ const LoginScreen = ({ navigation }) => {
       }
 
       if (response.ok && result.success) {
+        // Persist login info for later use (e.g., contact lookup)
+        try {
+          const loginId =
+            result?.login_id ?? result?.Login_id ?? result?.user?.login_id ?? null;
+          if (loginId) {
+            await AsyncStorage.setItem("login_id", String(loginId));
+          }
+          await AsyncStorage.setItem("login_result", JSON.stringify(result));
+        } catch (e) {
+          console.log("Login info store error:", e?.message);
+        }
         setTimeout(() => {
           setLoading(false);
           navigation.replace("DrawerNavigator");

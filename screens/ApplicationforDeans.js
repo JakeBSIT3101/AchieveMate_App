@@ -12,20 +12,28 @@ import {
   ActivityIndicator,
   Modal,
   Vibration,
+  Platform,
+  Share,
 } from "react-native";
 import * as FileSystem from "expo-file-system";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as DocumentPicker from "expo-document-picker";
 import Icon from "react-native-vector-icons/Feather";
 import styles from "../styles";
 import { OCR_URL, BASE_URL } from "../config/api";
 import { CheckBox } from "react-native-elements";
+import { PDFDocument } from "pdf-lib";
+import { useNavigation } from "@react-navigation/native";
+import { WebView } from "react-native-webview";
+
+// Removed Buffer + eager expo-sharing require to avoid Hermes native module error.
 
 /* ──────────────── Debugging helpers ──────────────── */
 const logCurr = (...args) => console.log("🌐[curriculum]", ...args);
 
 const safeJson = (raw) => {
   if (!raw) return null;
-  // Strip BOM and trim
+  // Strip BOM and trims
   const t = raw.replace(/^\uFEFF/, "").trim();
   // Cut off anything before first { or [
   const idxs = [t.indexOf("{"), t.indexOf("[")].filter((i) => i >= 0);
@@ -278,6 +286,7 @@ function ConfirmModal({ visible, onYes, onNo }) {
 }
 
 export default function ApplicationforDeans() {
+  const navigation = useNavigation();
   // Column spec for Step 6 table (label, width, align)
   const COLS = [
     ["#", 40, "center"],
@@ -310,6 +319,11 @@ export default function ApplicationforDeans() {
   const [previewImage, setPreviewImage] = useState(null); // kept if you need in the future
   const [convertedImage, setConvertedImage] = useState(null); // kept if you need in the future
   const [pdfFile, setPdfFile] = useState(null); // kept if you need in the future
+  const [applicationPdfUri, setApplicationPdfUri] = useState(null); // generated PDF path for preview
+  const [applicationPdfBase64, setApplicationPdfBase64] = useState(null); // base64 for WebView preview
+  const [referencePdfBase64, setReferencePdfBase64] = useState(null); // base64 for right result preview
+  const [previewMode, setPreviewMode] = useState("generated"); // 'generated' | 'reference'
+  const [contactNumber, setContactNumber] = useState("");
 
   const longPressTamperPassRef = useRef(false);
   const holdTimerRef = useRef(null);
@@ -1023,10 +1037,20 @@ export default function ApplicationforDeans() {
   });
   const [reviewRows, setReviewRows] = useState([]); // [{idx, code, title, units, grade, section, instructor, mismatchQr}]
   const [reviewSummary, setReviewSummary] = useState({
-    totalCourses: "—",
-    totalUnits: "—",
-    gwa: "—",
+    totalCourses: "-",
+    totalUnits: "-",
+    gwa: "-",
   });
+
+  // Compute rank from GWA using specified thresholds
+  const rankFromGwa = (gwa) => {
+    const n = parseFloat(String(gwa ?? "").replace(/[^0-9.]/g, ""));
+    if (!Number.isFinite(n)) return "-";
+    if (n >= 1.0 && n <= 1.25) return "Tech Savant";
+    if (n > 1.25 && n <= 1.5) return "Tech Virtuoso";
+    if (n > 1.5 && n <= 1.75) return "Tech Prodigy";
+    return "-";
+  };
 
   const fetchText = async (url) => {
     const res = await fetch(
@@ -1053,6 +1077,7 @@ export default function ApplicationforDeans() {
       const gradeUnitsTxt = await fetchText(
         `${OCR_URL}/results/Grade_with_Units.txt`
       );
+
       const gwaMatch = gradeUnitsTxt.match(/Weighted Average:\s*([0-9.]+)/i);
       const gwa = gwaMatch ? gwaMatch[1] : "—";
 
@@ -1087,7 +1112,7 @@ export default function ApplicationforDeans() {
         })(),
       };
 
-      // Parse table rows from grade_for_review.txt
+      // -------- parse table lines --------
       const tableLines = [];
       const lines = coeTxt.split("\n");
       let inTable = false;
@@ -1097,29 +1122,36 @@ export default function ApplicationforDeans() {
           continue;
         }
         if (inTable) {
+          const trimmed = ln.trim();
           if (
-            ln.trim().startsWith("** NOTHING FOLLOWS **") ||
-            ln.trim().startsWith("Total no of Course") ||
-            ln.trim().startsWith("Total no of Units")
-          ) {
+            trimmed.startsWith("** NOTHING FOLLOWS **") ||
+            trimmed.startsWith("Total no of Course") ||
+            trimmed.startsWith("Total no of Units")
+          )
             break;
-          }
-          if (/^\d+\s/.test(ln)) {
-            tableLines.push(ln.trim());
-          }
+
+          if (/^\d+\s/.test(ln)) tableLines.push(trimmed);
         }
       }
 
+      // -------- helpers for token classification --------
+      const looksLikeUnits = (t) => /^(?:2|3)$/.test(t); // enforce Units = 2 or 3 only
+      const looksLikeGrade = (t = "") =>
+        /^(?:[1-5](?:\.\d{1,2})?|[1-5]|INC|INCOMPLETE|DRP|DROP|UD|NG|W|WF|P|F|PASS|PASSED)$/i.test(
+          t
+        );
+
       const rows = tableLines.map((ln, idx) => {
-        // Example line:
-        // 1 BAT 401 Fundamentals of Business Analytics 3 2.50 IT-BA-3101 SALAC, DJOANNA MARIE V.
+        // e.g.:
+        // "1 NSTP 101 National Service Training Program 1 3 1.75 NSTP-A JUAN DELA CRUZ"
         const tokens = ln.split(/\s+/);
 
+        // find "ABCD 123" course code
         let code = "";
         let codeIdx = -1;
         for (let i = 1; i < tokens.length - 1; i++) {
           if (
-            /^[A-Za-z]{2,6}$/.test(tokens[i]) &&
+            /^[A-Za-z]{2,8}$/.test(tokens[i]) &&
             /^\d{3}$/.test(tokens[i + 1])
           ) {
             code = `${tokens[i]} ${tokens[i + 1]}`;
@@ -1135,23 +1167,49 @@ export default function ApplicationforDeans() {
         let instructor = "";
 
         if (codeIdx !== -1) {
-          let titleStart = codeIdx + 2;
-          let titleEnd = titleStart;
-          while (titleEnd < tokens.length && !/^\d+$/.test(tokens[titleEnd])) {
-            titleEnd++;
+          const titleStart = codeIdx + 2;
+
+          // Find the first index where Units (2|3) is followed by a Grade
+          let unitsIdx = -1;
+          for (let k = titleStart; k < tokens.length; k++) {
+            const tk = tokens[k];
+            const next = tokens[k + 1];
+            if (looksLikeUnits(tk) && looksLikeGrade(next)) {
+              unitsIdx = k;
+              break;
+            }
           }
-          title = tokens.slice(titleStart, titleEnd).join(" ");
-          units = tokens[titleEnd] || "";
-          grade = tokens[titleEnd + 1] || "";
-          section = tokens[titleEnd + 2] || "";
-          instructor = tokens.slice(titleEnd + 3).join(" ");
+
+          // If not found forward (OCR noise), try from the end (last occurrence)
+          if (unitsIdx === -1) {
+            for (let k = tokens.length - 2; k >= titleStart; k--) {
+              if (looksLikeUnits(tokens[k]) && looksLikeGrade(tokens[k + 1])) {
+                unitsIdx = k;
+                break;
+              }
+            }
+          }
+
+          // Title = everything before Units; keeps series "1/2" inside the title
+          const titleEndExclusive = unitsIdx === -1 ? tokens.length : unitsIdx;
+          title = tokens.slice(titleStart, titleEndExclusive).join(" ").trim();
+
+          if (unitsIdx !== -1) {
+            units = tokens[unitsIdx] || "";
+            grade = tokens[unitsIdx + 1] || "";
+            section = tokens[unitsIdx + 2] || "";
+            instructor = tokens
+              .slice(unitsIdx + 3)
+              .join(" ")
+              .trim();
+          }
         }
 
         return {
           idx: idx + 1,
           code,
-          title,
-          units,
+          title, // will include "... Program 1" or "... Program 2"
+          units, // only "2" or "3"
           grade,
           section,
           instructor,
@@ -1185,6 +1243,349 @@ export default function ApplicationforDeans() {
       loadReviewData();
     }
   }, [currentStep]);
+
+  // Auto-generate PDF for preview when entering Step 7
+  useEffect(() => {
+    if (currentStep === 7) {
+      (async () => {
+        // Ensure contact is loaded before generating
+        await ensureContactLoaded();
+        await generatePDFToAppDir(
+          { ...reviewMeta, contact: contactNumber },
+          reviewRows
+        );
+        try {
+          const assetModule = require("../assets/right_result.pdf");
+          const { Asset } = require("expo-asset");
+          const asset = Asset.fromModule(assetModule);
+          await asset.downloadAsync();
+          const refB64 = await FileSystem.readAsStringAsync(asset.localUri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          setReferencePdfBase64(refB64);
+        } catch (e) {
+          console.log("Reference PDF load failed:", e?.message);
+        }
+      })();
+    }
+  }, [currentStep]);
+
+  // Fetch contact number by login_id from API and cache locally
+  const ensureContactLoaded = async () => {
+    try {
+      if (contactNumber) return contactNumber;
+      const stored = await AsyncStorage.getItem("contact_number");
+      if (stored) {
+        setContactNumber(stored);
+        return stored;
+      }
+      const loginId =
+        (await AsyncStorage.getItem("login_id")) || null;
+      if (!loginId) return "";
+      const candidates = [
+        `${BASE_URL}/student_manage.php?login_id=${encodeURIComponent(loginId)}`,
+        `${BASE_URL}/student_contact.php?login_id=${encodeURIComponent(loginId)}`,
+        `${BASE_URL}/contact.php?login_id=${encodeURIComponent(loginId)}`,
+      ];
+      for (const url of candidates) {
+        try {
+          const res = await fetch(url);
+          if (!res.ok) continue;
+          const text = await res.text();
+          let json;
+          try {
+            json = JSON.parse(text);
+          } catch {
+            continue;
+          }
+          const contact =
+            json?.contact ?? json?.contact_number ?? json?.mobile ?? json?.data?.contact ?? "";
+          if (contact) {
+            const c = String(contact);
+            setContactNumber(c);
+            await AsyncStorage.setItem("contact_number", c);
+            // Also merge into reviewMeta for subsequent renders
+            setReviewMeta((m) => ({ ...m, contact: c }));
+            return c;
+          }
+        } catch (_) {}
+      }
+      return "";
+    } catch (_) {
+      return "";
+    }
+  };
+
+  // Helper to render a lightweight HTML with PDF.js for preview (Android WebView can't render PDFs natively)
+  const buildPdfPreviewHtml = (b64) => `<!DOCTYPE html>
+  <html>
+    <head>
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <style>
+        html, body { margin: 0; padding: 0; background: #f5f5f5; }
+        #wrapper { padding: 8px; }
+        #the-canvas { width: 100%; height: auto; background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+      </style>
+      <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+      <script>
+        window.addEventListener('load', async () => {
+          try {
+            const pdfjsLib = window['pdfjs-dist/build/pdf'];
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+            function base64ToUint8Array(base64) {
+              const binary_string = atob(base64);
+              const len = binary_string.length;
+              const bytes = new Uint8Array(len);
+              for (let i = 0; i < len; i++) bytes[i] = binary_string.charCodeAt(i);
+              return bytes;
+            }
+            const data = base64ToUint8Array('${b64.replace(/'/g, "\\'")}');
+            const loadingTask = pdfjsLib.getDocument({ data });
+            const pdf = await loadingTask.promise;
+            const page = await pdf.getPage(1);
+            const scale = 1.3;
+            const viewport = page.getViewport({ scale });
+            const canvas = document.getElementById('the-canvas');
+            const context = canvas.getContext('2d');
+            canvas.width = viewport.width; canvas.height = viewport.height;
+            await page.render({ canvasContext: context, viewport }).promise;
+
+            // Tap-to-measure: report PDF point coordinates back to RN
+            canvas.addEventListener('click', (e) => {
+              const rect = canvas.getBoundingClientRect();
+              const x = e.clientX - rect.left;
+              const y = e.clientY - rect.top;
+              const ptX = x / scale;
+              const ptY = (canvas.height - y) / scale; // convert to PDF bottom-left origin
+              if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'tap', x, y, ptX, ptY }));
+              }
+            });
+          } catch (e) {
+            document.body.innerHTML = '<div style="padding:12px;color:#b00">Preview failed: ' + (e && e.message ? e.message : e) + '</div>';
+          }
+        });
+      </script>
+    </head>
+    <body>
+      <div id="wrapper"><canvas id="the-canvas"></canvas></div>
+    </body>
+  </html>`;
+
+  // Generate the PDF and save to app directory; return { fileUri, pdfBase64 }
+  async function generatePDFToAppDir(reviewMeta, reviewRows) {
+    try {
+      console.log("User clicked download: starting PDF generation...");
+      // Attempt asset load via expo-asset (works on native) with safe fallback
+      let templateBytesBase64 = null;
+      try {
+        const assetModule = require("../assets/DL_Template.pdf");
+        const { Asset } = require("expo-asset");
+        const asset = Asset.fromModule(assetModule);
+        await asset.downloadAsync();
+        templateBytesBase64 = await FileSystem.readAsStringAsync(
+          asset.localUri,
+          {
+            encoding: FileSystem.EncodingType.Base64,
+          }
+        );
+        console.log("Loaded template via Asset:", asset.localUri);
+      } catch (e) {
+        console.log("Asset load failed, fallback path attempt:", e?.message);
+        try {
+          const candidate =
+            FileSystem.documentDirectory + "../assets/DL_Template.pdf";
+          templateBytesBase64 = await FileSystem.readAsStringAsync(candidate, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          console.log("Loaded template via fallback path:", candidate);
+        } catch (e2) {
+          console.error("Failed to load DL_Template.pdf", e2);
+          Alert.alert("Template Missing", "Could not load DL_Template.pdf");
+          return null;
+        }
+      }
+
+      const templateBytes = Uint8Array.from(atob(templateBytesBase64), (c) =>
+        c.charCodeAt(0)
+      );
+      const pdfDoc = await PDFDocument.load(templateBytes);
+      const page = pdfDoc.getPages()[0];
+
+      // Helper: split name to Last / First / MI (best-effort)
+      const splitName = (full = "") => {
+        const t = String(full).trim().replace(/\s+/g, " ");
+        if (!t) return { last: "", first: "", mi: "" };
+        const parts = t.split(" ");
+        const last = (parts[0] || "").toUpperCase();
+        let mi = "";
+        if (parts.length >= 3) {
+          const lastPart = parts[parts.length - 1];
+          if (/^([A-Za-z])\.?$/.test(lastPart)) mi = RegExp.$1.toUpperCase() + ".";
+        }
+        const first = parts.slice(1, mi ? -1 : undefined).join(" ");
+        return { last, first, mi };
+      };
+
+      // Layout constants tuned to DL_Template.pdf
+      const NAME_Y = 470;
+      const X_LAST = 110;
+      const X_FIRST = 300;
+      const X_MI = 515;
+      const INFO_Y2 = 450; // Contact row
+      const X_CONTACT = 170;
+      const INFO_Y3 = 433; // Course / YrSec / Track row
+      const X_COURSE = 170;
+      const X_YRSEC = 340;
+      const X_TRACK = 495;
+      const INFO_Y4 = 417; // Scholarship row
+      const X_SCHOLAR = 170;
+
+      const n = splitName(reviewMeta.fullname || "");
+      page.drawText(n.last, { x: X_LAST, y: NAME_Y, size: 11 });
+      page.drawText(n.first, { x: X_FIRST, y: NAME_Y, size: 11 });
+      page.drawText(n.mi, { x: X_MI, y: NAME_Y, size: 11 });
+
+      // Optional contact (not available from OCR; leave blank if missing)
+      if (reviewMeta.contact) page.drawText(String(reviewMeta.contact), { x: X_CONTACT, y: INFO_Y2, size: 11 });
+
+      // Course, Yr/Sec, Track
+      if (reviewMeta.program) page.drawText(String(reviewMeta.program), { x: X_COURSE, y: INFO_Y3, size: 11 });
+      if (reviewMeta.year_level) page.drawText(String(reviewMeta.year_level), { x: X_YRSEC, y: INFO_Y3, size: 11 });
+      if (reviewMeta.track) page.drawText(String(reviewMeta.track), { x: X_TRACK, y: INFO_Y3, size: 11 });
+
+      // Scholarship
+      if (reviewMeta.scholarship) page.drawText(String(reviewMeta.scholarship), { x: X_SCHOLAR, y: INFO_Y4, size: 11 });
+
+      // Table columns
+      const COL_COURSE_X = 72;
+      const COL_FINAL_X = 410;
+      const COL_UNITS_X = 465;
+      const COL_WG_X = 525;
+      const ROW_START_Y = 365;
+      const ROW_STEP = 16;
+
+      let y = ROW_START_Y;
+      let totalUnits = 0;
+      let totalWG = 0;
+      const safeNum = (v) => {
+        const n = parseFloat(String(v).replace(/[^0-9.]/g, ""));
+        return Number.isFinite(n) ? n : 0;
+      };
+
+      for (let r of reviewRows) {
+        if (y < 210) break; // keep inside table
+        const units = safeNum(r.units);
+        const grade = safeNum(r.grade);
+        const wg = units * grade;
+        totalUnits += units;
+        totalWG += wg;
+        // Course title line
+        const courseText = `${r.code || ""} ${r.title || ""}`.trim();
+        page.drawText(courseText, { x: COL_COURSE_X, y, size: 10 });
+        // Final grade / Units / Weighted grade
+        if (grade) page.drawText(String(grade), { x: COL_FINAL_X, y, size: 10 });
+        if (units) page.drawText(String(units), { x: COL_UNITS_X, y, size: 10 });
+        if (wg) page.drawText(wg.toFixed(2), { x: COL_WG_X, y, size: 10 });
+        y -= ROW_STEP;
+      }
+
+      // Totals row and Weighted Average / Rank at the bottom lines
+      const TOTAL_Y = 238;
+      const WA_Y = 222;
+      const RANK_Y = 206;
+      const rankVal = rankFromGwa(reviewSummary?.gwa);
+      const wa = totalUnits ? (totalWG / totalUnits) : 0;
+      page.drawText(String(totalUnits), { x: COL_UNITS_X, y: TOTAL_Y, size: 10 });
+      page.drawText(totalWG.toFixed(2), { x: COL_WG_X, y: TOTAL_Y, size: 10 });
+      if (wa) page.drawText(Number.isFinite(wa) ? wa.toFixed(4) : "", { x: COL_WG_X, y: WA_Y, size: 10 });
+      if (rankVal && rankVal !== "-") page.drawText(rankVal, { x: COL_WG_X, y: RANK_Y, size: 10 });
+      console.log("Inserted data into PDF");
+
+      // Save as base64 directly (avoids Buffer polyfill issues in Hermes)
+      const pdfBase64 = await pdfDoc.saveAsBase64();
+      const fileUri = FileSystem.documentDirectory + "Application.pdf";
+      await FileSystem.writeAsStringAsync(fileUri, pdfBase64, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      console.log("Application.pdf generated and saved:", fileUri);
+
+       setApplicationPdfUri(fileUri);
+       setApplicationPdfBase64(pdfBase64);
+       return { fileUri, pdfBase64 };
+    } catch (err) {
+      console.error("PDF generation error:", err);
+      Alert.alert("Error", "Failed to generate Application.pdf");
+      return null;
+    }
+  }
+
+  // Helper to generate and then download/save Application.pdf
+  async function generateAndDownloadPDF(reviewMeta, reviewRows) {
+    try {
+      const loadedContact = await ensureContactLoaded();
+      const generated = await generatePDFToAppDir(
+        { ...reviewMeta, contact: loadedContact || contactNumber },
+        reviewRows
+      );
+      if (!generated) return;
+      const { fileUri, pdfBase64 } = generated;
+
+      // Download/save behavior (no text sharing)
+      if (Platform.OS === "android") {
+        try {
+          const saf = FileSystem.StorageAccessFramework;
+          const permissions = await saf.requestDirectoryPermissionsAsync();
+          if (permissions.granted) {
+            const dirUri = permissions.directoryUri;
+            const fileName = `Application_${Date.now()}.pdf`;
+            const contentUri = await saf.createFileAsync(
+              dirUri,
+              fileName,
+              "application/pdf"
+            );
+            await FileSystem.writeAsStringAsync(contentUri, pdfBase64, {
+              encoding: FileSystem.EncodingType.Base64,
+            });
+            Alert.alert("Downloaded", `Saved to selected folder as ${fileName}`);
+            return;
+          } else {
+            Alert.alert(
+              "Storage Permission",
+              "Folder not selected. The file remains saved inside the app."
+            );
+          }
+        } catch (e) {
+          console.log("SAF download failed:", e?.message);
+          Alert.alert("Download failed", "Could not save to external storage.");
+        }
+      } else if (Platform.OS === "ios") {
+        try {
+          const { NativeModulesProxy } = require("expo-modules-core");
+          const hasExpoSharing = !!(
+            NativeModulesProxy && NativeModulesProxy.ExpoSharing
+          );
+          if (hasExpoSharing) {
+            const Sharing = require("expo-sharing");
+            await Sharing.shareAsync(fileUri, {
+              UTI: "com.adobe.pdf",
+              mimeType: "application/pdf",
+            });
+            return;
+          }
+        } catch (_) {}
+        Alert.alert(
+          "PDF Generated",
+          "Saved inside the app. Use the Files sheet to export."
+        );
+      } else {
+        Alert.alert("PDF Generated", "Saved Application.pdf to local directory.");
+      }
+    } catch (err) {
+      console.error("PDF download error:", err);
+      Alert.alert("Error", "Failed to save Application.pdf");
+    }
+  }
 
   /* ──────────────────────────────────────────────────────────────
      Render
@@ -1448,7 +1849,7 @@ export default function ApplicationforDeans() {
               onPress={() => setCurrentStep(3)}
               disabled={!certificatePreviewUri}
             >
-              <Text style={styles.navButtonText}>Next </Text>
+              <Text style={styles.navButtonText}>Next</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -2170,7 +2571,12 @@ export default function ApplicationforDeans() {
                   </Text>
                   {reviewSummary.gwa}
                 </Text>
+                <Text>
+                  <Text style={{ fontWeight: "700" }}>Rank: </Text>
+                  {rankFromGwa(reviewSummary.gwa)}
+                </Text>
               </View>
+              
             </View>
             <View style={{ marginTop: 10, alignItems: "flex-end" }}>
               <Text style={{ color: "#9CA3AF", fontSize: 12 }}>
@@ -2188,21 +2594,12 @@ export default function ApplicationforDeans() {
               <Text style={styles.navButtonText}>← Back</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.stepFormNavBtn, { backgroundColor: "#007bff" }]}
+              style={[styles.stepFormNavBtn, { backgroundColor: "#00C881" }]}
               onPress={() => setConfirmOpen(true)}
             >
-              <Text style={styles.navButtonText}>Next →</Text>
+              <Text style={styles.navButtonText}>Submit</Text>
             </TouchableOpacity>
           </View>
-
-          <ConfirmModal
-            visible={confirmOpen}
-            onYes={() => {
-              setConfirmOpen(false);
-              setCurrentStep(7);
-            }}
-            onNo={() => setConfirmOpen(false)}
-          />
         </View>
       )}
 
@@ -2211,11 +2608,57 @@ export default function ApplicationforDeans() {
         <View style={{ flex: 1, padding: 20 }}>
           <View style={[ui.card]}>
             <Text style={{ fontWeight: "700", fontSize: 16, marginBottom: 8 }}>
-              Generate Application
+              Generated Application
             </Text>
-            <Text style={{ color: "#666" }}>
-              Trigger your /generate_pdf_with_data or final submit here.
-            </Text>
+            {/* Preview toggle */}
+            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
+              <TouchableOpacity
+                onPress={() => setPreviewMode('generated')}
+                style={[styles.stepFormNavBtn, { backgroundColor: previewMode==='generated' ? '#007BFF' : '#9CA3AF' }]}
+              >
+                <Text style={styles.navButtonText}>Generated</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setPreviewMode('reference')}
+                style={[styles.stepFormNavBtn, { backgroundColor: previewMode==='reference' ? '#007BFF' : '#9CA3AF' }]}
+              >
+                <Text style={styles.navButtonText}>Reference</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Live PDF preview using PDF.js inside WebView (works on Android/iOS) */}
+            {(previewMode==='generated' ? applicationPdfBase64 : referencePdfBase64) ? (
+              <View style={{ height: 420, width: "100%", marginBottom: 12 }}>
+                <WebView
+                  originWhitelist={["*"]}
+                  source={{ html: buildPdfPreviewHtml(previewMode==='generated' ? applicationPdfBase64 : referencePdfBase64) }}
+                  style={{ flex: 1, borderRadius: 8, backgroundColor: "transparent" }}
+                  allowFileAccess
+                  allowUniversalAccessFromFileURLs
+                  onMessage={(e) => {
+                    try {
+                      const msg = JSON.parse(e?.nativeEvent?.data || '{}');
+                      if (msg?.type === 'tap') {
+                        console.log('PDF tap at canvas:', msg.x, msg.y, ' -> PDF pts:', msg.ptX, msg.ptY);
+                      }
+                    } catch {}
+                  }}
+                  onError={(e) => console.log("PDF preview error:", e?.nativeEvent?.description)}
+                />
+              </View>
+            ) : (
+              <View style={{ paddingVertical: 20 }}>
+                <ActivityIndicator size="large" color="#0249AD" />
+              </View>
+            )}
+            <TouchableOpacity
+              onPress={async () => {
+                await generateAndDownloadPDF(reviewMeta, reviewRows);
+              }}
+              style={[styles.stepFormNavBtn, { alignSelf: "flex-start" }]}
+            >
+              <Text style={styles.navButtonText}>Download</Text>
+            </TouchableOpacity>
           </View>
 
           <View style={[styles.navStickyContainer, stickyFooter]}>
@@ -2228,13 +2671,14 @@ export default function ApplicationforDeans() {
             <TouchableOpacity
               style={[styles.stepFormNavBtn, { backgroundColor: "#00C881" }]}
               onPress={() => {
-                Alert.alert(
-                  "Generate",
-                  "Stub: call /generate_pdf_with_data here."
-                );
+                try {
+                  navigation?.navigate?.("Home");
+                } catch (_) {
+                  setCurrentStep(1);
+                }
               }}
             >
-              <Text style={styles.navButtonText}>Generate →</Text>
+              <Text style={styles.navButtonText}>Finish</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -2247,6 +2691,15 @@ export default function ApplicationforDeans() {
         message={noticeMessage}
         onOk={() => setNoticeOpen(false)}
         onReupload={noticeReupload}
+      />
+      {/* Step confirmation modal (Step 6 -> Step 7) */}
+      <ConfirmModal
+        visible={confirmOpen}
+        onNo={() => setConfirmOpen(false)}
+        onYes={() => {
+          setConfirmOpen(false);
+          setCurrentStep(7);
+        }}
       />
     </View>
   );

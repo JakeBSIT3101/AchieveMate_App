@@ -198,6 +198,7 @@ def parse_grade_with_units(raw_text: str) -> str:
     """
     Parse raw COG text and output a table: Grades | Units | Weighted Grades.
     Includes a Total row for Units and Weighted Grades, and Weighted Average.
+    Skips NSTP 111 and NSTP 121 from totals and table.
     """
     lines = [ln.strip() for ln in raw_text.splitlines() if ln.strip()]
     table = []
@@ -213,10 +214,15 @@ def parse_grade_with_units(raw_text: str) -> str:
             units = None
             grade = None
             code_idx = -1
+            course_code = None
             for i in range(1, len(tokens) - 1):
                 if re.match(r'^[A-Za-z]{2,6}$', tokens[i]) and re.match(r'^\d{3}$', tokens[i + 1]):
                     code_idx = i
+                    course_code = f"{tokens[i].upper()} {tokens[i+1]}"
                     break
+            # Skip NSTP 111 and NSTP 121
+            if course_code in {"NSTP 111", "NSTP 121"}:
+                continue
             if code_idx != -1:
                 for j in range(code_idx + 2, len(tokens)):
                     if re.match(r"^\d+$", tokens[j]):
@@ -819,6 +825,11 @@ def upload_image():
     raw_cog_path = os.path.join(RESULTS_DIR, "raw_cog_text.txt")
     atomic_write_text(raw_cog_path, raw_text)
 
+    # --- Update Grade_with_Units.txt after new upload ---
+    grade_with_units_path = os.path.join(RESULTS_DIR, "Grade_with_Units.txt")
+    grade_with_units_str = parse_grade_with_units(raw_text)
+    atomic_write_text(grade_with_units_path, grade_with_units_str)
+
     lines = raw_text.splitlines()
     filtered_lines = [line.strip() for line in lines if line.strip() and not re.fullmatch(r"[#,\]\|\“”=()\-\_. ]+", line)]
     grouped_result, skipped, _, grades = extract_course_grade_only(filtered_lines)
@@ -961,9 +972,13 @@ def upload_grade_pdf():
 
   raw_pdf_text = "\n".join(raw_pdf_text_parts)
 
-  # Save raw for cross-field parsing; this replaces old raw_cog_text from image flow
   raw_cog_path = os.path.join(RESULTS_DIR, "raw_cog_text.txt")
   atomic_write_text(raw_cog_path, raw_pdf_text)
+
+  # --- Update Grade_with_Units.txt after new upload ---
+  grade_with_units_path = os.path.join(RESULTS_DIR, "Grade_with_Units.txt")
+  grade_with_units_str = parse_grade_with_units(raw_pdf_text)
+  atomic_write_text(grade_with_units_path, grade_with_units_str)
 
   # Save parsed grade block from PDF OCR
   atomic_write_text(os.path.join(RESULTS_DIR, "grade_pdf_ocr.txt"),
