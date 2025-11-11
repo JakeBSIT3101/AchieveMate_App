@@ -993,6 +993,28 @@ def upload_grade_pdf():
     with open(raw_cog_path, "r", encoding="utf-8") as f:
       raw_cog_text = f.read()
     grade_for_review_str = parse_grade_for_review(raw_cog_text)
+    # Inject Track from raw_certificate_of_enrollment.txt if available
+    try:
+      coe_path = os.path.join(RESULTS_DIR, "raw_certificate_of_enrollment.txt")
+      if os.path.exists(coe_path):
+        with open(coe_path, "r", encoding="utf-8") as cf:
+          coe_text = cf.read()
+        m = re.search(r"-([A-Za-z]{1,10})/", coe_text)
+        if m:
+          track = m.group(1).upper().strip()
+          if track:
+            lines = grade_for_review_str.split("\n")
+            inserted = False
+            for i, ln in enumerate(lines):
+              if ln.strip().lower().startswith("year level"):
+                lines.insert(i + 1, f"Track : {track}")
+                inserted = True
+                break
+            if not inserted:
+              lines.append(f"Track : {track}")
+            grade_for_review_str = "\n".join(lines)
+    except Exception:
+      pass
     atomic_write_text(os.path.join(RESULTS_DIR, "grade_for_review.txt"), grade_for_review_str)
   except Exception as e:
     # Log or ignore error, but don't break upload

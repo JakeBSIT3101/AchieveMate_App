@@ -22,7 +22,7 @@ import Icon from "react-native-vector-icons/Feather";
 import styles from "../styles";
 import { OCR_URL, BASE_URL } from "../config/api";
 import { CheckBox } from "react-native-elements";
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, StandardFonts } from "pdf-lib";
 import { useNavigation } from "@react-navigation/native";
 import { WebView } from "react-native-webview";
 
@@ -321,8 +321,9 @@ export default function ApplicationforDeans() {
   const [pdfFile, setPdfFile] = useState(null); // kept if you need in the future
   const [applicationPdfUri, setApplicationPdfUri] = useState(null); // generated PDF path for preview
   const [applicationPdfBase64, setApplicationPdfBase64] = useState(null); // base64 for WebView preview
-  const [referencePdfBase64, setReferencePdfBase64] = useState(null); // base64 for right result preview
-  const [previewMode, setPreviewMode] = useState("generated"); // 'generated' | 'reference'
+  const [referencePdfBase64, setReferencePdfBase64] = useState(null); // base64 for right result preview (optional)
+  const [previewPage, setPreviewPage] = useState(1);
+  const [previewPageCount, setPreviewPageCount] = useState(null);
   const [contactNumber, setContactNumber] = useState("");
 
   const longPressTamperPassRef = useRef(false);
@@ -1034,6 +1035,9 @@ export default function ApplicationforDeans() {
     program: "",
     semester: "",
     year_level: "",
+    track: "",
+    contact: "",
+    section: "",
   });
   const [reviewRows, setReviewRows] = useState([]); // [{idx, code, title, units, grade, section, instructor, mismatchQr}]
   const [reviewSummary, setReviewSummary] = useState({
@@ -1058,6 +1062,56 @@ export default function ApplicationforDeans() {
     );
     if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
     return await res.text();
+  };
+
+  // Fetch helpers for API lookups
+  const fetchJsonFirst = async (urls) => {
+    for (const u of urls) {
+      try {
+        const res = await fetch(u);
+        if (!res.ok) continue;
+        const text = await res.text();
+        try {
+          return JSON.parse(text);
+        } catch (_) {
+          continue;
+        }
+      } catch (_) {}
+    }
+    return null;
+  };
+
+  const resolveTrackName = async (abbr) => {
+    if (!abbr) return "";
+    const a = encodeURIComponent(String(abbr).trim());
+    const json = await fetchJsonFirst([
+      `${BASE_URL}/major.php?abbreviation=${a}`,
+      `${BASE_URL}/major.php?abbr=${a}`,
+      `${BASE_URL}/get_major.php?abbr=${a}`,
+    ]);
+    if (!json) return String(abbr);
+    return (
+      json?.major_name || json?.data?.major_name || json?.name || String(abbr)
+    );
+  };
+
+  const resolveContactBySrcode = async (src) => {
+    if (!src) return "";
+    const s = encodeURIComponent(String(src).trim());
+    const json = await fetchJsonFirst([
+      `${BASE_URL}/student_manage.php?srcode=${s}`,
+      `${BASE_URL}/student_manage.php?SRCODE=${s}`,
+      `${BASE_URL}/get_student.php?srcode=${s}`,
+    ]);
+    if (!json) return "";
+    return (
+      json?.Contact ||
+      json?.contact ||
+      json?.contact_number ||
+      json?.mobile ||
+      json?.data?.contact ||
+      ""
+    );
   };
 
   const toNumericGrade = (g) => {
@@ -1108,6 +1162,10 @@ export default function ApplicationforDeans() {
         })(),
         year_level: (() => {
           const m = coeTxt.match(/Year Level\s*:\s*([^\n]+)/i);
+          return m ? m[1].trim() : "";
+        })(),
+        track: (() => {
+          const m = coeTxt.match(/Track\s*:\s*([^\n]+)/i);
           return m ? m[1].trim() : "";
         })(),
       };
@@ -1225,6 +1283,36 @@ export default function ApplicationforDeans() {
         gwa,
       };
 
+      // Compute a representative Section (most common non-empty across rows)
+      try {
+        const sections = rows.map((r) => r.section).filter(Boolean);
+        if (sections.length) {
+          const counts = sections.reduce((acc, s) => {
+            acc[s] = (acc[s] || 0) + 1;
+            return acc;
+          }, {});
+          const best = Object.keys(counts).sort(
+            (a, b) => counts[b] - counts[a]
+          )[0];
+          if (best) meta.section = best;
+        }
+      } catch (_) {}
+
+      // Enrich track (map abbreviation to major_name) and contact (from BASE_URL by SRCode)
+      try {
+        if (meta.track) {
+          const majorName = await resolveTrackName(meta.track);
+          if (majorName) meta.track = String(majorName);
+        }
+        if (meta.srcode) {
+          const contact = await resolveContactBySrcode(meta.srcode);
+          if (contact) {
+            meta.contact = String(contact);
+            setContactNumber(meta.contact);
+          }
+        }
+      } catch (_) {}
+
       setReviewMeta(meta);
       setReviewRows(rows);
       setReviewSummary(summary);
@@ -1250,6 +1338,7 @@ export default function ApplicationforDeans() {
       (async () => {
         // Ensure contact is loaded before generating
         await ensureContactLoaded();
+        setPreviewPage(1);
         await generatePDFToAppDir(
           { ...reviewMeta, contact: contactNumber },
           reviewRows
@@ -1279,12 +1368,25 @@ export default function ApplicationforDeans() {
         setContactNumber(stored);
         return stored;
       }
-      const loginId =
-        (await AsyncStorage.getItem("login_id")) || null;
+      if (reviewMeta?.srcode) {
+        const c = await resolveContactBySrcode(reviewMeta.srcode);
+        if (c) {
+          const val = String(c);
+          setContactNumber(val);
+          await AsyncStorage.setItem("contact_number", val);
+          setReviewMeta((m) => ({ ...m, contact: val }));
+          return val;
+        }
+      }
+      const loginId = (await AsyncStorage.getItem("login_id")) || null;
       if (!loginId) return "";
       const candidates = [
-        `${BASE_URL}/student_manage.php?login_id=${encodeURIComponent(loginId)}`,
-        `${BASE_URL}/student_contact.php?login_id=${encodeURIComponent(loginId)}`,
+        `${BASE_URL}/student_manage.php?login_id=${encodeURIComponent(
+          loginId
+        )}`,
+        `${BASE_URL}/student_contact.php?login_id=${encodeURIComponent(
+          loginId
+        )}`,
         `${BASE_URL}/contact.php?login_id=${encodeURIComponent(loginId)}`,
       ];
       for (const url of candidates) {
@@ -1299,7 +1401,11 @@ export default function ApplicationforDeans() {
             continue;
           }
           const contact =
-            json?.contact ?? json?.contact_number ?? json?.mobile ?? json?.data?.contact ?? "";
+            json?.contact ??
+            json?.contact_number ??
+            json?.mobile ??
+            json?.data?.contact ??
+            "";
           if (contact) {
             const c = String(contact);
             setContactNumber(c);
@@ -1317,7 +1423,7 @@ export default function ApplicationforDeans() {
   };
 
   // Helper to render a lightweight HTML with PDF.js for preview (Android WebView can't render PDFs natively)
-  const buildPdfPreviewHtml = (b64) => `<!DOCTYPE html>
+  const buildPdfPreviewHtml = (b64, pageNum = 1) => `<!DOCTYPE html>
   <html>
     <head>
       <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -1342,7 +1448,12 @@ export default function ApplicationforDeans() {
             const data = base64ToUint8Array('${b64.replace(/'/g, "\\'")}');
             const loadingTask = pdfjsLib.getDocument({ data });
             const pdf = await loadingTask.promise;
-            const page = await pdf.getPage(1);
+            // notify total pages
+            if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'meta', pages: pdf.numPages }));
+            }
+            const desired = Math.max(1, Math.min(${pageNum}, pdf.numPages));
+            const page = await pdf.getPage(desired);
             const scale = 1.3;
             const viewport = page.getViewport({ scale });
             const canvas = document.getElementById('the-canvas');
@@ -1411,6 +1522,7 @@ export default function ApplicationforDeans() {
       );
       const pdfDoc = await PDFDocument.load(templateBytes);
       const page = pdfDoc.getPages()[0];
+      const { width: PAGE_W, height: PAGE_H } = page.getSize();
 
       // Helper: split name to Last / First / MI (best-effort)
       const splitName = (full = "") => {
@@ -1421,51 +1533,110 @@ export default function ApplicationforDeans() {
         let mi = "";
         if (parts.length >= 3) {
           const lastPart = parts[parts.length - 1];
-          if (/^([A-Za-z])\.?$/.test(lastPart)) mi = RegExp.$1.toUpperCase() + ".";
+          if (/^([A-Za-z])\.?$/.test(lastPart))
+            mi = RegExp.$1.toUpperCase() + ".";
         }
         const first = parts.slice(1, mi ? -1 : undefined).join(" ");
         return { last, first, mi };
       };
+      // Coordinate helpers: convert FPDF-style mm, top-left origin → pdf-lib points, bottom-left origin
+      const mmToPt = (mm) => (mm * 72) / 25.4;
+      const Y_ADJUST = 0; // global vertical nudge if needed
+      const fromTopLeft = (x_mm, y_mm) => ({
+        x: mmToPt(x_mm),
+        y: PAGE_H - mmToPt(y_mm) + Y_ADJUST,
+      });
+      const fromTopLeftAdj = (x_mm, y_mm, dyPt = 0) => {
+        const p = fromTopLeft(x_mm, y_mm);
+        return { x: p.x, y: p.y + dyPt };
+      };
 
-      // Layout constants tuned to DL_Template.pdf
-      const NAME_Y = 470;
-      const X_LAST = 110;
-      const X_FIRST = 300;
-      const X_MI = 515;
-      const INFO_Y2 = 450; // Contact row
-      const X_CONTACT = 170;
-      const INFO_Y3 = 433; // Course / YrSec / Track row
-      const X_COURSE = 170;
-      const X_YRSEC = 340;
-      const X_TRACK = 495;
-      const INFO_Y4 = 417; // Scholarship row
-      const X_SCHOLAR = 170;
+      // 1) College (bold) and Semester, AY
+      const collegeTL = fromTopLeft(25, 61.5);
+      if (reviewMeta.college)
+        page.drawText(String(reviewMeta.college), {
+          x: collegeTL.x,
+          y: collegeTL.y,
+          size: 12,
+        });
+      // Fine-tune vertical positions for specific lines (negative = lower)
+      const SEMAY_Y_SHIFT_PT = -3;
+      const semAyTL = fromTopLeftAdj(85, 185, SEMAY_Y_SHIFT_PT);
+      const semTxt = `${
+        reviewMeta.semester ? String(reviewMeta.semester) + " Semester" : ""
+      }${
+        reviewMeta.academic_year
+          ? ", AY " + String(reviewMeta.academic_year)
+          : ""
+      }`.trim();
+      if (semTxt)
+        page.drawText(semTxt, { x: semAyTL.x, y: semAyTL.y, size: 12 });
 
+      // 2) Name: Last / First / M.I. (bold)
       const n = splitName(reviewMeta.fullname || "");
-      page.drawText(n.last, { x: X_LAST, y: NAME_Y, size: 11 });
-      page.drawText(n.first, { x: X_FIRST, y: NAME_Y, size: 11 });
-      page.drawText(n.mi, { x: X_MI, y: NAME_Y, size: 11 });
+      const lastTL = fromTopLeft(57.5, 196);
+      const firstTL = fromTopLeft(102, 196);
+      const miTL = fromTopLeft(166, 196);
+      page.drawText(n.last, { x: lastTL.x, y: lastTL.y, size: 12 });
+      page.drawText(n.first, { x: firstTL.x, y: firstTL.y, size: 12 });
+      page.drawText(n.mi, { x: miTL.x, y: miTL.y, size: 12 });
 
-      // Optional contact (not available from OCR; leave blank if missing)
-      if (reviewMeta.contact) page.drawText(String(reviewMeta.contact), { x: X_CONTACT, y: INFO_Y2, size: 11 });
+      // 3) Contact, Course, Yr./Sec., Track, Scholarship (underlined in PHP; plain here)
+      // Contact number: slightly smaller font and placed a bit lower
+      const CONTACT_Y_SHIFT_PT = -3;
+      const contactTL = fromTopLeftAdj(55, 205.5, CONTACT_Y_SHIFT_PT);
+      if (reviewMeta.contact) {
+        const raw = String(reviewMeta.contact).trim();
+        const display = raw.startsWith("+")
+          ? raw
+          : raw.startsWith("0")
+          ? "+63" + raw.slice(1)
+          : "+63" + raw;
+        page.drawText(display, { x: contactTL.x, y: contactTL.y, size: 10 });
+      }
+      // Fine-tune downward shifts for these single-line fields
+      const PROGRAM_Y_SHIFT_PT = -4;
+      const YRSEC_Y_SHIFT_PT = -4;
+      const SCHOLAR_Y_SHIFT_PT = -4;
+      // Keep Course, Yr./Sec., Track font sizes consistent
+      const INLINE_INFO_FONT_SIZE = 11;
+      const courseTL = fromTopLeftAdj(39.5, 210, PROGRAM_Y_SHIFT_PT);
+      if (reviewMeta.program)
+        page.drawText(String(reviewMeta.program), {
+          x: courseTL.x,
+          y: courseTL.y,
+          size: INLINE_INFO_FONT_SIZE,
+        });
+      const yrSecTL = fromTopLeftAdj(41, 215, YRSEC_Y_SHIFT_PT);
+      if (reviewMeta.year_level)
+        page.drawText(String(reviewMeta.year_level), {
+          x: yrSecTL.x,
+          y: yrSecTL.y,
+          size: INLINE_INFO_FONT_SIZE,
+        });
+      const TRACK_Y_SHIFT_PT = -3;
+      const trackTL = fromTopLeftAdj(103, 215, TRACK_Y_SHIFT_PT);
+      if (reviewMeta.track)
+        page.drawText(String(reviewMeta.track), {
+          x: trackTL.x,
+          y: trackTL.y,
+          size: INLINE_INFO_FONT_SIZE,
+        });
+      const scholarTL = fromTopLeftAdj(59, 220, SCHOLAR_Y_SHIFT_PT);
+      const scholarshipText =
+        "Higher Education Support Program: Free Tuition 2023";
+      page.drawText(scholarshipText, {
+        x: scholarTL.x,
+        y: scholarTL.y,
+        size: 11,
+      });
 
-      // Course, Yr/Sec, Track
-      if (reviewMeta.program) page.drawText(String(reviewMeta.program), { x: X_COURSE, y: INFO_Y3, size: 11 });
-      if (reviewMeta.year_level) page.drawText(String(reviewMeta.year_level), { x: X_YRSEC, y: INFO_Y3, size: 11 });
-      if (reviewMeta.track) page.drawText(String(reviewMeta.track), { x: X_TRACK, y: INFO_Y3, size: 11 });
-
-      // Scholarship
-      if (reviewMeta.scholarship) page.drawText(String(reviewMeta.scholarship), { x: X_SCHOLAR, y: INFO_Y4, size: 11 });
-
-      // Table columns
-      const COL_COURSE_X = 72;
-      const COL_FINAL_X = 410;
-      const COL_UNITS_X = 465;
-      const COL_WG_X = 525;
-      const ROW_START_Y = 365;
-      const ROW_STEP = 16;
-
-      let y = ROW_START_Y;
+      // 4) Table rows
+      const rowStartMm = 240;
+      const rowStepMm = 5.3;
+      const ROW_Y_SHIFT_PT = -3; // move course rows a bit lower
+      const COURSE_FONT_SIZE = 9;
+      const COURSE_X_SHIFT_PT = -6;
       let totalUnits = 0;
       let totalWG = 0;
       const safeNum = (v) => {
@@ -1473,34 +1644,153 @@ export default function ApplicationforDeans() {
         return Number.isFinite(n) ? n : 0;
       };
 
-      for (let r of reviewRows) {
-        if (y < 210) break; // keep inside table
+      for (let i = 0; i < reviewRows.length; i++) {
+        const r = reviewRows[i];
+        const yMm = rowStartMm + i * rowStepMm;
+        const nameTL = fromTopLeftAdj(30, yMm, ROW_Y_SHIFT_PT);
+        const gradeTL = fromTopLeftAdj(133, yMm, ROW_Y_SHIFT_PT);
+        const unitsTL = fromTopLeftAdj(154.5, yMm, ROW_Y_SHIFT_PT);
+        const wgTL = fromTopLeftAdj(169.8, yMm, ROW_Y_SHIFT_PT);
         const units = safeNum(r.units);
         const grade = safeNum(r.grade);
         const wg = units * grade;
         totalUnits += units;
         totalWG += wg;
-        // Course title line
         const courseText = `${r.code || ""} ${r.title || ""}`.trim();
-        page.drawText(courseText, { x: COL_COURSE_X, y, size: 10 });
-        // Final grade / Units / Weighted grade
-        if (grade) page.drawText(String(grade), { x: COL_FINAL_X, y, size: 10 });
-        if (units) page.drawText(String(units), { x: COL_UNITS_X, y, size: 10 });
-        if (wg) page.drawText(wg.toFixed(2), { x: COL_WG_X, y, size: 10 });
-        y -= ROW_STEP;
+        page.drawText(courseText, {
+          x: nameTL.x + COURSE_X_SHIFT_PT,
+          y: nameTL.y,
+          size: COURSE_FONT_SIZE,
+        });
+        if (Number.isFinite(grade) && grade)
+          page.drawText(grade.toFixed(2), {
+            x: gradeTL.x,
+            y: gradeTL.y,
+            size: 10,
+          });
+        if (Number.isFinite(units) && units)
+          page.drawText(String(units), {
+            x: unitsTL.x,
+            y: unitsTL.y,
+            size: 10,
+          });
+        if (Number.isFinite(wg) && wg)
+          page.drawText(wg.toFixed(2), { x: wgTL.x, y: wgTL.y, size: 10 });
       }
 
-      // Totals row and Weighted Average / Rank at the bottom lines
-      const TOTAL_Y = 238;
-      const WA_Y = 222;
-      const RANK_Y = 206;
+      // 5) Totals and summary rows
+      const TOTALS_Y_SHIFT_PT = -3; // lower totals, WA and rank
+      const totalUnitsTL = fromTopLeftAdj(154.5, 286.5, TOTALS_Y_SHIFT_PT);
+      const totalWgTL = fromTopLeftAdj(169.8, 286.5, TOTALS_Y_SHIFT_PT);
+      const gwaTL = fromTopLeftAdj(166, 291.5, TOTALS_Y_SHIFT_PT);
+      const rankTL = fromTopLeftAdj(160, 296.5, TOTALS_Y_SHIFT_PT);
       const rankVal = rankFromGwa(reviewSummary?.gwa);
-      const wa = totalUnits ? (totalWG / totalUnits) : 0;
-      page.drawText(String(totalUnits), { x: COL_UNITS_X, y: TOTAL_Y, size: 10 });
-      page.drawText(totalWG.toFixed(2), { x: COL_WG_X, y: TOTAL_Y, size: 10 });
-      if (wa) page.drawText(Number.isFinite(wa) ? wa.toFixed(4) : "", { x: COL_WG_X, y: WA_Y, size: 10 });
-      if (rankVal && rankVal !== "-") page.drawText(rankVal, { x: COL_WG_X, y: RANK_Y, size: 10 });
+      const wa = totalUnits ? totalWG / totalUnits : 0;
+      page.drawText(String(totalUnits), {
+        x: totalUnitsTL.x,
+        y: totalUnitsTL.y,
+        size: 10,
+      });
+      page.drawText(totalWG.toFixed(2), {
+        x: totalWgTL.x,
+        y: totalWgTL.y,
+        size: 10,
+      });
+      if (wa)
+        page.drawText(Number.isFinite(wa) ? wa.toFixed(4) : "", {
+          x: gwaTL.x,
+          y: gwaTL.y,
+          size: 10,
+        });
+      if (rankVal && rankVal !== "-")
+        page.drawText(rankVal, { x: rankTL.x, y: rankTL.y, size: 10 });
       console.log("Inserted data into PDF");
+
+      // Page 2: insert COR and COG images into template if available
+      try {
+        const fetchBytes = async (url) => {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const ab = await res.arrayBuffer();
+          return new Uint8Array(ab);
+        };
+        const pagesNow = pdfDoc.getPages();
+        const ensurePage2 = () => {
+          if (pagesNow.length >= 2) return pagesNow[1];
+          return pdfDoc.addPage([PAGE_W, PAGE_H]);
+        };
+
+        const corUrl = `${OCR_URL}/results/COR_pdf_image.png?t=${Date.now()}`;
+        const cogUrl = `${OCR_URL}/results/qr_website_screenshot.png?t=${Date.now()}`;
+        const [corBytes, cogBytes] = await Promise.all([
+          fetchBytes(corUrl).catch(() => null),
+          fetchBytes(cogUrl).catch(() => null),
+        ]);
+
+        if (corBytes || cogBytes) {
+          const page2 = ensurePage2();
+          const COR_BOX = { x: 26.0, y: 18.0, w: 167.0, h: 118.0 };
+          const COG_BOX = { x: 25.0, y: 200.0, w: 173.0, h: 118.0 };
+          const COR_SHIFT_Y = -15.0;
+          const COG_SHIFT_Y = -90.0; // move Copy of Grades a bit higher
+          const COG_SHIFT_X = -2.7; // move Copy of Grades a bit to the left
+          COR_BOX.y += COR_SHIFT_Y;
+          COG_BOX.y += COG_SHIFT_Y;
+          COG_BOX.x += COG_SHIFT_X;
+
+          if (corBytes) {
+            try {
+              const corImg = await pdfDoc.embedPng(corBytes);
+              const wPt = mmToPt(COR_BOX.w);
+              const hPt = mmToPt(COR_BOX.h);
+              const tl = fromTopLeft(COR_BOX.x, COR_BOX.y);
+              page2.drawImage(corImg, {
+                x: tl.x,
+                y: tl.y - hPt,
+                width: wPt,
+                height: hPt,
+              });
+            } catch (_) {}
+          }
+          if (cogBytes) {
+            try {
+              const cogImg = await pdfDoc.embedPng(cogBytes);
+              const wPt = mmToPt(COG_BOX.w);
+              const hPt = mmToPt(COG_BOX.h);
+              const tl = fromTopLeft(COG_BOX.x, COG_BOX.y);
+              page2.drawImage(cogImg, {
+                x: tl.x,
+                y: tl.y - hPt,
+                width: wPt,
+                height: hPt,
+              });
+            } catch (_) {}
+          }
+
+          // Add Name and Section on page 2 under the attachments
+          try {
+            const times = await pdfDoc.embedFont(StandardFonts.TimesRoman);
+            const timesBold = await pdfDoc.embedFont(StandardFonts.TimesBold);
+            const n2 = splitName(reviewMeta.fullname || "");
+            const nameStr = `${n2.first}${n2.mi ? " " + n2.mi : ""} ${n2.last}`.trim();
+            // Place in the lower space of page 2 (fixed positions from PHP)
+            const nameTL = fromTopLeft(53, 263.5);
+            page2.drawText(nameStr, { x: nameTL.x, y: nameTL.y, size: 12, font: timesBold });
+            const secTL = fromTopLeft(53, 268);
+            const secVal = (Array.isArray(reviewRows) && reviewRows.length > 0 && reviewRows[0]?.section)
+              ? String(reviewRows[0].section)
+              : (reviewMeta.section ? String(reviewMeta.section) : "");
+            page2.drawText(secVal, {
+              x: secTL.x,
+              y: secTL.y,
+              size: 11,
+              font: times,
+            });
+          } catch (_) {}
+        }
+      } catch (e) {
+        console.log("Page2 images error:", e?.message);
+      }
 
       // Save as base64 directly (avoids Buffer polyfill issues in Hermes)
       const pdfBase64 = await pdfDoc.saveAsBase64();
@@ -1510,9 +1800,9 @@ export default function ApplicationforDeans() {
       });
       console.log("Application.pdf generated and saved:", fileUri);
 
-       setApplicationPdfUri(fileUri);
-       setApplicationPdfBase64(pdfBase64);
-       return { fileUri, pdfBase64 };
+      setApplicationPdfUri(fileUri);
+      setApplicationPdfBase64(pdfBase64);
+      return { fileUri, pdfBase64 };
     } catch (err) {
       console.error("PDF generation error:", err);
       Alert.alert("Error", "Failed to generate Application.pdf");
@@ -1547,7 +1837,10 @@ export default function ApplicationforDeans() {
             await FileSystem.writeAsStringAsync(contentUri, pdfBase64, {
               encoding: FileSystem.EncodingType.Base64,
             });
-            Alert.alert("Downloaded", `Saved to selected folder as ${fileName}`);
+            Alert.alert(
+              "Downloaded",
+              `Saved to selected folder as ${fileName}`
+            );
             return;
           } else {
             Alert.alert(
@@ -1579,7 +1872,10 @@ export default function ApplicationforDeans() {
           "Saved inside the app. Use the Files sheet to export."
         );
       } else {
-        Alert.alert("PDF Generated", "Saved Application.pdf to local directory.");
+        Alert.alert(
+          "PDF Generated",
+          "Saved Application.pdf to local directory."
+        );
       }
     } catch (err) {
       console.error("PDF download error:", err);
@@ -2411,7 +2707,57 @@ export default function ApplicationforDeans() {
                     <Text style={{ color: "#111827" }}>
                       {reviewMeta.year_level
                         ? String(reviewMeta.year_level)
-                        : "—"}
+                        : "-"}
+                    </Text>
+                  </View>
+                </View>
+                <View style={{ width: "48%" }}>
+                  <Text
+                    style={{ fontSize: 12, color: "#6B7280", marginBottom: 4 }}
+                  >
+                    Track
+                  </Text>
+                  <View
+                    style={{
+                      borderWidth: 1,
+                      borderColor: "#e6e6e6",
+                      borderRadius: 8,
+                      paddingHorizontal: 10,
+                      paddingVertical: 10,
+                      backgroundColor: "#fafafa",
+                    }}
+                  >
+                    <Text style={{ color: "#111827" }}>
+                      {reviewMeta.track ? String(reviewMeta.track) : "-"}
+                    </Text>
+                  </View>
+                </View>
+                <View style={{ width: "48%" }}>
+                  <Text
+                    style={{ fontSize: 12, color: "#6B7280", marginBottom: 4 }}
+                  >
+                    Contact Number
+                  </Text>
+                  <View
+                    style={{
+                      borderWidth: 1,
+                      borderColor: "#e6e6e6",
+                      borderRadius: 8,
+                      paddingHorizontal: 10,
+                      paddingVertical: 10,
+                      backgroundColor: "#fafafa",
+                    }}
+                  >
+                    <Text style={{ color: "#111827" }}>
+                      {reviewMeta.contact
+                        ? (() => {
+                            const raw = String(reviewMeta.contact).trim();
+                            if (raw.startsWith("+")) return raw;
+                            if (raw.startsWith("0"))
+                              return "+63" + raw.slice(1);
+                            return "+63" + raw;
+                          })()
+                        : "-"}
                     </Text>
                   </View>
                 </View>
@@ -2576,7 +2922,6 @@ export default function ApplicationforDeans() {
                   {rankFromGwa(reviewSummary.gwa)}
                 </Text>
               </View>
-              
             </View>
             <View style={{ marginTop: 10, alignItems: "flex-end" }}>
               <Text style={{ color: "#9CA3AF", fontSize: 12 }}>
@@ -2610,41 +2955,98 @@ export default function ApplicationforDeans() {
             <Text style={{ fontWeight: "700", fontSize: 16, marginBottom: 8 }}>
               Generated Application
             </Text>
-            {/* Preview toggle */}
-            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
-              <TouchableOpacity
-                onPress={() => setPreviewMode('generated')}
-                style={[styles.stepFormNavBtn, { backgroundColor: previewMode==='generated' ? '#007BFF' : '#9CA3AF' }]}
-              >
-                <Text style={styles.navButtonText}>Generated</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => setPreviewMode('reference')}
-                style={[styles.stepFormNavBtn, { backgroundColor: previewMode==='reference' ? '#007BFF' : '#9CA3AF' }]}
-              >
-                <Text style={styles.navButtonText}>Reference</Text>
-              </TouchableOpacity>
-            </View>
-
             {/* Live PDF preview using PDF.js inside WebView (works on Android/iOS) */}
-            {(previewMode==='generated' ? applicationPdfBase64 : referencePdfBase64) ? (
-              <View style={{ height: 420, width: "100%", marginBottom: 12 }}>
+            {applicationPdfBase64 ? (
+              <View
+                style={{
+                  height: 420,
+                  width: "100%",
+                  marginBottom: 12,
+                  position: "relative",
+                }}
+              >
                 <WebView
                   originWhitelist={["*"]}
-                  source={{ html: buildPdfPreviewHtml(previewMode==='generated' ? applicationPdfBase64 : referencePdfBase64) }}
-                  style={{ flex: 1, borderRadius: 8, backgroundColor: "transparent" }}
+                  source={{
+                    html: buildPdfPreviewHtml(
+                      applicationPdfBase64,
+                      previewPage
+                    ),
+                  }}
+                  style={{
+                    flex: 1,
+                    borderRadius: 8,
+                    backgroundColor: "transparent",
+                  }}
                   allowFileAccess
                   allowUniversalAccessFromFileURLs
                   onMessage={(e) => {
                     try {
-                      const msg = JSON.parse(e?.nativeEvent?.data || '{}');
-                      if (msg?.type === 'tap') {
-                        console.log('PDF tap at canvas:', msg.x, msg.y, ' -> PDF pts:', msg.ptX, msg.ptY);
+                      const msg = JSON.parse(e?.nativeEvent?.data || "{}");
+                      if (msg?.type === "tap") {
+                        console.log(
+                          "PDF tap at canvas:",
+                          msg.x,
+                          msg.y,
+                          " -> PDF pts:",
+                          msg.ptX,
+                          msg.ptY
+                        );
+                      } else if (msg?.type === "meta" && msg?.pages) {
+                        setPreviewPageCount(Number(msg.pages));
                       }
                     } catch {}
                   }}
-                  onError={(e) => console.log("PDF preview error:", e?.nativeEvent?.description)}
+                  onError={(e) =>
+                    console.log(
+                      "PDF preview error:",
+                      e?.nativeEvent?.description
+                    )
+                  }
                 />
+                {previewPageCount && previewPageCount > 1 ? (
+                  <View
+                    style={{
+                      position: "absolute",
+                      bottom: 8,
+                      left: 0,
+                      right: 0,
+                      alignItems: "center",
+                    }}
+                  >
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        gap: 6,
+                        backgroundColor: "rgba(255,255,255,0.9)",
+                        paddingHorizontal: 8,
+                        paddingVertical: 4,
+                        borderRadius: 16,
+                      }}
+                    >
+                      {Array.from(
+                        { length: previewPageCount },
+                        (_, i) => i + 1
+                      ).map((n) => (
+                        <TouchableOpacity
+                          key={n}
+                          onPress={() => setPreviewPage(n)}
+                          style={[
+                            styles.stepFormNavBtn,
+                            {
+                              backgroundColor:
+                                previewPage === n ? "#007BFF" : "#9CA3AF",
+                              paddingVertical: 6,
+                              paddingHorizontal: 10,
+                            },
+                          ]}
+                        >
+                          <Text style={styles.navButtonText}>{String(n)}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+                ) : null}
               </View>
             ) : (
               <View style={{ paddingVertical: 20 }}>
