@@ -22,7 +22,7 @@ import Icon from "react-native-vector-icons/Feather";
 import styles from "../styles";
 import { OCR_URL, BASE_URL } from "../config/api";
 import { CheckBox } from "react-native-elements";
-import { PDFDocument, StandardFonts } from "pdf-lib";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { useNavigation } from "@react-navigation/native";
 import { WebView } from "react-native-webview";
 
@@ -285,6 +285,34 @@ function ConfirmModal({ visible, onYes, onNo }) {
   );
 }
 
+// Fetch chair and dean info from API
+async function fetchChairDeanInfo(collegeId, campusId, programId, majorId) {
+  try {
+    const url = `${BASE_URL}/get_chair_dean.php?college_id=${
+      collegeId || ""
+    }&campus_id=${campusId || ""}&program_id=${programId || ""}&major_id=${
+      majorId || ""
+    }`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("Failed to fetch chair/dean info");
+    const json = await res.json();
+    return {
+      chairName: json.chair_name || "N/A",
+      chairPosition:
+        json.chair_position || "Department Chairperson, ITE Program",
+      deanName: json.dean_name || "N/A",
+      deanPosition: json.dean_position || "Dean, College",
+    };
+  } catch (e) {
+    return {
+      chairName: "N/A",
+      chairPosition: "Department Chairperson, ITE Program",
+      deanName: "N/A",
+      deanPosition: "Dean, College",
+    };
+  }
+}
+
 export default function ApplicationforDeans() {
   const navigation = useNavigation();
   // Column spec for Step 6 table (label, width, align)
@@ -294,7 +322,6 @@ export default function ApplicationforDeans() {
     ["Course Title", 160, "left"],
     ["Units", 60, "center"],
     ["Grade", 70, "center"],
-    ["Section", 90, "center"],
     ["Instructor", 160, "left"],
   ];
   const TABLE_WIDTH = COLS.reduce((sum, [, w]) => sum + w, 0);
@@ -321,6 +348,7 @@ export default function ApplicationforDeans() {
   const [pdfFile, setPdfFile] = useState(null); // kept if you need in the future
   const [applicationPdfUri, setApplicationPdfUri] = useState(null); // generated PDF path for preview
   const [applicationPdfBase64, setApplicationPdfBase64] = useState(null); // base64 for WebView preview
+  // API notice uses the existing NoticeModal (noticeOpen/title/message)
   const [referencePdfBase64, setReferencePdfBase64] = useState(null); // base64 for right result preview (optional)
   const [previewPage, setPreviewPage] = useState(1);
   const [previewPageCount, setPreviewPageCount] = useState(null);
@@ -1307,8 +1335,10 @@ export default function ApplicationforDeans() {
         if (meta.srcode) {
           const contact = await resolveContactBySrcode(meta.srcode);
           if (contact) {
-            meta.contact = String(contact);
-            setContactNumber(meta.contact);
+            const val = String(contact);
+            setContactNumber(val);
+            await AsyncStorage.setItem("contact_number", val);
+            setReviewMeta((m) => ({ ...m, contact: val }));
           }
         }
       } catch (_) {}
@@ -1524,6 +1554,30 @@ export default function ApplicationforDeans() {
       const page = pdfDoc.getPages()[0];
       const { width: PAGE_W, height: PAGE_H } = page.getSize();
 
+      // Debug: check that the reference PDF is present and log its size (to help align coordinates)
+      try {
+        const refModule = require("../assets/right_result.pdf");
+        const { Asset } = require("expo-asset");
+        const refAsset = Asset.fromModule(refModule);
+        await refAsset.downloadAsync();
+        const refB64 = await FileSystem.readAsStringAsync(refAsset.localUri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        const refBytes = Uint8Array.from(atob(refB64), (c) => c.charCodeAt(0));
+        const refDoc = await PDFDocument.load(refBytes);
+        const refPage = refDoc.getPages()[0];
+        const refSize = refPage.getSize();
+        console.log(
+          "Reference PDF loaded (assets/right_result.pdf) size:",
+          refSize
+        );
+      } catch (e) {
+        console.log(
+          "Reference PDF not available or failed to read:",
+          e?.message
+        );
+      }
+
       // Helper: split name to Last / First / MI (best-effort)
       const splitName = (full = "") => {
         const t = String(full).trim().replace(/\s+/g, " ");
@@ -1557,7 +1611,7 @@ export default function ApplicationforDeans() {
         page.drawText(String(reviewMeta.college), {
           x: collegeTL.x,
           y: collegeTL.y,
-          size: 12,
+          size: 10,
         });
       // Fine-tune vertical positions for specific lines (negative = lower)
       const SEMAY_Y_SHIFT_PT = -3;
@@ -1570,16 +1624,20 @@ export default function ApplicationforDeans() {
           : ""
       }`.trim();
       if (semTxt)
-        page.drawText(semTxt, { x: semAyTL.x, y: semAyTL.y, size: 12 });
+        page.drawText(semTxt, { x: semAyTL.x, y: semAyTL.y, size: 10 });
 
       // 2) Name: Last / First / M.I. (bold)
       const n = splitName(reviewMeta.fullname || "");
       const lastTL = fromTopLeft(57.5, 196);
       const firstTL = fromTopLeft(102, 196);
       const miTL = fromTopLeft(166, 196);
-      page.drawText(n.last, { x: lastTL.x, y: lastTL.y, size: 12 });
-      page.drawText(n.first, { x: firstTL.x, y: firstTL.y, size: 12 });
-      page.drawText(n.mi, { x: miTL.x, y: miTL.y, size: 12 });
+      page.drawText(n.last, { x: lastTL.x, y: lastTL.y, size: 10 });
+      page.drawText(n.first, { x: firstTL.x, y: firstTL.y, size: 10 });
+      page.drawText(n.mi, { x: miTL.x, y: miTL.y, size: 10 });
+
+      // Duplicate consolidated name above first name (page 1) removed as requested
+
+      // Page 1: Section draw removed per request (moved to page 2 only)
 
       // 3) Contact, Course, Yr./Sec., Track, Scholarship (underlined in PHP; plain here)
       // Contact number: slightly smaller font and placed a bit lower
@@ -1599,7 +1657,7 @@ export default function ApplicationforDeans() {
       const YRSEC_Y_SHIFT_PT = -4;
       const SCHOLAR_Y_SHIFT_PT = -4;
       // Keep Course, Yr./Sec., Track font sizes consistent
-      const INLINE_INFO_FONT_SIZE = 11;
+      const INLINE_INFO_FONT_SIZE = 10;
       const courseTL = fromTopLeftAdj(39.5, 210, PROGRAM_Y_SHIFT_PT);
       if (reviewMeta.program)
         page.drawText(String(reviewMeta.program), {
@@ -1628,7 +1686,7 @@ export default function ApplicationforDeans() {
       page.drawText(scholarshipText, {
         x: scholarTL.x,
         y: scholarTL.y,
-        size: 11,
+        size: 10,
       });
 
       // 4) Table rows
@@ -1706,6 +1764,68 @@ export default function ApplicationforDeans() {
         page.drawText(rankVal, { x: rankTL.x, y: rankTL.y, size: 10 });
       console.log("Inserted data into PDF");
 
+      // 6) Also draw consolidated Name and Section on PAGE 1 (instead of page 2)
+      // Disabled per request
+      const SHOW_PAGE1_NAME_SECTION = false;
+      if (SHOW_PAGE1_NAME_SECTION)
+        try {
+          const timesBoldP1 = await pdfDoc.embedFont(StandardFonts.TimesBold);
+          const timesRegularP1 = await pdfDoc.embedFont(
+            StandardFonts.TimesRoman
+          );
+          const nFull = splitName(reviewMeta.fullname || "");
+          const middleWord = nFull.mi ? nFull.mi.replace(/\./g, "") : "";
+          const nameLine = middleWord
+            ? `${nFull.first}, ${middleWord}, ${nFull.last}`
+            : `${nFull.first}, ${nFull.last}`;
+          // Center horizontally on page 1 while keeping the PHP Y coordinates
+          const nameP1Y = fromTopLeft(0, 263.5).y;
+          const secP1Y = fromTopLeft(0, 268).y;
+          const NAME_SIZE = 10;
+          const SEC_SIZE = 10;
+          const nameWidthPt = nameLine.trim()
+            ? timesBoldP1.widthOfTextAtSize(nameLine, NAME_SIZE)
+            : 0;
+          const secValP1Pre = (
+            Array.isArray(reviewRows) && reviewRows[0]?.section
+              ? String(reviewRows[0].section)
+              : reviewMeta.section
+              ? String(reviewMeta.section)
+              : ""
+          ).trim();
+          const secWidthPt = secValP1Pre
+            ? timesRegularP1.widthOfTextAtSize(secValP1Pre, SEC_SIZE)
+            : 0;
+          const nameXCenter = (PAGE_W - nameWidthPt) / 2;
+          const secXCenter = (PAGE_W - secWidthPt) / 2;
+          console.log("Page1 draw (centered)", {
+            pageWidthPt: PAGE_W,
+            nameWidthPt,
+            secWidthPt,
+            nameXCenter,
+            secXCenter,
+            yNameMM: 263.5,
+            ySecMM: 268,
+          });
+          if (nameLine.trim())
+            page.drawText(nameLine, {
+              x: nameXCenter,
+              y: nameP1Y,
+              size: NAME_SIZE,
+              font: timesBoldP1,
+            });
+          const secValP1 = secValP1Pre;
+          if (secValP1)
+            page.drawText(secValP1, {
+              x: secXCenter,
+              y: secP1Y,
+              size: SEC_SIZE,
+              font: timesRegularP1,
+            });
+        } catch (_) {}
+
+      // End disabled block
+
       // Page 2: insert COR and COG images into template if available
       try {
         const fetchBytes = async (url) => {
@@ -1766,30 +1886,165 @@ export default function ApplicationforDeans() {
               });
             } catch (_) {}
           }
-
-          // Add Name and Section on page 2 under the attachments
-          try {
-            const times = await pdfDoc.embedFont(StandardFonts.TimesRoman);
-            const timesBold = await pdfDoc.embedFont(StandardFonts.TimesBold);
-            const n2 = splitName(reviewMeta.fullname || "");
-            const nameStr = `${n2.first}${n2.mi ? " " + n2.mi : ""} ${n2.last}`.trim();
-            // Place in the lower space of page 2 (fixed positions from PHP)
-            const nameTL = fromTopLeft(53, 263.5);
-            page2.drawText(nameStr, { x: nameTL.x, y: nameTL.y, size: 12, font: timesBold });
-            const secTL = fromTopLeft(53, 268);
-            const secVal = (Array.isArray(reviewRows) && reviewRows.length > 0 && reviewRows[0]?.section)
-              ? String(reviewRows[0].section)
-              : (reviewMeta.section ? String(reviewMeta.section) : "");
-            page2.drawText(secVal, {
-              x: secTL.x,
-              y: secTL.y,
-              size: 11,
-              font: times,
-            });
-          } catch (_) {}
         }
       } catch (e) {
         console.log("Page2 images error:", e?.message);
+      }
+
+      // Draw Name and Section on page 2 at fixed PHP coordinates
+      const SHOW_PAGE2_NAME_SECTION = true;
+      if (SHOW_PAGE2_NAME_SECTION)
+        try {
+          const pagesNow2 = pdfDoc.getPages();
+          const page2a =
+            pagesNow2.length >= 2
+              ? pagesNow2[1]
+              : pdfDoc.addPage([PAGE_W, PAGE_H]);
+          // Log page-2 size for debugging visibility issues
+          try {
+            const s2 = page2a.getSize();
+            console.log("Page2 size (pt):", s2);
+          } catch (_) {}
+          let timesBold2 = null;
+          let timesRegular2 = null;
+          try {
+            timesBold2 = await pdfDoc.embedFont(StandardFonts.TimesBold);
+            timesRegular2 = await pdfDoc.embedFont(StandardFonts.TimesRoman);
+            console.log("Page2: fonts embedded");
+          } catch (fe) {
+            console.log("Page2 font embed error:", fe?.message || fe);
+          }
+          const n2 = splitName(reviewMeta.fullname || "");
+          const middle = n2.mi ? n2.mi.replace(/\./g, "") : "";
+          const formattedName = middle
+            ? `${n2.first}, ${middle}, ${n2.last}`
+            : `${n2.first}, ${n2.last}`;
+          // Prefer reviewMeta.section; if empty, fall back to first row's section
+          let secVal2 = "";
+          if (reviewMeta.section && String(reviewMeta.section).trim()) {
+            secVal2 = String(reviewMeta.section).trim();
+          } else if (
+            Array.isArray(reviewRows) &&
+            reviewRows.length > 0 &&
+            reviewRows[0]?.section
+          ) {
+            secVal2 = String(reviewRows[0].section).trim();
+          }
+          console.log("Page2 values:", {
+            name: formattedName,
+            section: secVal2,
+          });
+          // PHP coordinates: Name at (53, 263.5), Section at (53, 268)
+          const nameTL2 = fromTopLeft(53, 263.5);
+          const secTL2 = fromTopLeft(53, 268);
+          console.log("Page2 coords (pt):", { name: nameTL2, sec: secTL2 });
+
+          const willDrawName = !!(formattedName && formattedName.trim());
+          const willDrawSection = !!(secVal2 && secVal2.trim());
+
+          console.log("Page2 draw (fixed coords)", {
+            nameXYmm: { x: 53, y: 263.5 },
+            secXYmm: { x: 53, y: 268 },
+            name: formattedName,
+            section: secVal2,
+            willDrawName,
+            willDrawSection,
+          });
+
+          if (!willDrawName && !willDrawSection) {
+            console.warn("Page2: no name/section to insert (both empty)");
+          }
+
+          // Removed debug marker
+
+          if (willDrawName) {
+            const nameOpts = {
+              x: nameTL2.x,
+              y: nameTL2.y,
+              size: 10,
+              color: rgb(0, 0, 0),
+            };
+            if (timesBold2) {
+              nameOpts.font = timesBold2;
+            }
+            page2a.drawText(formattedName, nameOpts);
+          }
+
+          if (willDrawSection) {
+            const secOpts = {
+              x: secTL2.x,
+              y: secTL2.y,
+              size: 10,
+              color: rgb(0, 0, 0),
+            };
+            if (timesRegular2) secOpts.font = timesRegular2;
+            page2a.drawText(secVal2, secOpts);
+          }
+
+          if (willDrawName || willDrawSection) {
+            console.log("Page2: inserted text", {
+              nameDrawn: willDrawName ? formattedName : null,
+              sectionDrawn: willDrawSection ? secVal2 : null,
+            });
+          }
+        } catch (e) {
+          console.log("Page2 text error:", e?.message || e);
+        }
+
+      // Fetch chair and dean info from API and draw on page 2
+      try {
+        // You may need to pass the correct IDs from reviewMeta or other sources
+        const chairDeanInfo = await fetchChairDeanInfo(
+          reviewMeta.college_id || reviewMeta.College_id || null,
+          reviewMeta.campus_id || reviewMeta.Campus_id || null,
+          reviewMeta.program_id || reviewMeta.Program_id || null,
+          reviewMeta.major_id || reviewMeta.Major_id || null
+        );
+        const pagesNow2 = pdfDoc.getPages();
+        const page2a =
+          pagesNow2.length >= 2
+            ? pagesNow2[1]
+            : pdfDoc.addPage([PAGE_W, PAGE_H]);
+        let timesBold2 = null;
+        let timesRegular2 = null;
+        try {
+          timesBold2 = await pdfDoc.embedFont(StandardFonts.TimesBold);
+          timesRegular2 = await pdfDoc.embedFont(StandardFonts.TimesRoman);
+        } catch (fe) {
+          console.log("Page2 chair/dean font embed error:", fe?.message || fe);
+        }
+        // Chair signature
+        const chairNameOpts = {
+          x: fromTopLeft(53, 281.5).x,
+          y: fromTopLeft(53, 281.5).y,
+          size: 10,
+        };
+        if (timesBold2) chairNameOpts.font = timesBold2;
+        page2a.drawText(chairDeanInfo.chairName, chairNameOpts);
+        const chairPosOpts = {
+          x: fromTopLeft(53, 286.5).x,
+          y: fromTopLeft(53, 286.5).y,
+          size: 9,
+        };
+        if (timesRegular2) chairPosOpts.font = timesRegular2;
+        page2a.drawText(chairDeanInfo.chairPosition, chairPosOpts);
+        // Dean signature
+        const deanNameOpts = {
+          x: fromTopLeft(53, 301.5).x,
+          y: fromTopLeft(53, 301.5).y,
+          size: 10,
+        };
+        if (timesBold2) deanNameOpts.font = timesBold2;
+        page2a.drawText(chairDeanInfo.deanName, deanNameOpts);
+        const deanPosOpts = {
+          x: fromTopLeft(53, 306.5).x,
+          y: fromTopLeft(53, 306.5).y,
+          size: 9,
+        };
+        if (timesRegular2) deanPosOpts.font = timesRegular2;
+        page2a.drawText(chairDeanInfo.deanPosition, deanPosOpts);
+      } catch (e) {
+        console.log("Page2 chair/dean error:", e?.message || e);
       }
 
       // Save as base64 directly (avoids Buffer polyfill issues in Hermes)
@@ -1880,6 +2135,55 @@ export default function ApplicationforDeans() {
     } catch (err) {
       console.error("PDF download error:", err);
       Alert.alert("Error", "Failed to save Application.pdf");
+    }
+  }
+
+  // --- Reachability check for Chair/Dean API ---
+  const CHAIR_DEAN_URL = "https://achievemate.website/api/get_chair_dean.php";
+  const fetchWithTimeout = async (url, timeoutMs = 8000) => {
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { signal: ctrl.signal });
+      clearTimeout(to);
+      return res;
+    } catch (e) {
+      clearTimeout(to);
+      throw e;
+    }
+  };
+  async function checkChairDeanApi(showNotice = false) {
+    try {
+      console.log("API check: contacting", CHAIR_DEAN_URL);
+      const res = await fetchWithTimeout(CHAIR_DEAN_URL, 8000);
+      const text = await res.text();
+      let parsed = null;
+      try {
+        parsed = safeJson(text);
+      } catch (_) {}
+      const ok = res.ok;
+      const hasData = parsed
+        ? Array.isArray(parsed)
+          ? parsed.length > 0
+          : Object.keys(parsed || {}).length > 0
+        : text.trim().length > 0;
+      const msg = ok
+        ? hasData
+          ? `Chair/Dean API reachable (HTTP ${res.status}). Data received.`
+          : `Chair/Dean API reachable (HTTP ${res.status}). Response empty.`
+        : `Chair/Dean API responded HTTP ${res.status}.`;
+      console.log("API check result:", {
+        ok,
+        status: res.status,
+        hasData,
+        length: text.length,
+      });
+      // Console-only notice per request; no modal UI
+      return { ok, hasData, status: res.status, text, parsed };
+    } catch (e) {
+      console.log("API check error:", e?.message || e);
+      // Console-only notice per request; no modal UI
+      return { ok: false, error: e };
     }
   }
 
@@ -2715,6 +3019,27 @@ export default function ApplicationforDeans() {
                   <Text
                     style={{ fontSize: 12, color: "#6B7280", marginBottom: 4 }}
                   >
+                    Section
+                  </Text>
+                  <View
+                    style={{
+                      borderWidth: 1,
+                      borderColor: "#e6e6e6",
+                      borderRadius: 8,
+                      paddingHorizontal: 10,
+                      paddingVertical: 10,
+                      backgroundColor: "#fafafa",
+                    }}
+                  >
+                    <Text style={{ color: "#111827" }}>
+                      {reviewMeta.section ? String(reviewMeta.section) : "-"}
+                    </Text>
+                  </View>
+                </View>
+                <View style={{ width: "48%" }}>
+                  <Text
+                    style={{ fontSize: 12, color: "#6B7280", marginBottom: 4 }}
+                  >
                     Track
                   </Text>
                   <View
@@ -2862,11 +3187,7 @@ export default function ApplicationforDeans() {
                             </Text>
                           )}
                         </View>
-                        <View style={{ width: 90, paddingRight: 6 }}>
-                          <Text style={{ textAlign: "center" }}>
-                            {r.section || ""}
-                          </Text>
-                        </View>
+                        {/* Section column removed; merged into Section field above */}
                         <View style={{ width: 160, paddingRight: 6 }}>
                           <Text numberOfLines={1}>{r.instructor || ""}</Text>
                         </View>
