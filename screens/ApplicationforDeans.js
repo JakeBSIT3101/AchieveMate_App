@@ -286,29 +286,40 @@ function ConfirmModal({ visible, onYes, onNo }) {
 }
 
 // Fetch chair and dean info from API
-async function fetchChairDeanInfo(collegeId, campusId, programId, majorId) {
+// applicationForDeans.js
+async function fetchChairDeanInfoByStudent(studentId) {
+  const url = `${BASE_URL}/get_chair_dean.php?student_id=${encodeURIComponent(
+    studentId
+  )}`;
+
   try {
-    const url = `${BASE_URL}/get_chair_dean.php?college_id=${
-      collegeId || ""
-    }&campus_id=${campusId || ""}&program_id=${programId || ""}&major_id=${
-      majorId || ""
-    }`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error("Failed to fetch chair/dean info");
+    const res = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
     const json = await res.json();
+    console.log("[CHAIR/DEAN API] URL:", url);
+    console.log("[CHAIR/DEAN API] Response JSON:", JSON.stringify(json));
+
+    const chair = json.program_chair;
+    const dean = json.dean;
+
+    // Format: "Program Chairperson, College of Informatics and Computing Sciences"
+    const formatPos = (designation, college) => `${designation}, ${college}`;
+
     return {
-      chairName: json.chair_name || "N/A",
-      chairPosition:
-        json.chair_position || "Department Chairperson, ITE Program",
-      deanName: json.dean_name || "N/A",
-      deanPosition: json.dean_position || "Dean, College",
+      chairName: chair.name,
+      chairPosition: formatPos(chair.designation, chair.college),
+      deanName: dean.name,
+      deanPosition: formatPos(dean.designation, dean.college),
     };
   } catch (e) {
+    console.error("Error fetching Chair/Dean info:", e);
+    // Optional: return empty or cached values if needed
     return {
-      chairName: "N/A",
-      chairPosition: "Department Chairperson, ITE Program",
-      deanName: "N/A",
-      deanPosition: "Dean, College",
+      chairName: "",
+      chairPosition: "",
+      deanName: "",
+      deanPosition: "",
     };
   }
 }
@@ -1991,58 +2002,115 @@ export default function ApplicationforDeans() {
           console.log("Page2 text error:", e?.message || e);
         }
 
-      // Fetch chair and dean info from API and draw on page 2
+      // Fetch chair and dean info from API and draw on page 2 (fixed block)
       try {
-        // You may need to pass the correct IDs from reviewMeta or other sources
-        const chairDeanInfo = await fetchChairDeanInfo(
-          reviewMeta.college_id || reviewMeta.College_id || null,
-          reviewMeta.campus_id || reviewMeta.Campus_id || null,
-          reviewMeta.program_id || reviewMeta.Program_id || null,
-          reviewMeta.major_id || reviewMeta.Major_id || null
-        );
-        const pagesNow2 = pdfDoc.getPages();
-        const page2a =
-          pagesNow2.length >= 2
-            ? pagesNow2[1]
-            : pdfDoc.addPage([PAGE_W, PAGE_H]);
-        let timesBold2 = null;
-        let timesRegular2 = null;
+        let studentId = null;
         try {
-          timesBold2 = await pdfDoc.embedFont(StandardFonts.TimesBold);
-          timesRegular2 = await pdfDoc.embedFont(StandardFonts.TimesRoman);
-        } catch (fe) {
-          console.log("Page2 chair/dean font embed error:", fe?.message || fe);
+          studentId = await AsyncStorage.getItem("student_id");
+        } catch (e) {
+          console.log(
+            "Could not get student_id from AsyncStorage:",
+            e?.message || e
+          );
         }
-        // Chair signature
-        const chairNameOpts = {
-          x: fromTopLeft(53, 281.5).x,
-          y: fromTopLeft(53, 281.5).y,
-          size: 10,
-        };
-        if (timesBold2) chairNameOpts.font = timesBold2;
-        page2a.drawText(chairDeanInfo.chairName, chairNameOpts);
-        const chairPosOpts = {
-          x: fromTopLeft(53, 286.5).x,
-          y: fromTopLeft(53, 286.5).y,
-          size: 9,
-        };
-        if (timesRegular2) chairPosOpts.font = timesRegular2;
-        page2a.drawText(chairDeanInfo.chairPosition, chairPosOpts);
-        // Dean signature
-        const deanNameOpts = {
-          x: fromTopLeft(53, 301.5).x,
-          y: fromTopLeft(53, 301.5).y,
-          size: 10,
-        };
-        if (timesBold2) deanNameOpts.font = timesBold2;
-        page2a.drawText(chairDeanInfo.deanName, deanNameOpts);
-        const deanPosOpts = {
-          x: fromTopLeft(53, 306.5).x,
-          y: fromTopLeft(53, 306.5).y,
-          size: 9,
-        };
-        if (timesRegular2) deanPosOpts.font = timesRegular2;
-        page2a.drawText(chairDeanInfo.deanPosition, deanPosOpts);
+        if (!studentId) {
+          console.warn(
+            "No student_id found in AsyncStorage. Chair/Dean info will not be fetched."
+          );
+        } else {
+          const url = `${BASE_URL}/get_chair_dean.php?student_id=${encodeURIComponent(
+            studentId
+          )}`;
+          const res = await fetch(url, {
+            headers: { Accept: "application/json" },
+          });
+          const json = await res.json().catch(() => ({}));
+          const chair = json.program_chair || {};
+          const dean = json.dean || {};
+          if (chair.name && dean.name) {
+            console.log(
+              `[CHAIR/DEAN API] Program Chair and Dean fetched successfully for student_id=${studentId}`
+            );
+          } else if (chair.name) {
+            console.log(
+              `[CHAIR/DEAN API] Only Program Chair fetched for student_id=${studentId}`
+            );
+          } else if (dean.name) {
+            console.log(
+              `[CHAIR/DEAN API] Only Dean fetched for student_id=${studentId}`
+            );
+          } else {
+            console.log(
+              `[CHAIR/DEAN API] No Program Chair or Dean found for student_id=${studentId}`
+            );
+          }
+          const pagesNow2 = pdfDoc.getPages();
+          const page2a =
+            pagesNow2.length >= 2
+              ? pagesNow2[1]
+              : pdfDoc.addPage([PAGE_W, PAGE_H]);
+          let timesBold2 = null;
+          let timesRegular2 = null;
+          try {
+            timesBold2 = await pdfDoc.embedFont(StandardFonts.TimesBold);
+            timesRegular2 = await pdfDoc.embedFont(StandardFonts.TimesRoman);
+          } catch (fe) {
+            console.log(
+              "Page2 chair/dean font embed error:",
+              fe?.message || fe
+            );
+          }
+          // Chair info (name, designation, college stacked)
+          let yChair = 281.5;
+          const chairNameOpts = {
+            x: fromTopLeft(53, yChair).x,
+            y: fromTopLeft(53, yChair).y,
+            size: 12,
+          };
+          if (timesBold2) chairNameOpts.font = timesBold2;
+          page2a.drawText(chair.name || "N/A", chairNameOpts);
+          yChair += 5;
+          const chairDesignationOpts = {
+            x: fromTopLeft(53, yChair).x,
+            y: fromTopLeft(53, yChair).y,
+            size: 11,
+          };
+          if (timesRegular2) chairDesignationOpts.font = timesRegular2;
+          page2a.drawText(chair.designation || "N/A", chairDesignationOpts);
+          yChair += 5;
+          const chairCollegeOpts = {
+            x: fromTopLeft(53, yChair).x,
+            y: fromTopLeft(53, yChair).y,
+            size: 11,
+          };
+          if (timesRegular2) chairCollegeOpts.font = timesRegular2;
+          page2a.drawText(chair.college || "N/A", chairCollegeOpts);
+          // Dean info (name, designation, college stacked)
+          let yDean = 301.5;
+          const deanNameOpts = {
+            x: fromTopLeft(53, yDean).x,
+            y: fromTopLeft(53, yDean).y,
+            size: 12,
+          };
+          if (timesBold2) deanNameOpts.font = timesBold2;
+          page2a.drawText(dean.name || "N/A", deanNameOpts);
+          yDean += 5;
+          const deanDesignationOpts = {
+            x: fromTopLeft(53, yDean).x,
+            y: fromTopLeft(53, yDean).y,
+            size: 11,
+          };
+          if (timesRegular2) deanDesignationOpts.font = timesRegular2;
+          page2a.drawText(dean.designation || "N/A", deanDesignationOpts);
+          yDean += 5;
+          const deanCollegeOpts = {
+            x: fromTopLeft(53, yDean).x,
+            y: fromTopLeft(53, yDean).y,
+            size: 11,
+          };
+          if (timesRegular2) deanCollegeOpts.font = timesRegular2;
+          page2a.drawText(dean.college || "N/A", deanCollegeOpts);
+        }
       } catch (e) {
         console.log("Page2 chair/dean error:", e?.message || e);
       }
