@@ -108,7 +108,7 @@ const HomeScreen = ({ navigation }) => {
           style={[styles.announcementsContainer, { opacity: fadeAnim }]}
         >
           {loading ? (
-            <ActivityIndicator size="large" color="#0249AD" />
+            <ActivityIndicator size="large" color="#DC143C" />
           ) : announcements.length === 0 ? (
             <Text>No announcements available.</Text>
           ) : (

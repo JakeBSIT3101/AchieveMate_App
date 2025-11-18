@@ -8,6 +8,10 @@ import HomeScreen from "./screens/HomeScreen";
 import ViewPortfolio from "./screens/ViewPortfolio";
 import DrawerContent from "./screens/DrawerContent";
 import ApplicationforDeans from "./screens/ApplicationforDeans";
+import ApplicationForGraduation from "./screens/ApplicationForGraduation";
+import ApplicationStatus from "./screens/ApplicationStatus";
+import ApplicationForLatinHonors from "./screens/ApplicationForLatinHonors";
+import UploadGrades from "./screens/UploadGrades";
 
 const Stack = createStackNavigator();
 const Drawer = createDrawerNavigator();
@@ -19,12 +23,16 @@ const DrawerNavigator = () => (
     drawerContent={(props) => <DrawerContent {...props} />}
     screenOptions={{ headerShown: true }}
   >
-    <Drawer.Screen name="Home" component={HomeScreen} options={{ title: "" }} />
+    <Drawer.Screen name="Home" component={HomeScreen} options={{ title: "Home" }} />
     <Drawer.Screen name="ViewPortfolio" component={ViewPortfolio} />
+    <Drawer.Screen name="Application For Graduation" component={ApplicationForGraduation} />
+    <Drawer.Screen name="Application Status" component={ApplicationStatus} />
+    <Drawer.Screen name="Application For Latin Honors" component={ApplicationForLatinHonors} />
+    <Drawer.Screen name="Upload Grades" component={UploadGrades} />
     <Drawer.Screen
       name="ApplicationforDeans"
       component={ApplicationforDeans}
-      options={{ title: "" }}
+      options={{ title: "Application For Dean's List" }}
     />
   </Drawer.Navigator>
 );

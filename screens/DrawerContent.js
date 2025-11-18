@@ -12,6 +12,11 @@ const menuItems = [
     screen: "ViewPortfolio",
   },
   {
+    title: "Upload Grades",
+    icon: require("../assets/status.png"),
+    screen: "Upload Grades",
+  },
+  {
     title: "Apply Dean's List",
     icon: require("../assets/deanslist.png"),
     screen: "ApplicationforDeans",
@@ -19,12 +24,17 @@ const menuItems = [
   {
     title: "Apply Latin Honor",
     icon: require("../assets/latinhonor.png"),
-    screen: "LatinHonor",
+    screen: "Application For Latin Honors",
+  },
+  {
+    title: "Application for Graduation",
+    icon: require("../assets/latinhonor.png"),
+    screen: "Application For Graduation",
   },
   {
     title: "Application Status",
     icon: require("../assets/status.png"),
-    screen: "Status",
+    screen: "Application Status",
   },
 ];
 
@@ -63,7 +73,7 @@ const DrawerContent = ({ navigation }) => {
               <Text
                 style={[
                   styles.drawerItemText,
-                  isActive && { color: "#0249AD", fontWeight: "bold" },
+                  isActive && { color: "#DC143C", fontWeight: "bold" },
                 ]}
               >
                 {item.title}
@@ -82,7 +92,7 @@ const DrawerContent = ({ navigation }) => {
           <Icon
             name="log-out"
             size={18}
-            color="#0249AD"
+            color="#DC143C"
             style={{ marginRight: 8 }}
           />
           <Text style={styles.drawerLogoutText}>Logout</Text>

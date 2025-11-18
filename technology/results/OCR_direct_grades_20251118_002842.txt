@@ -1,0 +1,61 @@
+OCR Extraction Results
+======================
+Original File: grades.pdf
+Extraction Type: direct
+Timestamp: 2025-11-18 00:28:42
+======================
+
+=== PAGE 1 === (Enhanced Direct PDF Extraction)
+BATANGAS STATE UNIVERSITY
+ARASOF-Nasugbu Campus
+
+Student's Copy of Grades
+
+Fullname : GRUMAL, JOHN KENNETH M.                                         SRCODE : 22-72350
+College : College of Informatics and Computing Sciences                            Academic Year : 2024-2025
+Program : BS Information Technology                                         Semester : FIRST
+Year Level : THIRD
+
+#  Course Code                Course Title              Units  Grade   Section         Instructor
+
+      #  | Course Code | Course Title                              | Units | Grade | Section | Instructor
+     ---|-------------|-------------------------------------------|-------|-------|---------|---------------------------
+     1  | BAT 401     | Fundamentals of Business Analytics        |   3   | 2.00  | IT-BA-3101 | SALAC, DJOANNA MARIE V.
+     2  | BAT 402     | Fundamentals of Analytics Modeling        |   3   | 2.00  | IT-BA-3101 | ATIENZA, ALFREDO V. JR
+     3  | GEd 107     | Ethics                                    |   3   | 2.00  | IT-BA-3101 | JAPAY, MARIA VANETTE O.
+     4  | IT 311      | Systems Administration and Maintenance    |   3   | 2.00  | IT-BA-3101 | DE JESUS, NOELYN M.
+     5  | IT 312      | Systems Integration and Architecture      |   3   | 1.75  | IT-BA-3101 | HERNANDEZ, OLIVER M.
+     6  | IT 313      | System Analysis and Design                |   3   | 2.00  | IT-BA-3101 | SAMONTE, BENJIE R.
+     7  | IT 314      | Web Systems and Technologies              |   3   | 2.00  | IT-BA-3101 | MAGSINO, JASON C.
+** NOTHING FOLLOWS **
+Total no of Course         7
+Total no of Units        21
+General Weighted Average (GWA)       1.9643
+
+
+
+2025-11-16 01:53:56 AM           22-72350
+
+======================
+STRUCTURED DATA FOR EASY PARSING
+======================
+
+COURSE_CODE|COURSE_TITLE|UNITS|GRADE|SECTION|INSTRUCTOR
+BAT 401|Fundamentals of Business Analytics|3|2.00|IT-BA-3101|SALAC, DJOANNA MARIE V.
+BAT 402|Fundamentals of Analytics Modeling|3|2.00|IT-BA-3101|ATIENZA, ALFREDO V. JR
+GEd 107|Ethics|3|2.00|IT-BA-3101|JAPAY, MARIA VANETTE O.
+IT 311|Systems Administration and Maintenance|3|2.00|IT-BA-3101|DE JESUS, NOELYN M.
+IT 312|Systems Integration and Architecture|3|1.75|IT-BA-3101|HERNANDEZ, OLIVER M.
+IT 313|System Analysis and Design|3|2.00|IT-BA-3101|SAMONTE, BENJIE R.
+IT 314|Web Systems and Technologies|3|2.00|IT-BA-3101|MAGSINO, JASON C.
+
+SUMMARY:
+Total Courses: 7
+Total Units: 21
+GWA: 1.9643
+
+STUDENT INFO:
+Name: GRUMAL, JOHN KENNETH
+College: College of Informatics and Computing Sciences
+Program: BS Information Technology
+Year Level: THIRD

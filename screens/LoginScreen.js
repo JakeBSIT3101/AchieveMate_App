@@ -32,64 +32,66 @@ const LoginScreen = ({ navigation }) => {
     setLoading(true);
 
     try {
-      const response = await fetch(`${BASE_URL}/login.php`, {
+      // Step 1️⃣: Login request
+      const loginResponse = await fetch(`${BASE_URL}/login.php`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
       });
 
-      // 👀 Debug raw response
-      const textResponse = await response.text();
-      console.log("📥 Raw server response:", textResponse);
+      const loginText = await loginResponse.text();
+      console.log("📥 Raw login response:", loginText);
 
-      // Try parsing JSON safely
-      let result;
+      let loginResult;
       try {
-        result = JSON.parse(textResponse);
-      } catch (e) {
-        console.error("❌ Response is not valid JSON!");
-        Alert.alert("❌ Error", "Server did not return JSON.");
+        loginResult = JSON.parse(loginText);
+      } catch {
+        console.error("❌ Invalid JSON from login.php!");
+        Alert.alert("Error", "Server returned invalid login response.");
         setLoading(false);
         return;
       }
 
       if (response.ok && result.success) {
-        // Persist login info for later use (e.g., contact lookup)
-        try {
-          const loginId =
-            result?.login_id ?? result?.Login_id ?? result?.user?.login_id ?? null;
-          if (loginId) {
-            await AsyncStorage.setItem("login_id", String(loginId));
-          }
-          await AsyncStorage.setItem("login_result", JSON.stringify(result));
-        } catch (e) {
-          console.log("Login info store error:", e?.message);
-        }
         setTimeout(() => {
           setLoading(false);
           navigation.replace("DrawerNavigator");
         }, 1500);
       } else {
         setLoading(false);
-        Alert.alert(
-          "❌ Login Failed",
-          result.message || "Invalid username or password"
-        );
+        Alert.alert("Error", "Missing student ID from server.");
+        return;
       }
+
+      console.log("✅ Retrieved student_id:", userResult.student_id);
+
+      // Step 3️⃣: Save session
+      const sessionData = {
+        username,
+        password,
+        login_id,
+        student_id: userResult.student_id,
+        usertype: loginResult.usertype,
+      };
+
+      await AsyncStorage.setItem("session", JSON.stringify(sessionData));
+      console.log("💾 Saved session:", sessionData);
+
+      setTimeout(() => {
+        setLoading(false);
+        navigation.replace("DrawerNavigator", { profile: sessionData });
+      }, 1000);
     } catch (error) {
       setLoading(false);
       console.error("Login error:", error.message);
-      Alert.alert(
-        "❌ Error",
-        error.message || "Something went wrong while logging in"
-      );
+      Alert.alert("❌ Error", "Something went wrong while logging in.");
     }
   };
 
   const handleForgotPassword = () => {
     Alert.alert(
       "Forgot Password",
-      "Redirect to password recovery screen (not implemented)"
+      "Redirect to password recovery (not implemented)."
     );
   };
 
@@ -149,7 +151,7 @@ const LoginScreen = ({ navigation }) => {
               <Icon
                 name={isPasswordVisible ? "eye-off" : "eye"}
                 size={24}
-                color="#0249AD"
+                color="#DC143C"
               />
             </TouchableOpacity>
           </View>
@@ -159,7 +161,7 @@ const LoginScreen = ({ navigation }) => {
               <CheckBox
                 value={rememberMe}
                 onValueChange={setRememberMe}
-                color={rememberMe ? "#0249AD" : undefined}
+                color={rememberMe ? "#DC143C" : undefined}
               />
               <Text style={styles.rememberMeText}>Remember me</Text>
             </View>
@@ -174,9 +176,8 @@ const LoginScreen = ({ navigation }) => {
           </TouchableOpacity>
         </View>
 
-        {/* Loading Modal with GIF */}
         {loading && (
-          <Modal transparent={true} animationType="fade">
+          <Modal transparent animationType="fade">
             <View
               style={{
                 flex: 1,
