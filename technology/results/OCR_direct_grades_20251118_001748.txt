@@ -1,0 +1,63 @@
+OCR Extraction Results
+======================
+Original File: grades.pdf
+Extraction Type: direct
+Timestamp: 2025-11-18 00:17:48
+======================
+
+=== PAGE 1 === (Enhanced Direct PDF Extraction)
+BATANGAS STATE UNIVERSITY
+ARASOF-Nasugbu Campus
+
+Student's Copy of Grades
+
+Fullname : GRUMAL, JOHN KENNETH M.                                         SRCODE : 22-72350
+College : College of Informatics and Computing Sciences                            Academic Year : 2023-2024
+Program : BS Information Technology                                         Semester : FIRST
+Year Level : SECOND
+
+#   Course Code                Course Title              Units  Grade   Section        Instructor
+
+      #  | Course Code | Course Title                              | Units | Grade | Section | Instructor
+     ---|-------------|-------------------------------------------|-------|-------|---------|---------------------------
+     1  | CpE 405     | Discrete Mathematics                      |   3   | 1.75  | IT-2103 | MAAÑO, JOHN DENVER M.
+     2  | CS 121      | Advanced Computer Programming             |   3   | 2.25  | IT-2103 | ROXAS, MELVIN B.
+     3  | CS 211      | Object-Oriented Programming               |   3   | 2.25  | IT-2103 | MADRIAGA, INOCENCIO
+     4  | IT 211      | Database Management System                |   3   | 1.75  | IT-2103 | MERCADO, BILL JERICKO C.
+     5  | IT 212      | Computer Networking 1                     |   3   | 1.75  | IT-2103 | MERCADO, ALBERT S.
+     6  | Litr 102    | ASEAN Literature                          |   3   | 1.75  | IT-2103 | MARASIGAN, MARIBEL E.
+     7  | PE 103      | Individual and Dual Sports                |   2   | 1.25  | IT-2103 | BENTIR, JETHRO D.
+     8  | Phy 101     | Calculus-Based Physics                    |   3   | 2.00  | IT-2103 | ACOSTA, ERNANI ALDRIN N.
+** NOTHING FOLLOWS **
+Total no of Course         8
+Total no of Units        23
+General Weighted Average (GWA)       1.8696
+
+
+
+2025-11-16 01:49:51 AM           22-72350
+
+======================
+STRUCTURED DATA FOR EASY PARSING
+======================
+
+COURSE_CODE|COURSE_TITLE|UNITS|GRADE|SECTION|INSTRUCTOR
+CpE 405|Discrete Mathematics|3|1.75|IT-2103|MAAÑO, JOHN DENVER M.
+CS 121|Advanced Computer Programming|3|2.25|IT-2103|ROXAS, MELVIN B.
+CS 211|Object-Oriented Programming|3|2.25|IT-2103|MADRIAGA, INOCENCIO
+IT 211|Database Management System|3|1.75|IT-2103|MERCADO, BILL JERICKO C.
+IT 212|Computer Networking 1|3|1.75|IT-2103|MERCADO, ALBERT S.
+Litr 102|ASEAN Literature|3|1.75|IT-2103|MARASIGAN, MARIBEL E.
+PE 103|Individual and Dual Sports|2|1.25|IT-2103|BENTIR, JETHRO D.
+Phy 101|Calculus-Based Physics|3|2.00|IT-2103|ACOSTA, ERNANI ALDRIN N.
+
+SUMMARY:
+Total Courses: 8
+Total Units: 23
+GWA: 1.8696
+
+STUDENT INFO:
+Name: GRUMAL, JOHN KENNETH
+College: College of Informatics and Computing Sciences
+Program: BS Information Technology
+Year Level: SECOND

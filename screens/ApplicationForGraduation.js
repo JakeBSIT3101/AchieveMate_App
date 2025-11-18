@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -9,10 +9,13 @@ import {
   Alert,
   ActivityIndicator,
 } from "react-native";
+import { Ionicons } from '@expo/vector-icons';
+import { OCR_SERVER_CONFIG } from '../config/serverConfig';
 import PdfUploader from "../components/PdfUploader";
 import * as FileSystem from "expo-file-system";
 import * as DocumentPicker from "expo-document-picker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { BASE_URL } from "../config/api";
 import { Checkbox, Provider as PaperProvider } from "react-native-paper";
 
 // Backend OCR function for PDF (COR) - extracts parsed fields + raw text
@@ -25,7 +28,7 @@ const runOCRBackend = async (fileUri) => {
       type: "application/pdf",
     });
 
-    const response = await fetch("http://192.168.254.114:5000/ocr", {
+    const response = await fetch(OCR_SERVER_CONFIG.getEndpointURL(OCR_SERVER_CONFIG.ENDPOINTS.OCR), {
       method: "POST",
       body: formData,
       headers: {
@@ -56,7 +59,7 @@ const runFullOCRBackend = async (fileUri) => {
       type: "application/pdf",
     });
 
-    const response = await fetch("http://192.168.254.114:5000/ocr/full", {
+    const response = await fetch(OCR_SERVER_CONFIG.getEndpointURL(OCR_SERVER_CONFIG.ENDPOINTS.OCR_FULL), {
       method: "POST",
       body: formData,
       headers: {
@@ -87,7 +90,7 @@ const runPositionedOCRBackend = async (fileUri) => {
       type: "application/pdf",
     });
 
-    const response = await fetch("http://192.168.254.114:5000/ocr/positioned", {
+    const response = await fetch(OCR_SERVER_CONFIG.getEndpointURL(OCR_SERVER_CONFIG.ENDPOINTS.OCR_POSITIONED), {
       method: "POST",
       body: formData,
       headers: {
@@ -118,7 +121,7 @@ const runDirectPDFBackend = async (fileUri) => {
       type: "application/pdf",
     });
 
-    const response = await fetch("http://192.168.254.114:5000/ocr/direct", {
+    const response = await fetch(OCR_SERVER_CONFIG.getEndpointURL(OCR_SERVER_CONFIG.ENDPOINTS.OCR_DIRECT), {
       method: "POST",
       body: formData,
       headers: {
@@ -139,8 +142,15 @@ const runDirectPDFBackend = async (fileUri) => {
   }
 };
 
+// Validate COR filename format
+const validateCORFilename = (fileName) => {
+  // Expected format: Lastname_Firstname_COR.pdf
+  const corPattern = /^[A-Za-z]+_[A-Za-z]+_COR\.pdf$/i;
+  return corPattern.test(fileName);
+};
+
 // File picker specifically for Step 2 (COR)
-const pickCORFile = async (setCoe, setOcrText, setOcrLoading) => {
+const pickCORFile = async (setCoe, setOcrText, setOcrLoading, setCourseData) => {
   try {
     const result = await DocumentPicker.getDocumentAsync({
       type: "application/pdf",
@@ -155,6 +165,26 @@ const pickCORFile = async (setCoe, setOcrText, setOcrLoading) => {
     const fileUri = file.uri;
     const fileName = file.name || "document.pdf";
 
+    // Validate file extension
+    const fileExtension = fileName.includes('.') ? fileName.split('.').pop().toLowerCase() : 'pdf';
+    
+    if (fileExtension !== 'pdf') {
+      Alert.alert(
+        "Invalid File Format", 
+        "Accepted format: PDF only\nMake sure the file is clear, complete, and official\nExample filename: Lastname_Firstname_COR.pdf"
+      );
+      return;
+    }
+
+    // Validate COR filename format
+    if (!validateCORFilename(fileName)) {
+      Alert.alert(
+        "Invalid Filename Format", 
+        "Please rename your file to follow this format:\nLastname_Firstname_COR.pdf\n\nExample: Smith_John_COR.pdf\n\nMake sure the file is clear, complete, and official."
+      );
+      return;
+    }
+
     const newPath = `${FileSystem.cacheDirectory}${fileName}`;
     await FileSystem.copyAsync({
       from: fileUri,
@@ -168,6 +198,10 @@ const pickCORFile = async (setCoe, setOcrText, setOcrLoading) => {
     try {
       const text = await runDirectPDFBackend(newPath);
       setOcrText(text);
+      
+      // Parse the OCR text to extract course data
+      const parsedData = parseCourseData(text);
+      setCourseData(parsedData);
     } catch (error) {
       console.error("OCR extraction error:", error);
       Alert.alert("OCR Error", error.message || "Failed to extract text from COR. Please ensure the OCR server is running.");
@@ -183,13 +217,146 @@ const pickCORFile = async (setCoe, setOcrText, setOcrLoading) => {
   }
 };
 
+// Function to fix course title spacing
+const fixCourseTitle = (title) => {
+  // Remove extra spaces first
+  title = title.replace(/\s+/g, ' ').trim();
+  
+  // Add space before capital letters that follow lowercase letters
+  title = title.replace(/([a-z])([A-Z])/g, '$1 $2');
+  
+  // Add space before numbers that follow letters
+  title = title.replace(/([a-zA-Z])(\d)/g, '$1 $2');
+  
+  // Add space after numbers that are followed by letters
+  title = title.replace(/(\d)([a-zA-Z])/g, '$1 $2');
+  
+  // Fix common OCR issues
+  const replacements = {
+    'AnalyticsApplication': 'Analytics Application',
+    'SocialIssues': 'Social Issues',
+    'andProfessional': 'and Professional',
+    'ProfessionalPractice': 'Professional Practice',
+    'QualityAssurance': 'Quality Assurance',
+    'InformationAssurance': 'Information Assurance',
+    'andSecurity': 'and Security',
+    'PlatformTechnologies': 'Platform Technologies',
+    'CapstoneProject': 'Capstone Project',
+    'DatabaseManagement': 'Database Management',
+    'ManagementSystem': 'Management System',
+    'ComputerNetworking': 'Computer Networking',
+    'DataAnalysis': 'Data Analysis',
+    'TeamSports': 'Team Sports',
+    'EnvironmentalSciences': 'Environmental Sciences'
+  };
+  
+  for (const [old, replacement] of Object.entries(replacements)) {
+    title = title.replace(new RegExp(old, 'gi'), replacement);
+  }
+  
+  // Clean up multiple spaces
+  return title.replace(/\s+/g, ' ').trim();
+};
+
+// Function to parse course enrollment data from OCR text
+const ACADEMIC_YEAR_LABELS = {
+  6: "2022-2023",
+  9: "2023-2024",
+  17: "2024-2025",
+  18: "2025-2026",
+};
+
+const getAcademicYearLabel = (id) => {
+  if (!id && id !== 0) return "N/A";
+  return ACADEMIC_YEAR_LABELS[id] || `AY #${id}`;
+};
+
+const formatSemesterLabel = (semester) => {
+  if (!semester) return "N/A";
+  return semester.toString().trim().toUpperCase();
+};
+
+const parseCourseData = (ocrText) => {
+  try {
+    const lines = ocrText.split('\n');
+    const courseData = {
+      studentInfo: {},
+      courses: [],
+      semester: '',
+      academicYear: '',
+      totalUnits: 0
+    };
+
+    // Extract student information and semester/year
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      
+      // Extract SR Code
+      if (trimmedLine.includes('SR  Code:') || trimmedLine.includes('SR Code:')) {
+        const srMatch = trimmedLine.match(/SR\s*Code:\s*(\S+)/);
+        if (srMatch) courseData.studentInfo.srCode = srMatch[1];
+      }
+      
+      // Extract Name and Program from the same line
+      if (trimmedLine.includes('Name:') && trimmedLine.includes('Program:')) {
+        const nameMatch = trimmedLine.match(/Name:\s*([A-Z,\s]+?)\s+Program:\s*(.+)/);
+        if (nameMatch) {
+          courseData.studentInfo.name = nameMatch[1].trim();
+          courseData.studentInfo.program = nameMatch[2].trim();
+        }
+      }
+      
+      // Extract Semester and Academic Year (format: FIRST, 2025-2026)
+      if (trimmedLine.match(/^(FIRST|SECOND|SUMMER),?\s*(\d{4}-\d{4})$/)) {
+        const semesterMatch = trimmedLine.match(/^(FIRST|SECOND|SUMMER),?\s*(\d{4}-\d{4})$/);
+        if (semesterMatch) {
+          courseData.semester = semesterMatch[1];
+          courseData.academicYear = semesterMatch[2];
+        }
+      }
+    }
+
+    // Extract course information - looking for specific pattern in this OCR format
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      
+      // Look for course lines that start with course codes (BAT, CS, ENGG, IT, etc.)
+      const courseMatch = line.match(/^([A-Z]{2,4}\s+\d{3,4})\s+(.+?)\s+(\d+)\s+\(([^)]+)\)/);
+      if (courseMatch) {
+        const [, code, title, units, section] = courseMatch;
+        
+        // Clean up and fix spacing in the title
+        const cleanTitle = fixCourseTitle(title);
+        
+        courseData.courses.push({
+          code: code.replace(/\s+/g, ' ').trim(),
+          title: cleanTitle,
+          units: parseInt(units),
+          section: section.trim()
+        });
+        courseData.totalUnits += parseInt(units);
+      }
+    }
+
+    return courseData;
+  } catch (error) {
+    console.error('Error parsing course data:', error);
+    return null;
+  }
+};
+
 export default function ApplicationForGraduation() {
   const [currentStep, setCurrentStep] = useState(1);
   const [coe, setCoe] = useState(null);
   const [ocrText, setOcrText] = useState("");
+  const [courseData, setCourseData] = useState(null);
   const [ocrLoading, setOcrLoading] = useState(false);
   const [step1Consent, setStep1Consent] = useState(false);
-  const [grades, setGrades] = useState(null);
+  const [gradeReport, setGradeReport] = useState(null);
+  const [gradeLoading, setGradeLoading] = useState(false);
+  const [gradeError, setGradeError] = useState(null);
+  const [studentId, setStudentId] = useState(null);
+  const hasFetchedGradesRef = useRef(false);
   const [attachments, setAttachments] = useState([]);
   const [guardianName, setGuardianName] = useState("");
   const [guardianContact, setGuardianContact] = useState("");
@@ -235,6 +402,26 @@ export default function ApplicationForGraduation() {
   useEffect(() => {
     (async () => {
       try {
+        const sessionRaw = await AsyncStorage.getItem("session");
+        if (!sessionRaw) return;
+
+        const session = JSON.parse(sessionRaw);
+        const resolvedId =
+          session?.student_id ||
+          session?.Student_id ||
+          session?.login_id ||
+          null;
+
+        if (resolvedId) setStudentId(resolvedId);
+      } catch (error) {
+        console.warn("Failed to resolve student ID:", error);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
         const saved = await AsyncStorage.getItem(STORAGE_KEY);
         if (saved) setForm(JSON.parse(saved));
       } catch (e) {
@@ -252,6 +439,48 @@ export default function ApplicationForGraduation() {
       }
     })();
   }, [form]);
+
+  const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
+    if (!id) return;
+
+    if (!fromRefresh) {
+      hasFetchedGradesRef.current = true;
+    }
+
+    setGradeLoading(true);
+    setGradeError(null);
+
+    try {
+      const response = await fetch(
+        `${BASE_URL}/get_student_grade.php?student_id=${encodeURIComponent(id)}`
+      );
+
+      if (!response.ok) {
+        throw new Error(`Server error (${response.status})`);
+      }
+
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.message || "Failed to load grades.");
+      }
+
+      setGradeReport(data.grades || []);
+    } catch (error) {
+      if (!fromRefresh) {
+        hasFetchedGradesRef.current = false;
+      }
+      setGradeError(error.message || "Unable to fetch grades.");
+    } finally {
+      setGradeLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (currentStep === 3 && studentId && !hasFetchedGradesRef.current) {
+      hasFetchedGradesRef.current = true;
+      fetchGradeReport(studentId);
+    }
+  }, [currentStep, studentId]);
 
   const nextStep = () =>
     setCurrentStep((prev) => (prev < steps.length ? prev + 1 : prev));
@@ -297,7 +526,8 @@ export default function ApplicationForGraduation() {
       });
       setCoe(null);
       setOcrText("");
-      setGrades(null);
+      setCourseData(null);
+      setGradeReport(null);
       setAttachments([]);
       setGuardianName("");
       setGuardianContact("");
@@ -386,7 +616,7 @@ export default function ApplicationForGraduation() {
                   <Checkbox
                     status={step1Consent ? "checked" : "unchecked"}
                     onPress={() => setStep1Consent(!step1Consent)}
-                    color="#0249AD"
+                    color="#DC143C"
                   />
                   <Text style={styles.text}>
                     I have read and agree to the Data Privacy Agreement.
@@ -402,28 +632,100 @@ export default function ApplicationForGraduation() {
               <Text style={styles.stepTitle}>
                 Step 2: Upload Certificate of Current Enrollment (COR)
               </Text>
+              
+              {/* File Requirements */}
+              <View style={styles.requirementsContainer}>
+                <Text style={styles.requirementsTitle}>File Requirements:</Text>
+                <Text style={styles.requirementText}>• Accepted format: PDF only</Text>
+                <Text style={styles.requirementText}>• Make sure the file is clear, complete, and official</Text>
+                <Text style={styles.requirementText}>• Example filename: Lastname_Firstname_COR.pdf</Text>
+              </View>
+              
               <PdfUploader
                 label="Certificate of Current Enrollment (COR)"
                 fileUri={coe}
-                onPickFile={() => pickCORFile(setCoe, setOcrText, setOcrLoading)}
+                onPickFile={() => pickCORFile(setCoe, setOcrText, setOcrLoading, setCourseData)}
                 webviewHeight={400}
               />
 
               {ocrLoading && (
                 <View style={{ marginTop: 12, alignItems: "center" }}>
-                  <ActivityIndicator size="large" color="#0249AD" />
+                  <ActivityIndicator size="large" color="#DC143C" />
                   <Text style={{ marginTop: 8, color: "#555" }}>
                     Extracting text...
                   </Text>
                 </View>
               )}
 
-              {ocrText && !ocrLoading && (
-                <View style={[styles.card, { marginTop: 12 }]}>
-                  <Text style={styles.cardTitle}>OCR Extracted Text (Full)</Text>
-                  <ScrollView style={{ maxHeight: 400 }}>
-                    <Text style={styles.cardText}>{ocrText}</Text>
-                  </ScrollView>
+              {courseData && !ocrLoading && (
+                <View style={styles.courseInfoCard}>
+                  <Text style={styles.cardTitle}>Course Enrollment Information</Text>
+                  
+                  {/* Student Information - Compact */}
+                  {courseData.studentInfo && (
+                    <View style={styles.compactInfoSection}>
+                      <Text style={styles.sectionTitle}>Student Information</Text>
+                      <View style={styles.infoGrid}>
+                        {courseData.studentInfo.name && (
+                          <Text style={styles.compactInfoText}>👤 {courseData.studentInfo.name}</Text>
+                        )}
+                        {courseData.studentInfo.srCode && (
+                          <Text style={styles.compactInfoText}>🆔 {courseData.studentInfo.srCode}</Text>
+                        )}
+                      </View>
+                      {courseData.studentInfo.program && (
+                        <Text style={styles.compactInfoText}>🎓 {courseData.studentInfo.program}</Text>
+                      )}
+                    </View>
+                  )}
+
+                  {/* Semester and Academic Year - Compact */}
+                  {(courseData.semester || courseData.academicYear) && (
+                    <View style={styles.compactInfoSection}>
+                      <Text style={styles.sectionTitle}>Enrollment Period</Text>
+                      <View style={styles.infoGrid}>
+                        {courseData.semester && (
+                          <Text style={styles.compactInfoText}>📅 {courseData.semester}</Text>
+                        )}
+                        {courseData.academicYear && (
+                          <Text style={styles.compactInfoText}>📚 {courseData.academicYear}</Text>
+                        )}
+                      </View>
+                    </View>
+                  )}
+
+                  {/* Courses Table - Mobile Optimized */}
+                  {courseData.courses && courseData.courses.length > 0 && (
+                    <View style={styles.coursesSection}>
+                      <Text style={styles.sectionTitle}>Courses ({courseData.courses.length} courses, {courseData.totalUnits} units)</Text>
+                      
+                      {/* Mobile-Friendly Table */}
+                      <View style={styles.mobileTable}>
+                        {/* Table Header */}
+                        <View style={styles.tableHeader}>
+                          <Text style={[styles.tableHeaderText, { flex: 1.2 }]}>Code</Text>
+                          <Text style={[styles.tableHeaderText, { flex: 2.5 }]}>Course Title</Text>
+                          <Text style={[styles.tableHeaderText, { flex: 0.8 }]}>Units</Text>
+                        </View>
+                        
+                        {/* Table Rows */}
+                        <View style={styles.tableBody}>
+                          {courseData.courses.map((course, index) => (
+                            <View key={index} style={[styles.mobileTableRow, index % 2 === 0 ? styles.tableRowEven : styles.tableRowOdd]}>
+                              <Text style={[styles.tableCellText, styles.courseCodeCell, { flex: 1.2 }]}>{course.code}</Text>
+                              <Text style={[styles.tableCellText, styles.courseTitleCell, { flex: 2.5 }]} numberOfLines={2}>{course.title}</Text>
+                              <Text style={[styles.tableCellText, styles.unitCell, { flex: 0.8 }]}>{course.units}</Text>
+                            </View>
+                          ))}
+                        </View>
+                      </View>
+                    </View>
+                  )}
+
+                  {/* Show message if no courses found */}
+                  {(!courseData.courses || courseData.courses.length === 0) && (
+                    <Text style={styles.noDataText}>No course information found in the document.</Text>
+                  )}
                 </View>
               )}
             </View>
@@ -432,26 +734,114 @@ export default function ApplicationForGraduation() {
           {/* STEP 3 - Upload Grades */}
           {currentStep === 3 && (
             <View>
-              <Text style={styles.stepTitle}>Step 3: Upload Grades</Text>
+              <Text style={styles.stepTitle}>Step 3: Report of Grades</Text>
               <Text style={styles.text}>
-                Upload your final grades for validation. Accepted format: PDF.
+                We automatically generated your latest report of grades from the
+                registrar. Review the details below; no PDF upload is required.
               </Text>
-              <PdfUploader
-                label="Grades"
-                fileUri={grades}
-                onPickFile={async () => {
-                  const result = await DocumentPicker.getDocumentAsync({
-                    type: "application/pdf",
-                    copyToCacheDirectory: true,
-                  });
-                  if (result.type === "cancel") return;
-                  const file = result.assets ? result.assets[0] : result;
-                  const newPath = `${FileSystem.cacheDirectory}${file.name}`;
-                  await FileSystem.copyAsync({ from: file.uri, to: newPath });
-                  setGrades(newPath);
-                  Alert.alert("Success", `${file.name} uploaded successfully!`);
-                }}
-              />
+
+              <View style={styles.gradeHeaderRow}>
+                <View>
+                  <Text style={styles.gradeMetaLabel}>Student ID</Text>
+                  <Text style={styles.gradeMetaValue}>{studentId || "N/A"}</Text>
+                </View>
+                <TouchableOpacity
+                  style={[
+                    styles.refreshButton,
+                    (!studentId || gradeLoading) && styles.refreshButtonDisabled,
+                  ]}
+                  onPress={() => {
+                    if (!studentId) return;
+                    setGradeReport(null);
+                    fetchGradeReport(studentId, { fromRefresh: true });
+                  }}
+                  disabled={!studentId || gradeLoading}
+                >
+                  <Ionicons name="refresh" size={18} color="#fff" />
+                  <Text style={styles.refreshButtonText}>
+                    {gradeLoading ? "Loading" : "Refresh"}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {gradeLoading && (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="large" color="#DC143C" />
+                  <Text style={styles.loadingText}>Generating report...</Text>
+                </View>
+              )}
+
+              {!gradeLoading && gradeError && (
+                <View style={styles.errorBox}>
+                  <Ionicons name="warning" size={20} color="#DC143C" />
+                  <Text style={styles.errorText}>{gradeError}</Text>
+                </View>
+              )}
+
+              {!gradeLoading && !gradeError && gradeReport && gradeReport.length === 0 && (
+                <View style={styles.emptyState}>
+                  <Ionicons name="document-text-outline" size={36} color="#bbb" />
+                  <Text style={styles.emptyStateTitle}>No grades found</Text>
+                  <Text style={styles.emptyStateText}>
+                    We could not find any grade records for your account yet. Please
+                    contact your program chair if you believe this is an error.
+                  </Text>
+                </View>
+              )}
+
+              {!gradeLoading && !gradeError && gradeReport && gradeReport.length > 0 && (
+                <View style={styles.gradeList}>
+                  {gradeReport.map((item, index) => (
+                    <View key={`${item.course_code}-${index}`} style={styles.gradeCard}>
+                      <View style={styles.gradeCardHeader}>
+                        <Text style={styles.gradeCourseCode}>{item.course_code}</Text>
+                        <View
+                          style={[
+                            styles.gradeBadge,
+                            item.remarks === "PASSED"
+                              ? styles.badgeSuccess
+                              : item.remarks === "FAIL"
+                              ? styles.badgeDanger
+                              : styles.badgeNeutral,
+                          ]}
+                        >
+                          <Text style={styles.gradeBadgeText}>
+                            {item.remarks || "PENDING"}
+                          </Text>
+                        </View>
+                      </View>
+                      <View style={styles.gradeRow}>
+                        <Text style={styles.gradeLabel}>Grade</Text>
+                        <Text style={styles.gradeValue}>{item.grade || "N/A"}</Text>
+                      </View>
+                      <View style={styles.gradeRow}>
+                        <Text style={styles.gradeLabel}>Semester</Text>
+                        <Text style={styles.gradeValue}>
+                          {formatSemesterLabel(item.semester)}
+                        </Text>
+                      </View>
+                      <View style={styles.gradeRow}>
+                        <Text style={styles.gradeLabel}>Academic Year</Text>
+                        <Text style={styles.gradeValue}>
+                          {getAcademicYearLabel(item.academic_year_id)}
+                        </Text>
+                      </View>
+                      {item.section ? (
+                        <View style={styles.gradeRow}>
+                          <Text style={styles.gradeLabel}>Section</Text>
+                          <Text style={styles.gradeValue}>{item.section}</Text>
+                        </View>
+                      ) : null}
+                      {item.instructor ? (
+                        <View style={styles.gradeRow}>
+                          <Text style={styles.gradeLabel}>Instructor</Text>
+                          <Text style={styles.gradeValue}>{item.instructor}</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                  ))}
+                </View>
+              )}
             </View>
           )}
 
@@ -479,7 +869,7 @@ export default function ApplicationForGraduation() {
                 <Checkbox
                   status={form.gradDecemberChecked ? "checked" : "unchecked"}
                   onPress={() => toggleGrad("gradDecemberChecked")}
-                  color="#0249AD"
+                  color="#DC143C"
                 />
                 <Text style={styles.text}>Graduation in December?</Text>
                 {form.gradDecemberChecked && (
@@ -498,7 +888,7 @@ export default function ApplicationForGraduation() {
                 <Checkbox
                   status={form.gradMayChecked ? "checked" : "unchecked"}
                   onPress={() => toggleGrad("gradMayChecked")}
-                  color="#0249AD"
+                  color="#DC143C"
                 />
                 <Text style={styles.text}>Graduation in May?</Text>
                 {form.gradMayChecked && (
@@ -515,7 +905,7 @@ export default function ApplicationForGraduation() {
                 <Checkbox
                   status={form.gradMidtermChecked ? "checked" : "unchecked"}
                   onPress={() => toggleGrad("gradMidtermChecked")}
-                  color="#0249AD"
+                  color="#DC143C"
                 />
                 <Text style={styles.text}>Graduation in Midterm?</Text>
                 {form.gradMidtermChecked && (
@@ -623,22 +1013,42 @@ const styles = StyleSheet.create({
   progressContainer: { flexDirection: "row", justifyContent: "space-between", marginBottom: 20 },
   stepContainer: { alignItems: "center", width: "15%" },
   circle: { width: 30, height: 30, borderRadius: 15, borderWidth: 2, borderColor: "#ccc", alignItems: "center", justifyContent: "center", marginBottom: 4 },
-  activeCircle: { borderColor: "#0249AD", backgroundColor: "#0249AD" },
+  activeCircle: { borderColor: "#DC143C", backgroundColor: "#DC143C" },
   stepNumber: { color: "#666", fontWeight: "600" },
   activeStepNumber: { color: "#fff" },
   stepLabel: { fontSize: 10, textAlign: "center" },
   stepTitle: { fontSize: 18, fontWeight: "600", marginBottom: 10 },
+  requirementsContainer: {
+    backgroundColor: '#F8F9FA',
+    borderRadius: 8,
+    padding: 15,
+    marginBottom: 15,
+    borderLeftWidth: 4,
+    borderLeftColor: '#DC143C',
+  },
+  requirementsTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#DC143C',
+    marginBottom: 8,
+  },
+  requirementText: {
+    fontSize: 14,
+    color: '#495057',
+    marginBottom: 4,
+    lineHeight: 20,
+  },
   text: { color: "#555", lineHeight: 20 },
   sectionHeader: { fontSize: 16, fontWeight: "700", marginTop: 10, marginBottom: 6 },
   inputLabel: { fontWeight: "600", marginTop: 10, marginBottom: 4, textTransform: "capitalize" },
   input: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 10, backgroundColor: "#fafafa", marginBottom: 10 },
   gradRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8 },
   checkboxContainer: { flexDirection: "row", alignItems: "center", gap: 8, marginVertical: 12 },
-  submitButton: { backgroundColor: "#0249AD", paddingVertical: 12, borderRadius: 8, alignItems: "center", marginTop: 12 },
+  submitButton: { backgroundColor: "#DC143C", paddingVertical: 12, borderRadius: 8, alignItems: "center", marginTop: 12 },
   submitText: { color: "#fff", fontWeight: "600", fontSize: 16 },
   navigation: { flexDirection: "row", justifyContent: "space-between", marginTop: 20 },
   navButton: { padding: 12, borderRadius: 8, backgroundColor: "#ddd", minWidth: 100, alignItems: "center" },
-  navButtonPrimary: { padding: 12, borderRadius: 8, backgroundColor: "#0249AD", minWidth: 100, alignItems: "center" },
+  navButtonPrimary: { padding: 12, borderRadius: 8, backgroundColor: "#DC143C", minWidth: 100, alignItems: "center" },
   navButtonText: { color: "#333", fontWeight: "600" },
   navButtonTextPrimary: { color: "#fff", fontWeight: "600" },
   cardTitle: { fontSize: 16, fontWeight: "700", marginBottom: 8 },
@@ -646,4 +1056,115 @@ const styles = StyleSheet.create({
   list: { marginTop: 6 },
   listItem: { fontSize: 14, lineHeight: 20, marginBottom: 2 },
   signature: { fontStyle: "italic", marginTop: 12, color: "#555" },
+  
+  // Mobile-friendly course data styles
+  courseInfoCard: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 12,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  sectionTitle: { 
+    fontSize: 16, 
+    fontWeight: "700", 
+    color: "#DC143C", 
+    marginBottom: 8,
+    marginTop: 8,
+  },
+  compactInfoSection: {
+    marginBottom: 12,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
+  },
+  infoGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  compactInfoText: { 
+    fontSize: 13, 
+    color: "#333", 
+    marginBottom: 4, 
+    lineHeight: 18,
+    backgroundColor: "#f8f9fa",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    overflow: "hidden",
+  },
+  coursesSection: {
+    marginTop: 8,
+  },
+  
+  // Mobile table styles
+  mobileTable: {
+    borderRadius: 8,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "#ddd",
+    marginTop: 8,
+  },
+  tableHeader: {
+    flexDirection: "row",
+    backgroundColor: "#DC143C",
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+  },
+  tableHeaderText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 12,
+    textAlign: "center",
+  },
+  tableBody: {
+    backgroundColor: "#fff",
+  },
+  mobileTableRow: {
+    flexDirection: "row",
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#eee",
+    minHeight: 44,
+    alignItems: "center",
+  },
+  tableRowEven: {
+    backgroundColor: "#f8f9fa",
+  },
+  tableRowOdd: {
+    backgroundColor: "#ffffff",
+  },
+  tableCellText: {
+    fontSize: 12,
+    color: "#333",
+    paddingHorizontal: 2,
+  },
+  courseCodeCell: {
+    fontWeight: "700",
+    color: "#DC143C",
+    textAlign: "center",
+  },
+  courseTitleCell: {
+    textAlign: "left",
+    lineHeight: 16,
+  },
+  unitCell: {
+    textAlign: "center",
+    fontWeight: "600",
+    color: "#DC143C",
+  },
+  noDataText: { 
+    fontSize: 14, 
+    color: "#999", 
+    fontStyle: "italic", 
+    textAlign: "center", 
+    marginTop: 20,
+    padding: 20,
+  },
 });

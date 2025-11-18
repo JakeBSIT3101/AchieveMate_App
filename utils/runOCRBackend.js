@@ -16,7 +16,7 @@ export const runOCRBackend = async () => {
       type: "image/jpeg",
     });
 
-    const response = await fetch("http://192.168.1.25:5000/ocr", {
+    const response = await fetch("http://192.168.254.105:5000/ocr", {
       method: "POST",
       body: formData,
       // DO NOT set Content-Type manually

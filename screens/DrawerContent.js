@@ -73,7 +73,7 @@ const DrawerContent = ({ navigation }) => {
               <Text
                 style={[
                   styles.drawerItemText,
-                  isActive && { color: "#0249AD", fontWeight: "bold" },
+                  isActive && { color: "#DC143C", fontWeight: "bold" },
                 ]}
               >
                 {item.title}
@@ -92,7 +92,7 @@ const DrawerContent = ({ navigation }) => {
           <Icon
             name="log-out"
             size={18}
-            color="#0249AD"
+            color="#DC143C"
             style={{ marginRight: 8 }}
           />
           <Text style={styles.drawerLogoutText}>Logout</Text>

@@ -137,7 +137,7 @@ export default function ApplicationForLatinHonor() {
                 <Checkbox
                   status={step1Checked ? "checked" : "unchecked"}
                   onPress={() => setStep1Checked(!step1Checked)}
-                  color="#0249AD"
+                  color="#DC143C"
                 />
                 <Text style={styles.text}>
                   I have read and understood the guidelines.
@@ -179,7 +179,7 @@ export default function ApplicationForLatinHonor() {
                 <Checkbox
                   status={consentChecked ? "checked" : "unchecked"}
                   onPress={() => setConsentChecked(!consentChecked)}
-                  color="#0249AD"
+                  color="#DC143C"
                 />
                 <Text style={styles.text}>I agree to the Data Privacy Statement.</Text>
               </View>
@@ -408,7 +408,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 4,
   },
-  activeCircle: { borderColor: "#0249AD", backgroundColor: "#0249AD" },
+  activeCircle: { borderColor: "#DC143C", backgroundColor: "#DC143C" },
   stepNumber: { color: "#666", fontWeight: "600" },
   activeStepNumber: { color: "#fff" },
   stepLabel: { fontSize: 10, textAlign: "center" },
@@ -458,7 +458,7 @@ const styles = StyleSheet.create({
   },
   cardTitle: { fontWeight: "700", fontSize: 15, marginBottom: 6 },
   validateButton: {
-    backgroundColor: "#0249AD",
+    backgroundColor: "#DC143C",
     paddingVertical: 12,
     borderRadius: 8,
     alignItems: "center",
@@ -466,7 +466,7 @@ const styles = StyleSheet.create({
   },
   validateText: { color: "#fff", fontWeight: "600", fontSize: 16 },
   submitButton: {
-    backgroundColor: "#0249AD",
+    backgroundColor: "#DC143C",
     paddingVertical: 12,
     borderRadius: 8,
     alignItems: "center",
@@ -485,7 +485,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   navButtonPrimary: {
-    backgroundColor: "#0249AD",
+    backgroundColor: "#DC143C",
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderRadius: 10,

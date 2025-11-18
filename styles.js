@@ -36,10 +36,10 @@ export default StyleSheet.create({
     width: "100%",
   },
   blueField: {
-    borderColor: "#0249AD",
+    borderColor: "#DC143C",
   },
   blueButton: {
-    backgroundColor: "#0249AD",
+    backgroundColor: "#DC143C",
     paddingVertical: 12,
     borderRadius: 8,
     alignItems: "center",
@@ -76,13 +76,13 @@ export default StyleSheet.create({
     color: "#333",
   },
   forgotText: {
-    color: "#0249AD",
+    color: "#DC143C",
     textDecorationLine: "underline",
   },
   welcomeText: {
     fontSize: 24,
     fontWeight: "bold",
-    color: "#0249AD",
+    color: "#DC143C",
     marginBottom: 20,
   },
   infoText: {
@@ -102,7 +102,7 @@ export default StyleSheet.create({
     fontSize: 18,
     fontWeight: "bold",
     marginLeft: 15,
-    color: "#0249AD",
+    color: "#DC143C",
   },
   subNavbar: {
     flexDirection: "row",
@@ -118,7 +118,7 @@ export default StyleSheet.create({
   },
   navText: {
     fontSize: 12,
-    color: "#0249AD",
+    color: "#DC143C",
     marginTop: 4,
   },
 
@@ -169,7 +169,7 @@ export default StyleSheet.create({
     alignItems: "center",
   },
   drawerLogoutText: {
-    color: "#0249AD",
+    color: "#DC143C",
     fontSize: 16,
   },
   drawerLogoutContainer: {
@@ -192,7 +192,7 @@ export default StyleSheet.create({
   homeHeaderText: {
     fontSize: 20,
     fontWeight: "bold",
-    color: "#0249AD",
+    color: "#DC143C",
     marginBottom: 12,
   },
   announcementCard: {
@@ -218,7 +218,7 @@ export default StyleSheet.create({
   announcementTitle: {
     fontSize: 18,
     fontWeight: "bold",
-    color: "#0249AD",
+    color: "#DC143C",
     marginBottom: 4,
   },
 
@@ -252,7 +252,7 @@ export default StyleSheet.create({
     backgroundColor: "#dbe9ff",
   },
   activeDrawerItemText: {
-    color: "#0249AD",
+    color: "#DC143C",
     fontWeight: "bold",
   },
   // Portfolio styles
@@ -274,7 +274,7 @@ export default StyleSheet.create({
   portfolioName: {
     fontSize: 25,
     fontWeight: "bold",
-    color: "#0249AD",
+    color: "#DC143C",
     marginTop: 10,
     paddingHorizontal: 2,
   },
@@ -296,7 +296,7 @@ export default StyleSheet.create({
 
   portfolioContactHeader: {
     fontWeight: "600",
-    color: "#0249AD",
+    color: "#DC143C",
     fontSize: 18,
     marginTop: 30,
     marginBottom: 10,
@@ -355,7 +355,7 @@ export default StyleSheet.create({
   certTitle: {
     fontWeight: "bold",
     fontSize: 16,
-    color: "#0249AD",
+    color: "#DC143C",
   },
 
   certOrg: {
@@ -389,7 +389,7 @@ export default StyleSheet.create({
   honorTitle: {
     fontWeight: "bold",
     fontSize: 16,
-    color: "#0249AD",
+    color: "#DC143C",
   },
 
   honorDesc: {
@@ -418,7 +418,7 @@ export default StyleSheet.create({
     paddingHorizontal: 20,
   },
   blueButtonupload: {
-    backgroundColor: "#0249AD",
+    backgroundColor: "#DC143C",
     paddingVertical: 30,
     borderRadius: 8,
     marginTop: 10,

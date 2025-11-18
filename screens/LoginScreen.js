@@ -171,7 +171,7 @@ const LoginScreen = ({ navigation }) => {
               <Icon
                 name={isPasswordVisible ? "eye-off" : "eye"}
                 size={24}
-                color="#0249AD"
+                color="#DC143C"
               />
             </TouchableOpacity>
           </View>
@@ -181,7 +181,7 @@ const LoginScreen = ({ navigation }) => {
               <CheckBox
                 value={rememberMe}
                 onValueChange={setRememberMe}
-                color={rememberMe ? "#0249AD" : undefined}
+                color={rememberMe ? "#DC143C" : undefined}
               />
               <Text style={styles.rememberMeText}>Remember me</Text>
             </View>

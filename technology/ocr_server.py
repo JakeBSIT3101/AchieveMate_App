@@ -588,8 +588,187 @@ def reconstruct_layout_text(positioned_text_data, image_width, image_height):
     
     return "\n".join(result_lines)
 
+def fix_course_title_spacing(title):
+    """Fix spacing issues in course titles by adding spaces between words"""
+    import re
+    
+    # Remove extra spaces first
+    title = re.sub(r'\s+', ' ', title.strip())
+    
+    # Add space before capital letters that follow lowercase letters
+    # e.g., "AnalyticsApplication" -> "Analytics Application"
+    title = re.sub(r'([a-z])([A-Z])', r'\1 \2', title)
+    
+    # Add space before numbers that follow letters
+    # e.g., "Project2" -> "Project 2"
+    title = re.sub(r'([a-zA-Z])(\d)', r'\1 \2', title)
+    
+    # Add space after numbers that are followed by letters
+    # e.g., "2Advanced" -> "2 Advanced"
+    title = re.sub(r'(\d)([a-zA-Z])', r'\1 \2', title)
+    
+    # Fix common OCR issues
+    replacements = {
+        'andProfessional': 'and Professional',
+        'QualityAssurance': 'Quality Assurance',
+        'InformationAssurance': 'Information Assurance',
+        'andSecurity': 'and Security',
+        'SocialIssues': 'Social Issues',
+        'PlatformTechnologies': 'Platform Technologies',
+        'CapstoneProject': 'Capstone Project',
+        'DatabaseManagement': 'Database Management',
+        'ManagementSystem': 'Management System',
+        'ComputerNetworking': 'Computer Networking',
+        'DataAnalysis': 'Data Analysis',
+        'TeamSports': 'Team Sports',
+        'EnvironmentalSciences': 'Environmental Sciences'
+    }
+    
+    for old, new in replacements.items():
+        title = title.replace(old, new)
+    
+    # Clean up multiple spaces
+    title = re.sub(r'\s+', ' ', title).strip()
+    
+    return title
+
+def format_grades_table(text_content):
+    """Automatically format grades table for better alignment and parsing"""
+    lines = text_content.split('\n')
+    formatted_lines = []
+    in_grades_section = False
+    grades_data = []
+    student_info = {}
+    
+    # Extract student information
+    for line in lines:
+        line = line.strip()
+        if 'Fullname' in line and ':' in line:
+            student_info['name'] = line.split(':', 1)[1].strip().split()[0:3]  # Get first 3 parts
+            student_info['name'] = ' '.join([part for part in student_info['name'] if part])
+        elif 'SRCODE' in line and ':' in line:
+            student_info['sr_code'] = line.split(':', 1)[1].strip()
+        elif 'College' in line and ':' in line:
+            student_info['college'] = line.split(':', 1)[1].strip().split('Academic')[0].strip()
+        elif 'Academic Year' in line and ':' in line:
+            student_info['academic_year'] = line.split('Academic Year')[1].split(':')[1].strip()
+        elif 'Program' in line and ':' in line:
+            student_info['program'] = line.split(':', 1)[1].strip().split('Semester')[0].strip()
+        elif 'Semester' in line and ':' in line:
+            student_info['semester'] = line.split('Semester')[1].split(':')[1].strip()
+        elif 'Year Level' in line and ':' in line:
+            student_info['year_level'] = line.split(':', 1)[1].strip()
+    
+    # Process each line
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        
+        # Check if we're entering grades section
+        if 'Course Code' in line and 'Course Title' in line and 'Units' in line and 'Grade' in line:
+            in_grades_section = True
+            formatted_lines.append(line)  # Keep original header for context
+            # Add formatted table header
+            formatted_lines.append("")
+            formatted_lines.append("      #  | Course Code | Course Title                              | Units | Grade | Section | Instructor")
+            formatted_lines.append("     ---|-------------|-------------------------------------------|-------|-------|---------|---------------------------")
+            i += 1
+            continue
+        
+        # Process grade entries
+        if in_grades_section and re.match(r'\s*\d+\s+', line):
+            # Parse grade line using regex
+            grade_match = re.match(r'\s*(\d+)\s+([A-Z][A-Za-z\s\d]+?)\s+([A-Za-z][A-Za-z\s&\-\d]+?)\s+(\d+)\s+([\d.]+)\s+([A-Z\-\d]+)\s+(.+)', line)
+            
+            if grade_match:
+                num, code, title, units, grade, section, instructor = grade_match.groups()
+                
+                # Clean up the data
+                code = code.strip()
+                title = fix_course_title_spacing(title.strip())  # Fix spacing in course titles
+                units = units.strip()
+                grade = grade.strip()
+                section = section.strip()
+                instructor = instructor.strip()
+                
+                # Format the line with proper alignment
+                formatted_line = f"     {num:<2} | {code:<11} | {title:<41} | {units:>3}   | {grade:<5} | {section:<7} | {instructor}"
+                formatted_lines.append(formatted_line)
+                
+                # Store for structured data section
+                grades_data.append({
+                    'code': code,
+                    'title': title,
+                    'units': units,
+                    'grade': grade,
+                    'section': section,
+                    'instructor': instructor
+                })
+            else:
+                formatted_lines.append(line)
+        
+        # Check for end of grades section
+        elif in_grades_section and ('NOTHING FOLLOWS' in line or 'Total no of Course' in line):
+            in_grades_section = False
+            formatted_lines.append(line)
+        else:
+            formatted_lines.append(line)
+        
+        i += 1
+    
+    # Add structured data section if grades were found
+    if grades_data:
+        formatted_lines.append("")
+        formatted_lines.append("======================")
+        formatted_lines.append("STRUCTURED DATA FOR EASY PARSING")
+        formatted_lines.append("======================")
+        formatted_lines.append("")
+        formatted_lines.append("COURSE_CODE|COURSE_TITLE|UNITS|GRADE|SECTION|INSTRUCTOR")
+        
+        for grade in grades_data:
+            formatted_lines.append(f"{grade['code']}|{grade['title']}|{grade['units']}|{grade['grade']}|{grade['section']}|{grade['instructor']}")
+        
+        # Add summary
+        if grades_data:
+            total_courses = len(grades_data)
+            total_units = sum(int(grade['units']) for grade in grades_data)
+            
+            formatted_lines.append("")
+            formatted_lines.append("SUMMARY:")
+            formatted_lines.append(f"Total Courses: {total_courses}")
+            formatted_lines.append(f"Total Units: {total_units}")
+            
+            # Calculate GWA if possible
+            try:
+                total_grade_points = sum(float(grade['grade']) * int(grade['units']) for grade in grades_data)
+                gwa = total_grade_points / total_units
+                formatted_lines.append(f"GWA: {gwa:.4f}")
+            except:
+                pass
+        
+        # Add student info
+        if student_info:
+            formatted_lines.append("")
+            formatted_lines.append("STUDENT INFO:")
+            if 'name' in student_info:
+                formatted_lines.append(f"Name: {student_info['name']}")
+            if 'sr_code' in student_info:
+                formatted_lines.append(f"SR Code: {student_info['sr_code']}")
+            if 'college' in student_info:
+                formatted_lines.append(f"College: {student_info['college']}")
+            if 'program' in student_info:
+                formatted_lines.append(f"Program: {student_info['program']}")
+            if 'academic_year' in student_info:
+                formatted_lines.append(f"Academic Year: {student_info['academic_year']}")
+            if 'semester' in student_info:
+                formatted_lines.append(f"Semester: {student_info['semester']}")
+            if 'year_level' in student_info:
+                formatted_lines.append(f"Year Level: {student_info['year_level']}")
+    
+    return '\n'.join(formatted_lines)
+
 def save_ocr_results_to_file(text_content, file_type="full", original_filename="document"):
-    """Save OCR results to a timestamped text file"""
+    """Save OCR results to a timestamped text file with automatic formatting"""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     # Clean the original filename
     clean_filename = re.sub(r'[^\w\-_.]', '_', original_filename.replace('.pdf', ''))
@@ -598,6 +777,12 @@ def save_ocr_results_to_file(text_content, file_type="full", original_filename="
     filepath = os.path.join(RESULTS_DIR, filename)
     
     try:
+        # Apply automatic formatting for grades documents
+        if 'grades' in original_filename.lower() or 'Course Code' in text_content:
+            formatted_content = format_grades_table(text_content)
+        else:
+            formatted_content = text_content
+        
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(f"OCR Extraction Results\n")
             f.write(f"======================\n")
@@ -605,7 +790,7 @@ def save_ocr_results_to_file(text_content, file_type="full", original_filename="
             f.write(f"Extraction Type: {file_type}\n")
             f.write(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write(f"======================\n\n")
-            f.write(text_content)
+            f.write(formatted_content)
         
         print(f"OCR results saved to: {filepath}")
         return filepath

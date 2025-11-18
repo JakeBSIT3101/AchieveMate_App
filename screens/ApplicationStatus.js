@@ -30,7 +30,7 @@ export default function ApplicationStatus() {
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#1E90FF" />
+        <ActivityIndicator size="large" color="#DC143C" />
         <Text style={styles.loadingText}>Loading your applications...</Text>
       </View>
     );
@@ -74,12 +74,12 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 10,
     fontSize: 16,
-    color: "#1E90FF",
+    color: "#DC143C",
   },
   title: {
     fontSize: 24,
     fontWeight: "bold",
-    color: "#1E90FF",
+    color: "#DC143C",
     textAlign: "center",
     marginBottom: 20,
   },
@@ -104,7 +104,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "bold",
     marginBottom: 8,
-    color: "#1E90FF",
+    color: "#DC143C",
   },
   detailsRow: {
     flexDirection: "row",

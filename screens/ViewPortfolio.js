@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   Modal,
   ActivityIndicator,
   Alert,
+  RefreshControl,
 } from "react-native";
 import Icon from "react-native-vector-icons/MaterialCommunityIcons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -29,6 +30,7 @@ export default function ViewPortfolio() {
   const [selectedYear, setSelectedYear] = useState(null);
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [loadingProfile, setLoadingProfile] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [profile, setProfile] = useState({
     student_id: null,
     full_name: null,
@@ -37,76 +39,143 @@ export default function ViewPortfolio() {
     year: null,
     contact: null,
   });
+  const [studentProgress, setStudentProgress] = useState(null);
+
+  const loadStudentProgress = useCallback(async (studentId) => {
+    if (!studentId) return;
+
+    try {
+      const stored = await AsyncStorage.getItem(`studentProgress_${studentId}`);
+      if (stored) {
+        setStudentProgress(JSON.parse(stored));
+      } else {
+        setStudentProgress(null);
+      }
+    } catch (error) {
+      console.error('Error loading student progress:', error);
+    }
+  }, []);
+
+  const saveStudentProgress = useCallback(async (studentId, progress) => {
+    if (!studentId || !progress) return;
+
+    try {
+      await AsyncStorage.setItem(
+        `studentProgress_${studentId}`,
+        JSON.stringify(progress)
+      );
+      setStudentProgress(progress);
+    } catch (error) {
+      console.error('Error saving student progress:', error);
+    }
+  }, []);
+
+  const loadProfile = useCallback(async ({ showLoader = true } = {}) => {
+    if (showLoader) {
+      setLoadingProfile(true);
+    }
+
+    try {
+      const raw = await AsyncStorage.getItem("session");
+      if (!raw) return;
+
+      const session = JSON.parse(raw);
+      if (!session.login_id) {
+        Alert.alert("Error", "Login ID not found in session");
+        return;
+      }
+
+      const res = await fetch(`${BASE_URL}/getuser.php`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ login_id: session.login_id }),
+      });
+
+      const text = await res.text();
+      let json;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        console.error("❌ Invalid JSON from getuser.php!", text);
+        Alert.alert("Error", "Cannot fetch student info.");
+        return;
+      }
+
+      if (json.success && json.student) {
+        const s = json.student;
+        setProfile({
+          student_id: s.Student_id,
+          full_name: `${s.First_name} ${s.Middle_name ? s.Middle_name + " " : ""}${s.Last_name}`,
+          email: s.Email,
+          srcode: s.SRCODE,
+          year: s.Year,
+          contact: s.Contact,
+        });
+
+        session.student_id = s.Student_id;
+        await AsyncStorage.setItem("session", JSON.stringify(session));
+
+        await loadStudentProgress(s.Student_id);
+      } else {
+        console.error("⚠️ Failed to fetch student info:", json.message);
+        Alert.alert("Error", json.message || "Student info not found");
+      }
+    } catch (err) {
+      console.error("❌ Error fetching student info:", err);
+      Alert.alert("Error", "Failed to load student info");
+    } finally {
+      if (showLoader) {
+        setLoadingProfile(false);
+      }
+      setRefreshing(false);
+    }
+  }, [loadStudentProgress]);
 
   // 🧠 Load profile via login_id
   useEffect(() => {
-    const loadProfile = async () => {
-      try {
-        const raw = await AsyncStorage.getItem("session");
-        if (!raw) return;
-
-        const session = JSON.parse(raw);
-        if (!session.login_id) {
-          Alert.alert("Error", "Login ID not found in session");
-          setLoadingProfile(false);
-          return;
-        }
-
-        const res = await fetch(`${BASE_URL}/getuser.php`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ login_id: session.login_id }),
-        });
-
-        const text = await res.text();
-        let json;
-        try {
-          json = JSON.parse(text);
-        } catch {
-          console.error("❌ Invalid JSON from getuser.php!", text);
-          Alert.alert("Error", "Cannot fetch student info.");
-          setLoadingProfile(false);
-          return;
-        }
-
-        if (json.success && json.student) {
-          const s = json.student;
-          setProfile({
-            student_id: s.Student_id,
-            full_name: `${s.First_name} ${s.Middle_name ? s.Middle_name + " " : ""}${s.Last_name}`,
-            email: s.Email,
-            srcode: s.SRCODE,
-            year: s.Year,
-            contact: s.Contact,
-          });
-
-          // Save student_id for later use
-          session.student_id = s.Student_id;
-          await AsyncStorage.setItem("session", JSON.stringify(session));
-        } else {
-          console.error("⚠️ Failed to fetch student info:", json.message);
-          Alert.alert("Error", json.message || "Student info not found");
-        }
-      } catch (err) {
-        console.error("❌ Error fetching student info:", err);
-        Alert.alert("Error", "Failed to load student info");
-      } finally {
-        setLoadingProfile(false);
-      }
-    };
-
     loadProfile();
-  }, []);
+  }, [loadProfile]);
+
+  const handleRefresh = useCallback(() => {
+    setRefreshing(true);
+    loadProfile({ showLoader: false });
+  }, [loadProfile]);
 
   const availableYears = [...new Set(certifications.map((c) => c.year))];
   const filteredCerts = selectedYear
     ? certifications.filter((cert) => cert.year === selectedYear)
     : certifications;
 
+  const profileYear = profile.year ? profile.year.toString().trim() : null;
+  const progressYear = studentProgress?.display_year_level
+    ? studentProgress.display_year_level.toString().trim()
+    : null;
+
+  const resolvedYearLevel = profileYear || progressYear || null;
+
+  const normalizedTrackYear = (profileYear || progressYear)
+    ? (profileYear || progressYear).toUpperCase()
+    : null;
+  const eligibleTrackYears = ['THIRD YEAR', 'FOURTH YEAR'];
+  const trackDisplay = normalizedTrackYear && eligibleTrackYears.includes(normalizedTrackYear)
+    && studentProgress?.track && studentProgress.track !== 'N/A'
+      ? studentProgress.track
+      : 'N/A';
+
   return (
-    <ScrollView contentContainerStyle={styles.scrollContainer}>
+    <ScrollView
+      contentContainerStyle={styles.scrollContainer}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={handleRefresh}
+          tintColor="#DC143C"
+          colors={["#DC143C"]}
+        />
+      }
+    >
       <View style={styles.portfolioProfileContainer}>
-        <Text style={{ fontWeight: "bold", fontSize: 16, marginBottom: 6, color: "#0249AD" }}>
+        <Text style={{ fontWeight: "bold", fontSize: 16, marginBottom: 6, color: "#DC143C" }}>
           🪪 Student ID: {profile.student_id ?? "Not found"}
         </Text>
 
@@ -120,7 +189,10 @@ export default function ViewPortfolio() {
               {profile.srcode ? `SR Code: ${profile.srcode}` : "SR Code: N/A"}
             </Text>
             <Text style={styles.portfolioSubtitle}>
-              {profile.year ? `Year Level: ${profile.year}` : "Year Level: N/A"}
+              {resolvedYearLevel ? `Year Level: ${resolvedYearLevel}` : "Year Level: N/A"}
+            </Text>
+            <Text style={styles.portfolioSubtitle}>
+              {`Track: ${trackDisplay}`}
             </Text>
           </View>
         </View>
@@ -140,7 +212,7 @@ export default function ViewPortfolio() {
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.portfolioContactHeader}>Certifications</Text>
           <TouchableOpacity onPress={() => setShowFilterModal(true)}>
-            <Icon name="filter-outline" size={22} color="#0249AD" />
+            <Icon name="filter-outline" size={22} color="#DC143C" />
           </TouchableOpacity>
         </View>
 
@@ -158,7 +230,7 @@ export default function ViewPortfolio() {
                 </TouchableOpacity>
               ))}
               <TouchableOpacity onPress={() => { setSelectedYear(null); setShowFilterModal(false); }} style={{ marginTop: 10 }}>
-                <Text style={{ color: "#0249AD", textAlign: "right" }}>Clear Filter</Text>
+                <Text style={{ color: "#DC143C", textAlign: "right" }}>Clear Filter</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -180,7 +252,7 @@ export default function ViewPortfolio() {
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.portfolioContactHeader}>Honors & Achievements</Text>
           <TouchableOpacity onPress={() => console.log("Filter honors")}>
-            <Icon name="filter-outline" size={22} color="#0249AD" />
+            <Icon name="filter-outline" size={22} color="#DC143C" />
           </TouchableOpacity>
         </View>
 

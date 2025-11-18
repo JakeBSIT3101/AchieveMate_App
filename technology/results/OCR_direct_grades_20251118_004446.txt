@@ -1,0 +1,51 @@
+OCR Extraction Results
+======================
+Original File: grades.pdf
+Extraction Type: direct
+Timestamp: 2025-11-18 00:44:46
+======================
+
+=== PAGE 1 === (Enhanced Direct PDF Extraction)
+BATANGAS STATE UNIVERSITY
+ARASOF-Nasugbu Campus
+
+Student's Copy of Grades
+
+Fullname : GRUMAL, JOHN KENNETH M.                                         SRCODE : 22-72350
+College : College of Informatics and Computing Sciences                            Academic Year : 2024-2025
+Program : BS Information Technology                                         Semester : SUMMER
+Year Level : THIRD
+
+# Course Code                 Course Title                Units Grade  Section        Instructor
+
+      #  | Course Code | Course Title                              | Units | Grade | Section | Instructor
+     ---|-------------|-------------------------------------------|-------|-------|---------|---------------------------
+     1  | IT 331      | Application Development and Emerging Technologies |   3   | 2.00  | IT-BA-3301 | HERNANDEZ, OLIVER M.
+     2  | IT 332      | Integrative Programming and Technologies  |   3   | 1.75  | IT-BA-3301 | CONCEPCION, ROMEO JR. A.
+** NOTHING FOLLOWS **
+Total no of Course         2
+Total no of Units         6
+General Weighted Average (GWA)       1.875
+
+
+
+2025-11-16 02:00:13 AM           22-72350
+
+======================
+STRUCTURED DATA FOR EASY PARSING
+======================
+
+COURSE_CODE|COURSE_TITLE|UNITS|GRADE|SECTION|INSTRUCTOR
+IT 331|Application Development and Emerging Technologies|3|2.00|IT-BA-3301|HERNANDEZ, OLIVER M.
+IT 332|Integrative Programming and Technologies|3|1.75|IT-BA-3301|CONCEPCION, ROMEO JR. A.
+
+SUMMARY:
+Total Courses: 2
+Total Units: 6
+GWA: 1.8750
+
+STUDENT INFO:
+Name: GRUMAL, JOHN KENNETH
+College: College of Informatics and Computing Sciences
+Program: BS Information Technology
+Year Level: THIRD
