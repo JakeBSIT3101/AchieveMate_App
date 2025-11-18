@@ -1,14 +1,17 @@
-SR Code: 22-78222
+SR Code: 22-71014
 Sex: MALE
-Name: SAMONTANEZ, JAKE A.
-Program: BS Information Technology -BA/THIRD
+Name: SALANGUIT, HAROLD NIKKO G.
+Program: :
+track:
+Semester : SECOND
+Year Level : THIRD
 
 COURSE CODE{
-BAT 401,
-BAT 402,
-GED 107,
-IT 311,
-IT 312,
-IT 313,
-IT 314,
+IT 321,
+IT 322,
+IT 323,
+IT 324,
+IT 325,
+NTT 403,
+NTT 404,
 }

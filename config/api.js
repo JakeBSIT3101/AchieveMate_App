@@ -1,4 +1,9 @@
-const BASE_URL = "https://achievemate.website/api"; // For Laravel API
-const OCR_URL = "http://192.168.254.110:5000/ocr"; // Replace with your PC IPv4
+import { OCR_SERVER_CONFIG } from "./serverConfig";
+
+// Laravel API endpoint
+const BASE_URL = "https://achievemate.website/api";
+
+// Base URL for the OCR service; update host/port in serverConfig.js when network changes
+const OCR_URL = `${OCR_SERVER_CONFIG.BASE_URL}`;
 
 export { BASE_URL, OCR_URL };

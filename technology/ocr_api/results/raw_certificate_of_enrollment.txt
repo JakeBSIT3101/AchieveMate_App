@@ -1,40 +1,101 @@
-Reference No. BatStateU-FO-REG-1 Effectivity: May 18, 2022
+7/25/25, 5:43 PM
 
+Reference No. BatStateU-FO-REG-1
 Republic of the Philippines
-BATANGAS STATE UNIVERSITY
+
 The National Engineering University
 ARASOF-Nasugbu Campus
-R. Martinez St., Brgy. Bucana, Nasugbu Batangas
 
 College of Informatics and Computing Sciences
-FIRST, 2024-2025
+
+SECOND, 2024-2025
 
 REGISTRATION FORM
-SR Code: 22-78222 Sex: MALE
-Name: SAMONTANEZ, JAKE A. Program: BS Information Technology -BA/THIRD
-COURSE CODE COURSE TITLE UNIT(S) ASSESSMENT
-SECTION Tuition Fee (221.00/unit) 4,641.00
-BAT 401 Fundamentals of Business Analytics 3 (IT-BA-3101) Library Fee 622.00
-BAT 402 Fundamentals of Analytics Modeling 3 (IT-BA-3101) 7
-GEd 107 Ethics 3 (IT-BA-3101) Registration Fee ov)
-IT 311 Systems Administration and Maintenance 3 (IT-BA-3101) Athletic Fee 380.00
-IT 312 Systems Integration and Architecture 3 (IT-BA-3101) Publication Fee 380.00
-IT 313 System Analysis and Design 3 (IT-BA-3101) Medical / Dental Fee 380.00
-IT 314 Web Systems and Technologies 3 (IT-BA-3101) Guidance Fee 260.00
-a1 Laboratory Fee 751.00
-AntiTB 15.00
-Scholarship/s: - Cultural Fee 173.00
-Higher Education Support Program : Free Tuition 2024 Internet Fee 300.00
-(*) Discount has been deducted. iasurance 50.00
-Tuition Fee Discount=4,641.00 Approved by: Security* 173.00
-Assessment Discount=5,680.00 - ,
-HEMF (86.00/unit)* 1,806.00
-SCUAA 130.00
-ENROLLED aot oe
-a RATION SERVICES DISCOUNT (10,321.00)
-Ddfe : 07/15/2024 ——
-TOTAL(PHP) 0.00
+SR Code: 22-71014 Sex: MALE
+Name: SALANGUIT, HAROLD NIKKO G. Program:
+COURSE CODE COURSE TITLE UNIT(S)
+SECTION
+IT 321 Human-Computer Interaction 3
+IT 322 Advanced Systems Integration and Architecture 3
+IT 323 Information Assurance and Security 3
+IT 324 Capstone Project | 3
+IT 325 IT Project Management 3
+NTT 403 Computer Networking 4 3
+NTT 404 Cloud Computing 3
+21
+Scholarship/s:
+
+Higher Education Support Program : Free Tuition 2024
+(*) Discount has been deducted.
+
+Tuition Fee Discount=4,641.00
+
+Assessment Discount=5,615.00
+
+ENRO L L E D 7 RATION SERVICES
+
+Ddje : 01/07/2025
+
+Approved by:
+
+Certificate of Registration
+
+Effectivity: May 18, 2022
+
+BATANGAS STATE UNIVERSITY
+
+R. Martinez St., Brgy. Bucana, Nasugbu Batangas
+
+(IT-NT-3201)
+(IT-NT-3201)
+(IT-NT-3201)
+(IT-NT-3201)
+(IT-NT-3201)
+(IT-NT-3201)
+(IT-NT-3201)
 
 Revision No. 02
 
+BS Information Technology -NT/THIRD
+
+ASSESSMENT
+Tuition Fee (221.00/unit) 4,641.00
+
+Library Fee
+Registration Fee
+Athletic Fee
+Publication Fee
+Medical / Dental Fee
+Guidance Fee
+Laboratory Fee
+Cultural Fee
+Internet Fee
+Security*
+
+HEMF (86.00/unit) *
+SCUAA
+
+DISCOUNT
+TOTAL(PHP)
+
 * under appeal
+
+622.00
+260.00
+380.00
+380.00
+380.00
+260.00
+751.00
+173.00
+300.00
+173.00
+806.00
+130.00
+
+_
+
+10,256.00
+(10,256.00)
+
+0.00

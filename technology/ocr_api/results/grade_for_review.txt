@@ -1,23 +1,26 @@
-10/13/25, 7:04 PM
-
-Batangas State University - Student Copy of Grades
-
 BATANGAS STATE UNIVERSITY
+
 ARASOF-Nasugbu Campus
 
 Student's Copy of Grades
 
-1 ee He FE " a
-
-2025-10-13 07:04:13 PM
+General Weighted Average (GWA)
 
 22-71014
 
-Fullname : SALANGUIT, HAROLD NIKKO G. SRCODE : 22-71014
-College : College of Informatics and Computing Sciences Academic Year : 2024-2025
-Program : BS Information Technology Semester : SECOND
+Fullname : SALANGUIT, HAROLD NIKKO G. SRCODE
+ SRCODE : 22-71014
+
+College : College of Informatics and Computing Sciences
+ Academic Year : 2024-2025
+
+Program : BS Information Technology
+ Semester : SECOND
+
 Year Level : THIRD
-# Course Code Course Title Units | Grade Section Instructor
+Track : NT
+
+# Course Code Course Title Units Grade Section Instructor
 1 IT 321 Human-Computer Interaction 3 1.50 IT-NT-3201 PAYTAREN, ALBERT V.
 2 IT 322 Advanced Systems Integration and Architecture 3 1.50 IT-NT-3201 PAYTAREN, ALBERT V.
 3 IT 323 Information Assurance and Security 3 1.50 IT-NT-3201 HERNANDEZ, OLIVER M.
@@ -26,10 +29,6 @@ Year Level : THIRD
 6 NTT 403 Computer Networking 4 3 1.50 IT-NT-3201 SALAC, DJOANNA MARIE V.
 7 NTT 404 Cloud Computing 3 1.50 IT-NT-3201 PLACIO, CALVIN JOHN V.
 ** NOTHING FOLLOWS **
+** NOTHING FOLLOWS **
 Total no of Course 7
 Total no of Units 21
-General Weighted Average (GWA)
-
-https://dione.batstate-u.edu.ph/enrollment/backend/public/view/grades ?jwt=eyJ0eXAiOiJKV 1 QiLCJhbGciOiJIUZI1NiJ9.eyJZY2hvb2x5ZWEF yljoiMjAyNC...
-
-1/1

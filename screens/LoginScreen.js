@@ -52,37 +52,12 @@ const LoginScreen = ({ navigation }) => {
         return;
       }
 
-      if (!loginResult.success) {
-        setLoading(false);
-        Alert.alert("❌ Login Failed", loginResult.message || "Invalid credentials");
-        return;
-      }
-
-      console.log("✅ Login success:", loginResult);
-
-      const login_id = loginResult.login_id;
-
-      // Step 2️⃣: Fetch student_id using getuser.php
-      const userResponse = await fetch(`${BASE_URL}/getuser.php`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ login_id }),
-      });
-
-      const userText = await userResponse.text();
-      console.log("📥 Raw getuser.php response:", userText);
-
-      let userResult;
-      try {
-        userResult = JSON.parse(userText);
-      } catch {
-        console.error("❌ Invalid JSON from getuser.php!");
-        Alert.alert("Error", "Server returned invalid student data.");
-        setLoading(false);
-        return;
-      }
-
-      if (!userResult.success || !userResult.student_id) {
+      if (response.ok && result.success) {
+        setTimeout(() => {
+          setLoading(false);
+          navigation.replace("DrawerNavigator");
+        }, 1500);
+      } else {
         setLoading(false);
         Alert.alert("Error", "Missing student ID from server.");
         return;
@@ -114,7 +89,10 @@ const LoginScreen = ({ navigation }) => {
   };
 
   const handleForgotPassword = () => {
-    Alert.alert("Forgot Password", "Redirect to password recovery (not implemented).");
+    Alert.alert(
+      "Forgot Password",
+      "Redirect to password recovery (not implemented)."
+    );
   };
 
   return (
@@ -151,6 +129,7 @@ const LoginScreen = ({ navigation }) => {
           <TextInput
             style={[styles.input, styles.blueField]}
             placeholder="Username"
+            placeholderTextColor="#888"
             value={username}
             onChangeText={setUsername}
             autoCapitalize="none"
@@ -160,6 +139,7 @@ const LoginScreen = ({ navigation }) => {
             <TextInput
               style={[styles.input, styles.blueField]}
               placeholder="Password"
+              placeholderTextColor="#888"
               secureTextEntry={!isPasswordVisible}
               value={password}
               onChangeText={setPassword}
