@@ -248,9 +248,13 @@ def parse_grade_with_units(raw_text: str) -> str:
         out.append(f"{row[0]:<6} | {row[1]:<5} | {row[2]:<14}|")
     # Add totals row
     out.append(f"Total:   | {total_units:<5} | {total_weighted:<14}|")
-    # Add Weighted Average row
-    weighted_average = round(total_weighted / total_units, 2) if total_units > 0 else ""
-    out.append(f"Weighted Average: {weighted_average}")
+    # Add Weighted Average row (4 decimal places when numeric)
+    if total_units > 0:
+        weighted_average = total_weighted / total_units
+        weighted_average_str = f"{weighted_average:.4f}"
+    else:
+        weighted_average_str = ""
+    out.append(f"Weighted Average: {weighted_average_str}")
     return "\n".join(out)
 
 # --- Endpoint to serve Grade_with_Units.txt ---

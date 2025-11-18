@@ -300,17 +300,16 @@ async function fetchChairDeanInfoByStudent(studentId) {
     console.log("[CHAIR/DEAN API] URL:", url);
     console.log("[CHAIR/DEAN API] Response JSON:", JSON.stringify(json));
 
-    const chair = json.program_chair;
-    const dean = json.dean;
+    const chair = json.program_chair || {};
+    const dean = json.dean || {};
 
-    // Format: "Program Chairperson, College of Informatics and Computing Sciences"
-    const formatPos = (designation, college) => `${designation}, ${college}`;
+    const formatPos = (designation) => (designation ? String(designation) : "");
 
     return {
-      chairName: chair.name,
-      chairPosition: formatPos(chair.designation, chair.college),
-      deanName: dean.name,
-      deanPosition: formatPos(dean.designation, dean.college),
+      chairName: chair?.name || "",
+      chairPosition: formatPos(chair?.designation),
+      deanName: dean?.name || "",
+      deanPosition: formatPos(dean?.designation),
     };
   } catch (e) {
     console.error("Error fetching Chair/Dean info:", e);
@@ -336,6 +335,17 @@ export default function ApplicationforDeans() {
     ["Instructor", 160, "left"],
   ];
   const TABLE_WIDTH = COLS.reduce((sum, [, w]) => sum + w, 0);
+  const manualHelpImage = require("../assets/manual.png");
+  const manualImages = [
+    require("../assets/1.png"),
+    require("../assets/2.png"),
+    require("../assets/3.png"),
+    require("../assets/4.png"),
+    require("../assets/5.png"),
+    require("../assets/6.png"),
+    require("../assets/7.png"),
+    require("../assets/8.png"),
+  ];
 
   const [currentStep, setCurrentStep] = useState(1);
   const [ocrResult, setOcrResult] = useState("");
@@ -359,6 +369,7 @@ export default function ApplicationforDeans() {
   const [pdfFile, setPdfFile] = useState(null); // kept if you need in the future
   const [applicationPdfUri, setApplicationPdfUri] = useState(null); // generated PDF path for preview
   const [applicationPdfBase64, setApplicationPdfBase64] = useState(null); // base64 for WebView preview
+  const [manualModalVisible, setManualModalVisible] = useState(false);
   // API notice uses the existing NoticeModal (noticeOpen/title/message)
   const [referencePdfBase64, setReferencePdfBase64] = useState(null); // base64 for right result preview (optional)
   const [previewPage, setPreviewPage] = useState(1);
@@ -1369,7 +1380,21 @@ export default function ApplicationforDeans() {
 
   useEffect(() => {
     if (currentStep === 6) {
-      loadReviewData();
+      (async () => {
+        try {
+          await loadReviewData();
+          // Ensure contact is loaded for Step 6 UI
+          const c = await ensureContactLoaded(reviewMeta?.srcode);
+          if (c) {
+            console.log("[CONTACT] Step 6 contact loaded:", c);
+            setReviewMeta((m) => ({ ...m, contact: c }));
+          } else {
+            console.log("[CONTACT] Step 6 contact not found yet");
+          }
+        } catch (e) {
+          console.log("[CONTACT] Step 6 ensure error:", e?.message || e);
+        }
+      })();
     }
   }, [currentStep]);
 
@@ -1401,18 +1426,21 @@ export default function ApplicationforDeans() {
   }, [currentStep]);
 
   // Fetch contact number by login_id from API and cache locally
-  const ensureContactLoaded = async () => {
+  const ensureContactLoaded = async (srcOverride) => {
     try {
       if (contactNumber) return contactNumber;
       const stored = await AsyncStorage.getItem("contact_number");
       if (stored) {
+        console.log("[CONTACT] Using cached contact_number from storage");
         setContactNumber(stored);
         return stored;
       }
-      if (reviewMeta?.srcode) {
-        const c = await resolveContactBySrcode(reviewMeta.srcode);
+      const srcParam = srcOverride || reviewMeta?.srcode;
+      if (srcParam) {
+        console.log("[CONTACT] Resolving by SRCODE:", srcParam);
+        const c = await resolveContactBySrcode(srcParam);
         if (c) {
-          const val = String(c);
+          const val = String(c).trim();
           setContactNumber(val);
           await AsyncStorage.setItem("contact_number", val);
           setReviewMeta((m) => ({ ...m, contact: val }));
@@ -1421,6 +1449,7 @@ export default function ApplicationforDeans() {
       }
       const loginId = (await AsyncStorage.getItem("login_id")) || null;
       if (!loginId) return "";
+      console.log("[CONTACT] Resolving by login_id:", loginId);
       const candidates = [
         `${BASE_URL}/student_manage.php?login_id=${encodeURIComponent(
           loginId
@@ -1448,10 +1477,9 @@ export default function ApplicationforDeans() {
             json?.data?.contact ??
             "";
           if (contact) {
-            const c = String(contact);
+            const c = String(contact).trim();
             setContactNumber(c);
             await AsyncStorage.setItem("contact_number", c);
-            // Also merge into reviewMeta for subsequent renders
             setReviewMeta((m) => ({ ...m, contact: c }));
             return c;
           }
@@ -1780,7 +1808,9 @@ export default function ApplicationforDeans() {
       const SHOW_PAGE1_NAME_SECTION = false;
       if (SHOW_PAGE1_NAME_SECTION)
         try {
-          const timesBoldP1 = await pdfDoc.embedFont(StandardFonts.TimesBold);
+          const timesBoldP1 = await pdfDoc.embedFont(
+            StandardFonts.TimesRomanBold
+          );
           const timesRegularP1 = await pdfDoc.embedFont(
             StandardFonts.TimesRoman
           );
@@ -1919,7 +1949,7 @@ export default function ApplicationforDeans() {
           let timesBold2 = null;
           let timesRegular2 = null;
           try {
-            timesBold2 = await pdfDoc.embedFont(StandardFonts.TimesBold);
+            timesBold2 = await pdfDoc.embedFont(StandardFonts.TimesRomanBold);
             timesRegular2 = await pdfDoc.embedFont(StandardFonts.TimesRoman);
             console.log("Page2: fonts embedded");
           } catch (fe) {
@@ -2002,24 +2032,54 @@ export default function ApplicationforDeans() {
           console.log("Page2 text error:", e?.message || e);
         }
 
+      // Draw consent checkmarks (Step 5) on page 2
+      try {
+        const page2Consent =
+          pdfDoc.getPages().length >= 2
+            ? pdfDoc.getPages()[1]
+            : pdfDoc.addPage([PAGE_W, PAGE_H]);
+        const checkFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
+        const CHECK_CHAR = "/"; // slash symbol per request
+        const consentCoords = [
+          { checked: consent1, x: 32.5, y: 238.1 },
+          { checked: consent2, x: 32.5, y: 242.3 },
+          { checked: consent3, x: 32.5, y: 246.9 },
+        ];
+        consentCoords.forEach(({ checked, x, y }) => {
+          if (!checked) return;
+          const tl = fromTopLeft(x, y);
+          page2Consent.drawText(CHECK_CHAR, {
+            x: tl.x,
+            y: tl.y,
+            size: 10,
+            font: checkFont,
+          });
+        });
+      } catch (e) {
+        console.log("Consent checkbox draw error:", e?.message || e);
+      }
+
       // Fetch chair and dean info from API and draw on page 2 (fixed block)
       try {
-        let studentId = null;
-        try {
-          studentId = await AsyncStorage.getItem("student_id");
-        } catch (e) {
-          console.log(
-            "Could not get student_id from AsyncStorage:",
-            e?.message || e
-          );
+        // Use SRCODE-based flow
+        let srcode = reviewMeta?.srcode || null;
+        if (!srcode) {
+          try {
+            srcode = await AsyncStorage.getItem("srcode");
+          } catch (e) {
+            console.log(
+              "Could not get srcode from AsyncStorage:",
+              e?.message || e
+            );
+          }
         }
-        if (!studentId) {
+        if (!srcode) {
           console.warn(
-            "No student_id found in AsyncStorage. Chair/Dean info will not be fetched."
+            "No SRCODE available. Chair/Dean info will not be fetched."
           );
         } else {
-          const url = `${BASE_URL}/get_chair_dean.php?student_id=${encodeURIComponent(
-            studentId
+          const url = `${BASE_URL}/get_chair_dean.php?srcode=${encodeURIComponent(
+            srcode
           )}`;
           const res = await fetch(url, {
             headers: { Accept: "application/json" },
@@ -2029,19 +2089,19 @@ export default function ApplicationforDeans() {
           const dean = json.dean || {};
           if (chair.name && dean.name) {
             console.log(
-              `[CHAIR/DEAN API] Program Chair and Dean fetched successfully for student_id=${studentId}`
+              `[CHAIR/DEAN API] Program Chair and Dean fetched successfully for srcode=${srcode}`
             );
           } else if (chair.name) {
             console.log(
-              `[CHAIR/DEAN API] Only Program Chair fetched for student_id=${studentId}`
+              `[CHAIR/DEAN API] Only Program Chair fetched for srcode=${srcode}`
             );
           } else if (dean.name) {
             console.log(
-              `[CHAIR/DEAN API] Only Dean fetched for student_id=${studentId}`
+              `[CHAIR/DEAN API] Only Dean fetched for srcode=${srcode}`
             );
           } else {
             console.log(
-              `[CHAIR/DEAN API] No Program Chair or Dean found for student_id=${studentId}`
+              `[CHAIR/DEAN API] No Program Chair or Dean found for srcode=${srcode}`
             );
           }
           const pagesNow2 = pdfDoc.getPages();
@@ -2049,67 +2109,47 @@ export default function ApplicationforDeans() {
             pagesNow2.length >= 2
               ? pagesNow2[1]
               : pdfDoc.addPage([PAGE_W, PAGE_H]);
-          let timesBold2 = null;
-          let timesRegular2 = null;
+          const CHAIR_DEAN_FONT_SIZE = 10; // match page-2 Name/Section
+          let chairBoldFont = null;
+          let chairRegularFont = null;
           try {
-            timesBold2 = await pdfDoc.embedFont(StandardFonts.TimesBold);
-            timesRegular2 = await pdfDoc.embedFont(StandardFonts.TimesRoman);
-          } catch (fe) {
-            console.log(
-              "Page2 chair/dean font embed error:",
-              fe?.message || fe
+            chairBoldFont = await pdfDoc.embedFont(
+              StandardFonts.TimesRomanBold
             );
+            chairRegularFont = await pdfDoc.embedFont(StandardFonts.TimesRoman);
+          } catch (fe) {
+            console.log("Chair/Dean font embed error:", fe?.message || fe);
           }
-          // Chair info (name, designation, college stacked)
+          // Chair info (name, designation only)
           let yChair = 281.5;
-          const chairNameOpts = {
+          page2a.drawText(chair.name || "", {
             x: fromTopLeft(53, yChair).x,
             y: fromTopLeft(53, yChair).y,
-            size: 12,
-          };
-          if (timesBold2) chairNameOpts.font = timesBold2;
-          page2a.drawText(chair.name || "N/A", chairNameOpts);
+            size: CHAIR_DEAN_FONT_SIZE,
+            ...(chairBoldFont ? { font: chairBoldFont } : {}),
+          });
           yChair += 5;
-          const chairDesignationOpts = {
+          page2a.drawText(chair.designation || "", {
             x: fromTopLeft(53, yChair).x,
             y: fromTopLeft(53, yChair).y,
-            size: 11,
-          };
-          if (timesRegular2) chairDesignationOpts.font = timesRegular2;
-          page2a.drawText(chair.designation || "N/A", chairDesignationOpts);
-          yChair += 5;
-          const chairCollegeOpts = {
-            x: fromTopLeft(53, yChair).x,
-            y: fromTopLeft(53, yChair).y,
-            size: 11,
-          };
-          if (timesRegular2) chairCollegeOpts.font = timesRegular2;
-          page2a.drawText(chair.college || "N/A", chairCollegeOpts);
-          // Dean info (name, designation, college stacked)
+            size: CHAIR_DEAN_FONT_SIZE,
+            ...(chairRegularFont ? { font: chairRegularFont } : {}),
+          });
+          // Dean info (name, designation only)
           let yDean = 301.5;
-          const deanNameOpts = {
+          page2a.drawText(dean.name || "", {
             x: fromTopLeft(53, yDean).x,
             y: fromTopLeft(53, yDean).y,
-            size: 12,
-          };
-          if (timesBold2) deanNameOpts.font = timesBold2;
-          page2a.drawText(dean.name || "N/A", deanNameOpts);
+            size: CHAIR_DEAN_FONT_SIZE,
+            ...(chairBoldFont ? { font: chairBoldFont } : {}),
+          });
           yDean += 5;
-          const deanDesignationOpts = {
+          page2a.drawText(dean.designation || "", {
             x: fromTopLeft(53, yDean).x,
             y: fromTopLeft(53, yDean).y,
-            size: 11,
-          };
-          if (timesRegular2) deanDesignationOpts.font = timesRegular2;
-          page2a.drawText(dean.designation || "N/A", deanDesignationOpts);
-          yDean += 5;
-          const deanCollegeOpts = {
-            x: fromTopLeft(53, yDean).x,
-            y: fromTopLeft(53, yDean).y,
-            size: 11,
-          };
-          if (timesRegular2) deanCollegeOpts.font = timesRegular2;
-          page2a.drawText(dean.college || "N/A", deanCollegeOpts);
+            size: CHAIR_DEAN_FONT_SIZE,
+            ...(chairRegularFont ? { font: chairRegularFont } : {}),
+          });
         }
       } catch (e) {
         console.log("Page2 chair/dean error:", e?.message || e);
@@ -2295,45 +2335,43 @@ export default function ApplicationforDeans() {
 
             {/* Step chips */}
             <View style={{ flexDirection: "row", alignItems: "center" }}>
-              {steps.map((step, index) => {
-                const isDone = currentStep - 1 >= index;
-                return (
+              {steps.map((step, index) => (
+                <View
+                  key={index}
+                  style={{
+                    width: ITEM_WIDTH,
+                    alignItems: "center",
+                    marginRight: index !== steps.length - 1 ? STEP_GAP : 0,
+                  }}
+                >
                   <View
-                    key={index}
                     style={{
-                      width: ITEM_WIDTH,
+                      backgroundColor:
+                        currentStep - 1 >= index ? "#00C881" : "#E6E6E6",
+                      width: 24,
+                      height: 24,
+                      borderRadius: 12,
+                      justifyContent: "center",
                       alignItems: "center",
-                      marginRight: index !== steps.length - 1 ? STEP_GAP : 0,
                     }}
                   >
-                    <View
-                      style={{
-                        backgroundColor: isDone ? "#00C881" : "#E6E6E6",
-                        width: 24,
-                        height: 24,
-                        borderRadius: 12,
-                        justifyContent: "center",
-                        alignItems: "center",
-                      }}
-                    >
-                      <Text style={{ color: "white", fontSize: 12 }}>
-                        {index + 1}
-                      </Text>
-                    </View>
-                    <Text
-                      numberOfLines={1}
-                      style={{
-                        fontSize: 10,
-                        color: isDone ? "#00C881" : "#999",
-                        textAlign: "center",
-                        marginTop: 4,
-                      }}
-                    >
-                      {step}
+                    <Text style={{ color: "white", fontSize: 12 }}>
+                      {index + 1}
                     </Text>
                   </View>
-                );
-              })}
+                  <Text
+                    numberOfLines={1}
+                    style={{
+                      fontSize: 10,
+                      color: currentStep - 1 >= index ? "#00C881" : "#999",
+                      textAlign: "center",
+                      marginTop: 4,
+                    }}
+                  >
+                    {step}
+                  </Text>
+                </View>
+              ))}
             </View>
           </View>
         </Animated.ScrollView>
@@ -2527,16 +2565,28 @@ export default function ApplicationforDeans() {
       {currentStep === 3 && (
         <View style={{ flex: 1, padding: 20 }}>
           <View style={styles.card}>
-            <Text
-              style={{
-                fontSize: 18,
-                fontWeight: "700",
-                color: "#0249AD",
-                marginBottom: 12,
-              }}
-            >
-              Upload Your Copy of Grades
-            </Text>
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <Text
+                style={{
+                  fontSize: 18,
+                  fontWeight: "700",
+                  color: "#0249AD",
+                  marginBottom: 12,
+                }}
+              >
+                Upload Your Copy of Grades
+              </Text>
+              <TouchableOpacity
+                onPress={() => setManualModalVisible(true)}
+                style={{ marginLeft: 25, padding: 4, marginTop: -6 }}
+              >
+                <Image
+                  source={manualHelpImage}
+                  resizeMode="contain"
+                  style={{ width: 15, height: 15 }}
+                />
+              </TouchableOpacity>
+            </View>
 
             <View style={{ marginTop: 6, marginBottom: 18 }}>
               <View
@@ -2587,12 +2637,14 @@ export default function ApplicationforDeans() {
             </View>
 
             {showUploadButton("Copy of Grades") && (
-              <TouchableOpacity
-                style={styles.blueButtonupload}
-                onPress={() => handleUpload("Copy of Grades")}
-              >
-                <Text style={styles.buttonTextupload}>Upload PDF File</Text>
-              </TouchableOpacity>
+              <View style={{ marginTop: 8, alignItems: "center" }}>
+                <TouchableOpacity
+                  style={styles.blueButtonupload}
+                  onPress={() => handleUpload("Copy of Grades")}
+                >
+                  <Text style={styles.buttonTextupload}>Upload PDF File</Text>
+                </TouchableOpacity>
+              </View>
             )}
 
             {uploading && (
@@ -3189,7 +3241,7 @@ export default function ApplicationforDeans() {
                   <View style={{ padding: 16, alignItems: "center" }}>
                     <ActivityIndicator size="small" />
                     <Text style={{ marginTop: 6, color: "#6B7280" }}>
-                      Loading extracted rows…
+                      Loading extracted rows...
                     </Text>
                   </View>
                 ) : reviewRows.length === 0 ? (
@@ -3304,7 +3356,9 @@ export default function ApplicationforDeans() {
                   <Text style={{ fontWeight: "700" }}>
                     General Weighted Average (GWA):{" "}
                   </Text>
-                  {reviewSummary.gwa}
+                  {typeof reviewSummary.gwa === "number"
+                    ? reviewSummary.gwa.toFixed(4)
+                    : String(reviewSummary.gwa)}
                 </Text>
                 <Text>
                   <Text style={{ fontWeight: "700" }}>Rank: </Text>
@@ -3492,6 +3546,66 @@ export default function ApplicationforDeans() {
           setCurrentStep(7);
         }}
       />
+      <Modal
+        transparent
+        animationType="fade"
+        visible={manualModalVisible}
+        onRequestClose={() => setManualModalVisible(false)}
+      >
+        <View
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.6)",
+            justifyContent: "center",
+            alignItems: "center",
+            padding: 24,
+          }}
+        >
+          <View
+            style={{
+              width: "100%",
+              maxWidth: 420,
+              backgroundColor: "#fff",
+              borderRadius: 16,
+              paddingVertical: 12,
+              paddingHorizontal: 8,
+              minHeight: 600,
+            }}
+          >
+            <ScrollView
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{
+                alignItems: "center",
+                paddingHorizontal: 8,
+              }}
+            >
+              {manualImages.map((img, idx) => (
+                <Image
+                  key={idx}
+                  source={img}
+                  resizeMode="contain"
+                  style={{
+                    width: 320,
+                    minHeight: 300,
+                    marginRight: idx === manualImages.length - 1 ? 0 : 9,
+                    borderRadius: 10,
+                  }}
+                />
+              ))}
+            </ScrollView>
+          </View>
+          <TouchableOpacity
+            style={{ position: "absolute", top: 24, right: 24 }}
+            onPress={() => setManualModalVisible(false)}
+          >
+            <Text style={{ color: "#fff", fontSize: 18, fontWeight: "700" }}>
+              Close
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
     </View>
   );
 }
