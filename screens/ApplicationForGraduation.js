@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   View,
   Text,
@@ -360,6 +360,82 @@ export default function ApplicationForGraduation() {
   const [attachments, setAttachments] = useState([]);
   const [guardianName, setGuardianName] = useState("");
   const [guardianContact, setGuardianContact] = useState("");
+
+  const gradeStats = useMemo(() => {
+    if (!Array.isArray(gradeReport) || gradeReport.length === 0) {
+      return null;
+    }
+
+    const normalize = (value) => (value ? value.toString().trim().toUpperCase() : "");
+
+    const passed = gradeReport.filter((item) => normalize(item.remarks) === "PASSED").length;
+    const failed = gradeReport.filter((item) => normalize(item.remarks) === "FAIL").length;
+    const pending = gradeReport.length - passed - failed;
+
+    return {
+      total: gradeReport.length,
+      passed,
+      failed,
+      pending,
+    };
+  }, [gradeReport]);
+
+  const groupedGrades = useMemo(() => {
+    if (!Array.isArray(gradeReport) || gradeReport.length === 0) {
+      return [];
+    }
+
+    const semesterWeights = {
+      FIRST: 1,
+      "FIRST SEMESTER": 1,
+      SECOND: 2,
+      "SECOND SEMESTER": 2,
+      SUMMER: 3,
+      MIDYEAR: 4,
+      "MID-YEAR": 4,
+    };
+
+    const buckets = new Map();
+
+    gradeReport.forEach((item) => {
+      const academicYearId = item.academic_year_id ?? "N/A";
+      const academicYearLabel = getAcademicYearLabel(item.academic_year_id);
+      const semesterLabel = formatSemesterLabel(item.semester) || "N/A";
+      const yearLevelLabel = item.year_level || item.display_year_level || null;
+      const key = `${academicYearId}|${semesterLabel}|${yearLevelLabel || ""}`;
+
+      if (!buckets.has(key)) {
+        buckets.set(key, {
+          key,
+          academicYearId,
+          academicYearLabel,
+          semesterLabel,
+          yearLevelLabel,
+          records: [],
+          semesterWeight: semesterWeights[semesterLabel?.toUpperCase?.()] || 99,
+        });
+      }
+
+      buckets.get(key).records.push(item);
+    });
+
+    const normalizeId = (value) => {
+      const num = parseInt(value, 10);
+      if (!isNaN(num)) return num;
+      return Number.MAX_SAFE_INTEGER;
+    };
+
+    return Array.from(buckets.values()).sort((a, b) => {
+      const diff = normalizeId(a.academicYearId) - normalizeId(b.academicYearId);
+      if (diff !== 0) return diff;
+
+      if (a.semesterWeight !== b.semesterWeight) {
+        return a.semesterWeight - b.semesterWeight;
+      }
+
+      return (a.yearLevelLabel || "").localeCompare(b.yearLevelLabel || "");
+    });
+  }, [gradeReport]);
 
   const [form, setForm] = useState({
     surname: "",
@@ -789,58 +865,115 @@ export default function ApplicationForGraduation() {
                 </View>
               )}
 
-              {!gradeLoading && !gradeError && gradeReport && gradeReport.length > 0 && (
-                <View style={styles.gradeList}>
-                  {gradeReport.map((item, index) => (
-                    <View key={`${item.course_code}-${index}`} style={styles.gradeCard}>
-                      <View style={styles.gradeCardHeader}>
-                        <Text style={styles.gradeCourseCode}>{item.course_code}</Text>
-                        <View
-                          style={[
-                            styles.gradeBadge,
-                            item.remarks === "PASSED"
-                              ? styles.badgeSuccess
-                              : item.remarks === "FAIL"
-                              ? styles.badgeDanger
-                              : styles.badgeNeutral,
-                          ]}
-                        >
-                          <Text style={styles.gradeBadgeText}>
-                            {item.remarks || "PENDING"}
-                          </Text>
-                        </View>
+              {!gradeLoading && !gradeError && groupedGrades.length > 0 && (
+                <>
+                  {gradeStats && (
+                    <View style={styles.gradeSummaryRow}>
+                      <View style={[styles.gradeSummaryCard, styles.summaryAccentPrimary]}>
+                        <Text style={styles.summaryLabel}>Total Records</Text>
+                        <Text style={styles.summaryValue}>{gradeStats.total}</Text>
                       </View>
-                      <View style={styles.gradeRow}>
-                        <Text style={styles.gradeLabel}>Grade</Text>
-                        <Text style={styles.gradeValue}>{item.grade || "N/A"}</Text>
+                      <View style={[styles.gradeSummaryCard, styles.summaryAccentSuccess]}>
+                        <Text style={styles.summaryLabel}>Passed</Text>
+                        <Text style={styles.summaryValue}>{gradeStats.passed}</Text>
                       </View>
-                      <View style={styles.gradeRow}>
-                        <Text style={styles.gradeLabel}>Semester</Text>
-                        <Text style={styles.gradeValue}>
-                          {formatSemesterLabel(item.semester)}
-                        </Text>
+                      <View style={[styles.gradeSummaryCard, styles.summaryAccentWarning]}>
+                        <Text style={styles.summaryLabel}>Pending</Text>
+                        <Text style={styles.summaryValue}>{gradeStats.pending}</Text>
                       </View>
-                      <View style={styles.gradeRow}>
-                        <Text style={styles.gradeLabel}>Academic Year</Text>
-                        <Text style={styles.gradeValue}>
-                          {getAcademicYearLabel(item.academic_year_id)}
-                        </Text>
+                      <View style={[styles.gradeSummaryCard, styles.summaryAccentDanger]}>
+                        <Text style={styles.summaryLabel}>Failed</Text>
+                        <Text style={styles.summaryValue}>{gradeStats.failed}</Text>
                       </View>
-                      {item.section ? (
-                        <View style={styles.gradeRow}>
-                          <Text style={styles.gradeLabel}>Section</Text>
-                          <Text style={styles.gradeValue}>{item.section}</Text>
-                        </View>
-                      ) : null}
-                      {item.instructor ? (
-                        <View style={styles.gradeRow}>
-                          <Text style={styles.gradeLabel}>Instructor</Text>
-                          <Text style={styles.gradeValue}>{item.instructor}</Text>
-                        </View>
-                      ) : null}
                     </View>
-                  ))}
-                </View>
+                  )}
+
+                  <View style={styles.gradeList}>
+                    {groupedGrades.map((group) => (
+                      <View key={group.key} style={styles.gradeTableCard}>
+                        <View style={styles.gradeTableHeaderRow}>
+                          <View>
+                            <Text style={styles.gradeTableTitle}>{group.academicYearLabel}</Text>
+                            <Text style={styles.gradeTableSubtitle}>{group.semesterLabel}</Text>
+                          </View>
+                          <View style={styles.gradeTableMetaRight}>
+                            <Text style={styles.gradeTableMetaText}>{group.records.length} subject(s)</Text>
+                            <Text style={styles.gradeTableMetaText}>
+                              Year Level: {group.yearLevelLabel || "N/A"}
+                            </Text>
+                          </View>
+                        </View>
+
+                        <View style={styles.gradeDetailTableContainer}>
+                          <ScrollView
+                            horizontal
+                            showsHorizontalScrollIndicator
+                            contentContainerStyle={styles.gradeDetailHorizontalContent}
+                          >
+                            <View style={styles.gradeDetailTable}>
+                              <View style={[styles.gradeDetailRow, styles.gradeDetailHeaderRow]}>
+                                <Text style={[styles.gradeDetailHeaderText, styles.codeColumnWide]}>Course Code</Text>
+                                <Text style={[styles.gradeDetailHeaderText, styles.remarksColumnWide]}>Remarks</Text>
+                                <Text style={[styles.gradeDetailHeaderText, styles.gradeColumnWide]}>Grade</Text>
+                                <Text style={[styles.gradeDetailHeaderText, styles.sectionColumnWide]}>Section</Text>
+                                <Text style={[styles.gradeDetailHeaderText, styles.instructorColumnWide]}>Instructor</Text>
+                              </View>
+
+                              <ScrollView
+                                style={styles.gradeDetailVerticalScroll}
+                                nestedScrollEnabled
+                                showsVerticalScrollIndicator
+                              >
+                                {group.records.map((item, index) => (
+                                  <View
+                                    key={`${group.key}-${item.course_code}-${index}`}
+                                    style={[
+                                      styles.gradeDetailRow,
+                                      index % 2 === 0 ? styles.gradeRowEven : styles.gradeRowOdd,
+                                    ]}
+                                  >
+                                    <View style={[styles.gradeDetailCell, styles.codeColumnWide]}>
+                                      <Text style={styles.gradeDetailCellText}>{item.course_code || "N/A"}</Text>
+                                      {item.subject_id ? (
+                                        <Text style={styles.gradeCourseSubLabel}>Subject #{item.subject_id}</Text>
+                                      ) : null}
+                                    </View>
+                                    <Text
+                                      style={[
+                                        styles.gradeDetailCellText,
+                                        styles.remarksColumnWide,
+                                        (item.remarks || "").toUpperCase() === "PASSED"
+                                          ? styles.tableTextSuccess
+                                          : (item.remarks || "").toUpperCase() === "FAIL"
+                                          ? styles.tableTextDanger
+                                          : styles.tableTextNeutral,
+                                      ]}
+                                      numberOfLines={1}
+                                    >
+                                      {item.remarks || "Pending"}
+                                    </Text>
+                                    <Text style={[styles.gradeDetailCellText, styles.gradeColumnWide]}>
+                                      {item.grade || "N/A"}
+                                    </Text>
+                                    <Text style={[styles.gradeDetailCellText, styles.sectionColumnWide]} numberOfLines={1}>
+                                      {item.section || "—"}
+                                    </Text>
+                                    <Text
+                                      style={[styles.gradeDetailCellText, styles.instructorColumnWide]}
+                                      numberOfLines={2}
+                                    >
+                                      {item.instructor || "—"}
+                                    </Text>
+                                  </View>
+                                ))}
+                              </ScrollView>
+                            </View>
+                          </ScrollView>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                </>
               )}
             </View>
           )}
@@ -999,6 +1132,212 @@ export default function ApplicationForGraduation() {
 const styles = StyleSheet.create({
   container: { padding: 16, paddingBottom: 40, backgroundColor: "#f6f6f6" },
   title: { fontSize: 22, fontWeight: "700", marginBottom: 12 },
+  gradeList: { marginTop: 12, gap: 12 },
+  gradeTableCard: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 16,
+    shadowColor: "#000",
+    shadowOpacity: 0.06,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 5,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: "#f0f0f0",
+  },
+  gradeTableHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  gradeTableTitle: { fontSize: 16, fontWeight: "700", color: "#C2185B" },
+  gradeTableSubtitle: { fontSize: 13, color: "#555", marginTop: 2 },
+  gradeTableMetaRight: { alignItems: "flex-end" },
+  gradeTableMetaText: { fontSize: 12, color: "#666", fontWeight: "600" },
+  gradeDetailTableContainer: {
+    marginTop: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    overflow: "hidden",
+    backgroundColor: "#fff",
+  },
+  gradeDetailHorizontalContent: {
+    minWidth: "100%",
+  },
+  gradeDetailTable: {
+    minWidth: "100%",
+    backgroundColor: "#fff",
+  },
+  gradeDetailRow: {
+    flexDirection: "row",
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e5e7eb",
+    alignItems: "center",
+  },
+  gradeDetailHeaderRow: {
+    backgroundColor: "#DC143C",
+  },
+  gradeDetailHeaderText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 12,
+    textAlign: "center",
+  },
+  gradeDetailCell: {
+    justifyContent: "center",
+  },
+  gradeDetailCellText: {
+    fontSize: 12,
+    color: "#374151",
+    textAlign: "center",
+    paddingHorizontal: 6,
+  },
+  gradeDetailVerticalScroll: {
+    maxHeight: 260,
+  },
+  gradeRowEven: { backgroundColor: "#f8f9fa" },
+  gradeRowOdd: { backgroundColor: "#fff" },
+  codeColumnWide: { width: 110, alignItems: "flex-start" },
+  remarksColumnWide: { width: 120 },
+  gradeColumnWide: { width: 80 },
+  sectionColumnWide: { width: 110 },
+  instructorColumnWide: { width: 200, alignItems: "flex-start" },
+  gradeTableWrapper: {
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  gradeTableRow: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    backgroundColor: "#fff",
+  },
+  gradeTableHeadRow: {
+    backgroundColor: "#FAD0D8",
+  },
+  gradeTableRowAlt: {
+    backgroundColor: "#fdf6f6",
+  },
+  gradeTableCell: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderRightWidth: 1,
+    borderRightColor: "#e5e7eb",
+    justifyContent: "center",
+  },
+  gradeTableCellCourse: { flex: 1.4 },
+  gradeTableCellRemarks: { flex: 0.9 },
+  gradeTableCellGrade: { flex: 0.7, alignItems: "center" },
+  gradeTableCellSection: { flex: 0.9 },
+  gradeTableCellInstructor: { flex: 1.3, borderRightWidth: 0 },
+  gradeCourseSubLabel: { fontSize: 11, color: "#888", marginTop: 2 },
+  tableTextSuccess: { color: "#15803d", fontWeight: "700" },
+  tableTextDanger: { color: "#b91c1c", fontWeight: "700" },
+  tableTextNeutral: { color: "#555", fontWeight: "600" },
+  gradeSummaryRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 12,
+  },
+  gradeSummaryCard: {
+    flexGrow: 1,
+    minWidth: 140,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    backgroundColor: "#f4f5f7",
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 3,
+  },
+  summaryLabel: { color: "#555", fontSize: 13, fontWeight: "600" },
+  summaryValue: { fontSize: 20, fontWeight: "700", marginTop: 4, color: "#111" },
+  summaryAccentPrimary: { backgroundColor: "#fde7ea" },
+  summaryAccentSuccess: { backgroundColor: "#e7f7ef" },
+  summaryAccentWarning: { backgroundColor: "#fff7e6" },
+  summaryAccentDanger: { backgroundColor: "#ffecec" },
+  gradeCard: {
+    backgroundColor: "#fff",
+    borderRadius: 14,
+    padding: 16,
+    shadowColor: "#000",
+    shadowOpacity: 0.06,
+    shadowOffset: { width: 0, height: 3 },
+    shadowRadius: 6,
+    elevation: 3,
+    borderWidth: 1,
+    borderColor: "#f0f0f0",
+  },
+  gradeCardTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  gradeCourseCode: { fontSize: 17, fontWeight: "700", color: "#DC143C", letterSpacing: 0.5 },
+  gradeChipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 6,
+  },
+  gradeChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: "#f4f5f7",
+    color: "#555",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  gradeValuePill: {
+    borderRadius: 14,
+    backgroundColor: "#fff0f3",
+    paddingVertical: 6,
+    paddingHorizontal: 18,
+    borderWidth: 1,
+    borderColor: "#ffe1e7",
+  },
+  gradeValuePillText: { fontSize: 18, fontWeight: "700", color: "#C2185B" },
+  gradeBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    marginTop: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  gradeBadgeText: { color: "#fff", fontWeight: "700", fontSize: 13 },
+  badgeSuccess: { backgroundColor: "#22c55e" },
+  badgeDanger: { backgroundColor: "#ef4444" },
+  badgeNeutral: { backgroundColor: "#9ca3af" },
+  gradeMetaRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
+    marginTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: "#f0f0f0",
+    paddingTop: 10,
+  },
+  gradeMetaItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#f8f9fb",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+  gradeMetaValueText: { color: "#444", fontWeight: "600", fontSize: 13 },
   card: {
     backgroundColor: "#fff",
     borderRadius: 16,

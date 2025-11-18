@@ -40,6 +40,37 @@ export default function ViewPortfolio() {
     contact: null,
   });
   const [studentProgress, setStudentProgress] = useState(null);
+  const [trackName, setTrackName] = useState(null);
+
+  const fetchStudentTrack = useCallback(async (studentId) => {
+    if (!studentId) return;
+
+    try {
+      const res = await fetch(`${BASE_URL}/get_student_major.php`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ student_id: studentId }),
+      });
+
+      const text = await res.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        console.error("❌ Invalid JSON from get_student_major.php!", text);
+        return;
+      }
+
+      if (data.success) {
+        setTrackName(data.track || null);
+      } else {
+        console.warn("⚠️ Failed to fetch track:", data.message);
+        setTrackName(null);
+      }
+    } catch (error) {
+      console.error("❌ Error fetching student track:", error);
+    }
+  }, []);
 
   const loadStudentProgress = useCallback(async (studentId) => {
     if (!studentId) return;
@@ -115,7 +146,10 @@ export default function ViewPortfolio() {
         session.student_id = s.Student_id;
         await AsyncStorage.setItem("session", JSON.stringify(session));
 
-        await loadStudentProgress(s.Student_id);
+        await Promise.all([
+          loadStudentProgress(s.Student_id),
+          fetchStudentTrack(s.Student_id),
+        ]);
       } else {
         console.error("⚠️ Failed to fetch student info:", json.message);
         Alert.alert("Error", json.message || "Student info not found");
@@ -129,7 +163,7 @@ export default function ViewPortfolio() {
       }
       setRefreshing(false);
     }
-  }, [loadStudentProgress]);
+  }, [fetchStudentTrack, loadStudentProgress]);
 
   // 🧠 Load profile via login_id
   useEffect(() => {
@@ -157,10 +191,11 @@ export default function ViewPortfolio() {
     ? (profileYear || progressYear).toUpperCase()
     : null;
   const eligibleTrackYears = ['THIRD YEAR', 'FOURTH YEAR'];
-  const trackDisplay = normalizedTrackYear && eligibleTrackYears.includes(normalizedTrackYear)
-    && studentProgress?.track && studentProgress.track !== 'N/A'
-      ? studentProgress.track
-      : 'N/A';
+  const trackDisplay = trackName
+    || (normalizedTrackYear && eligibleTrackYears.includes(normalizedTrackYear)
+      && studentProgress?.track && studentProgress.track !== 'N/A'
+        ? studentProgress.track
+        : 'N/A');
 
   return (
     <ScrollView
