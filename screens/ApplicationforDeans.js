@@ -1,6 +1,6 @@
 // ==== ApplicationforDeans.js (full file, with curriculum validation logs/fallbacks) ====
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -23,7 +23,7 @@ import styles from "../styles";
 import { OCR_URL, BASE_URL } from "../config/api";
 import { CheckBox } from "react-native-elements";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute } from "@react-navigation/native";
 import { WebView } from "react-native-webview";
 
 // Removed Buffer + eager expo-sharing require to avoid Hermes native module error.
@@ -325,6 +325,14 @@ async function fetchChairDeanInfoByStudent(studentId) {
 
 export default function ApplicationforDeans() {
   const navigation = useNavigation();
+  const route = useRoute();
+  const defaultAnnouncementType = "DeanLister";
+  const announcementTypeFromRoute = route?.params?.announcementType;
+  const [announcementType, setAnnouncementType] = useState(
+    () => announcementTypeFromRoute || defaultAnnouncementType
+  );
+  const [studentId, setStudentId] = useState("");
+  const [submitLoading, setSubmitLoading] = useState(false);
   // Column spec for Step 6 table (label, width, align)
   const COLS = [
     ["#", 40, "center"],
@@ -1106,6 +1114,16 @@ export default function ApplicationforDeans() {
     return "-";
   };
 
+  const formatGwaForSubmission = (gwa) => {
+    if (gwa === null || gwa === undefined) return "";
+    const raw = String(gwa).trim();
+    const parsed = parseFloat(raw);
+    if (Number.isFinite(parsed)) return parsed.toFixed(4);
+    const cleaned = parseFloat(raw.replace(/[^0-9.]/g, ""));
+    if (Number.isFinite(cleaned)) return cleaned.toFixed(4);
+    return raw;
+  };
+
   const fetchText = async (url) => {
     const res = await fetch(
       url + (url.includes("?") ? "" : `?t=${Date.now()}`)
@@ -1130,6 +1148,128 @@ export default function ApplicationforDeans() {
     }
     return null;
   };
+
+  const extractStudentId = (payload, depth = 0) => {
+    if (!payload || depth > 5) return null;
+    if (Array.isArray(payload)) {
+      for (const entry of payload) {
+        const found = extractStudentId(entry, depth + 1);
+        if (found) return found;
+      }
+      return null;
+    }
+    if (typeof payload !== "object") return null;
+    const direct =
+      payload.Student_id ??
+      payload.student_id ??
+      payload.studentId ??
+      payload.StudentId ??
+      payload.studentID ??
+      payload.StudentID ??
+      null;
+    if (direct) return direct;
+    const nestedKeys = [
+      "student",
+      "Student",
+      "data",
+      "user",
+      "profile",
+      "info",
+      "result",
+      "payload",
+    ];
+    for (const key of nestedKeys) {
+      if (payload[key]) {
+        const nested = extractStudentId(payload[key], depth + 1);
+        if (nested) return nested;
+      }
+    }
+    return null;
+  };
+
+  const persistStudentId = useCallback(
+    async (value) => {
+      const normalized = String(value ?? "").trim();
+      if (
+        !normalized ||
+        normalized.toLowerCase() === "null" ||
+        normalized.toLowerCase() === "undefined"
+      ) {
+        return "";
+      }
+      setStudentId(normalized);
+      try {
+        await AsyncStorage.setItem("student_id", normalized);
+      } catch (_) {}
+      return normalized;
+    },
+    [setStudentId]
+  );
+
+  const tryResolveStudentId = useCallback(async () => {
+    if (studentId) return studentId;
+    try {
+      const cached = await AsyncStorage.getItem("student_id");
+      if (cached) {
+        setStudentId(cached);
+        return cached;
+      }
+      const loginResultRaw = await AsyncStorage.getItem("login_result");
+      if (loginResultRaw) {
+        try {
+          const parsed = JSON.parse(loginResultRaw);
+          const extracted = extractStudentId(parsed);
+          if (extracted) {
+            const persisted = await persistStudentId(extracted);
+            if (persisted) return persisted;
+          }
+        } catch (e) {
+          console.log("Student ID parse error:", e?.message || e);
+        }
+      }
+      const src = reviewMeta?.srcode;
+      if (src) {
+        const enc = encodeURIComponent(String(src).trim());
+        const info = await fetchJsonFirst([
+          `${BASE_URL}/student_manage.php?srcode=${enc}`,
+          `${BASE_URL}/student_manage.php?SRCODE=${enc}`,
+          `${BASE_URL}/get_student.php?srcode=${enc}`,
+        ]);
+        const extracted = extractStudentId(info);
+        if (extracted) {
+          const persisted = await persistStudentId(extracted);
+          if (persisted) return persisted;
+        }
+      }
+      const loginId = await AsyncStorage.getItem("login_id");
+      if (loginId) {
+        const enc = encodeURIComponent(loginId);
+        const info = await fetchJsonFirst([
+          `${BASE_URL}/student_manage.php?login_id=${enc}`,
+          `${BASE_URL}/student_contact.php?login_id=${enc}`,
+          `${BASE_URL}/contact.php?login_id=${enc}`,
+        ]);
+        const extracted = extractStudentId(info);
+        if (extracted) {
+          const persisted = await persistStudentId(extracted);
+          if (persisted) return persisted;
+        }
+      }
+    } catch (error) {
+      console.log("Student ID resolve error:", error?.message || error);
+    }
+    return "";
+  }, [studentId, reviewMeta?.srcode, persistStudentId]);
+
+  useEffect(() => {
+    if (announcementTypeFromRoute) {
+      setAnnouncementType(announcementTypeFromRoute);
+    }
+  }, [announcementTypeFromRoute]);
+
+  useEffect(() => {
+    tryResolveStudentId();
+  }, [tryResolveStudentId]);
 
   const resolveTrackName = async (abbr) => {
     if (!abbr) return "";
@@ -2157,23 +2297,30 @@ export default function ApplicationforDeans() {
 
       // Save as base64 directly (avoids Buffer polyfill issues in Hermes)
       const pdfBase64 = await pdfDoc.saveAsBase64();
-      const fileUri = FileSystem.documentDirectory + "Application.pdf";
+      const defaultFileName = "Application for Dean's Lister.pdf";
+      const fileUri = FileSystem.documentDirectory + defaultFileName;
       await FileSystem.writeAsStringAsync(fileUri, pdfBase64, {
         encoding: FileSystem.EncodingType.Base64,
       });
-      console.log("Application.pdf generated and saved:", fileUri);
+      console.log(
+        "Application for Dean's Lister.pdf generated and saved:",
+        fileUri
+      );
 
       setApplicationPdfUri(fileUri);
       setApplicationPdfBase64(pdfBase64);
       return { fileUri, pdfBase64 };
     } catch (err) {
       console.error("PDF generation error:", err);
-      Alert.alert("Error", "Failed to generate Application.pdf");
+      Alert.alert(
+        "Error",
+        "Failed to generate Application for Dean's Lister.pdf"
+      );
       return null;
     }
   }
 
-  // Helper to generate and then download/save Application.pdf
+  // Helper to generate and then download/save Application for Dean's Lister.pdf
   async function generateAndDownloadPDF(reviewMeta, reviewRows) {
     try {
       const loadedContact = await ensureContactLoaded();
@@ -2191,7 +2338,7 @@ export default function ApplicationforDeans() {
           const permissions = await saf.requestDirectoryPermissionsAsync();
           if (permissions.granted) {
             const dirUri = permissions.directoryUri;
-            const fileName = `Application_${Date.now()}.pdf`;
+            const fileName = `Application for Dean's Lister.pdf`;
             const contentUri = await saf.createFileAsync(
               dirUri,
               fileName,
@@ -2237,14 +2384,97 @@ export default function ApplicationforDeans() {
       } else {
         Alert.alert(
           "PDF Generated",
-          "Saved Application.pdf to local directory."
+          "Saved Application for Dean's Lister.pdf to local directory."
         );
       }
     } catch (err) {
       console.error("PDF download error:", err);
-      Alert.alert("Error", "Failed to save Application.pdf");
+      Alert.alert("Error", "Failed to save Application for Dean's Lister.pdf");
     }
   }
+
+  const handleSubmitApplication = async () => {
+    if (submitLoading) return;
+    try {
+      setSubmitLoading(true);
+      const resolvedId = studentId || (await tryResolveStudentId());
+      if (!resolvedId) {
+        Alert.alert(
+          "Missing Information",
+          "We could not determine your Student ID. Please re-login and try again."
+        );
+        return;
+      }
+      const numericStudentId = Number.parseInt(resolvedId, 10);
+      if (!Number.isFinite(numericStudentId)) {
+        Alert.alert(
+          "Invalid Student ID",
+          "The stored Student ID is not valid. Please contact support."
+        );
+        return;
+      }
+      let pdfData = applicationPdfBase64;
+      let latestFileUri = applicationPdfUri;
+      if (!pdfData) {
+        const regenerated = await generatePDFToAppDir(
+          { ...reviewMeta, contact: contactNumber },
+          reviewRows
+        );
+        if (!regenerated) {
+          throw new Error("Unable to generate the Application PDF.");
+        }
+        pdfData = regenerated.pdfBase64;
+        latestFileUri = regenerated.fileUri;
+      }
+      const fileName =
+        (latestFileUri && latestFileUri.split("/").pop()) ||
+        "Application for Dean's Lister.pdf";
+      const gwaValue = formatGwaForSubmission(reviewSummary.gwa);
+      const payload = {
+        student_id: numericStudentId,
+        type: announcementType || defaultAnnouncementType,
+        file_name: fileName,
+        file_data: pdfData,
+        gwa: gwaValue,
+        rank: rankFromGwa(reviewSummary.gwa),
+        status: "for evaluation",
+      };
+      const res = await fetch(`${BASE_URL}/submit_application.php`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const text = await res.text();
+      let json;
+      try {
+        json = JSON.parse(text);
+      } catch (_) {
+        throw new Error("Server response was not valid JSON.");
+      }
+      if (json?.code === "ALREADY_APPLIED") {
+        setNoticeTitle("Already Applied");
+        setNoticeMessage(
+          json?.message || "You already applied for this application."
+        );
+        setNoticeReupload(null);
+        setNoticeOpen(true);
+        return;
+      }
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.message || "Failed to submit your application.");
+      }
+      Alert.alert("Submitted", "Your application was sent for evaluation.");
+      try {
+        navigation?.navigate?.("Home");
+      } catch (_) {
+        setCurrentStep(1);
+      }
+    } catch (err) {
+      Alert.alert("Submission failed", err?.message || "Please try again.");
+    } finally {
+      setSubmitLoading(false);
+    }
+  };
 
   // --- Reachability check for Chair/Dean API ---
   const CHAIR_DEAN_URL = "https://achievemate.website/api/get_chair_dean.php";
@@ -2438,12 +2668,12 @@ export default function ApplicationforDeans() {
       {/* Step 2: Upload COR */}
       {currentStep === 2 && (
         <View style={{ flex: 1, padding: 20 }}>
-          <View style={styles.card}>
+          <View style={[styles.card, styles.stepCardFull]}>
             <Text
               style={{
                 fontSize: 18,
                 fontWeight: "700",
-                color: "#0249AD",
+                color: "#9e0009",
                 marginBottom: 12,
               }}
             >
@@ -2481,12 +2711,14 @@ export default function ApplicationforDeans() {
             </View>
 
             {showUploadButton("Certificate of Enrollment") && (
-              <TouchableOpacity
-                style={styles.blueButtonupload}
-                onPress={() => handleUpload("Certificate of Enrollment")}
-              >
-                <Text style={styles.buttonTextupload}>Upload PDF File</Text>
-              </TouchableOpacity>
+              <View style={{ alignItems: "center", width: "100%" }}>
+                <TouchableOpacity
+                  style={styles.blueButtonupload}
+                  onPress={() => handleUpload("Certificate of Enrollment")}
+                >
+                  <Text style={styles.buttonTextupload}>Upload PDF File</Text>
+                </TouchableOpacity>
+              </View>
             )}
 
             {uploading && (
@@ -2564,13 +2796,13 @@ export default function ApplicationforDeans() {
       {/* Step 3: Upload Grades (PDF) */}
       {currentStep === 3 && (
         <View style={{ flex: 1, padding: 20 }}>
-          <View style={styles.card}>
+          <View style={[styles.card, styles.stepCardFull]}>
             <View style={{ flexDirection: "row", alignItems: "center" }}>
               <Text
                 style={{
                   fontSize: 18,
                   fontWeight: "700",
-                  color: "#0249AD",
+                  color: "#9e0009",
                   marginBottom: 12,
                 }}
               >
@@ -2637,7 +2869,9 @@ export default function ApplicationforDeans() {
             </View>
 
             {showUploadButton("Copy of Grades") && (
-              <View style={{ marginTop: 8, alignItems: "center" }}>
+              <View
+                style={{ marginTop: 8, alignItems: "center", width: "100%" }}
+              >
                 <TouchableOpacity
                   style={styles.blueButtonupload}
                   onPress={() => handleUpload("Copy of Grades")}
@@ -3385,7 +3619,7 @@ export default function ApplicationforDeans() {
               style={[styles.stepFormNavBtn, { backgroundColor: "#00C881" }]}
               onPress={() => setConfirmOpen(true)}
             >
-              <Text style={styles.navButtonText}>Submit</Text>
+              <Text style={styles.navButtonText}>Generate Application</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -3493,7 +3727,7 @@ export default function ApplicationforDeans() {
               </View>
             ) : (
               <View style={{ paddingVertical: 20 }}>
-                <ActivityIndicator size="large" color="#0249AD" />
+                <ActivityIndicator size="large" color="#9e0009" />
               </View>
             )}
             <TouchableOpacity
@@ -3514,16 +3748,16 @@ export default function ApplicationforDeans() {
               <Text style={styles.navButtonText}>← Back</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.stepFormNavBtn, { backgroundColor: "#00C881" }]}
-              onPress={() => {
-                try {
-                  navigation?.navigate?.("Home");
-                } catch (_) {
-                  setCurrentStep(1);
-                }
-              }}
+              style={[
+                styles.stepFormNavBtn,
+                { backgroundColor: submitLoading ? "#9CA3AF" : "#00C881" },
+              ]}
+              onPress={handleSubmitApplication}
+              disabled={submitLoading}
             >
-              <Text style={styles.navButtonText}>Finish</Text>
+              <Text style={styles.navButtonText}>
+                {submitLoading ? "Submitting..." : "Submit"}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>

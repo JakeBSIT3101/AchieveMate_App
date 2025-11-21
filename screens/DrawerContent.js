@@ -53,7 +53,7 @@ const DrawerContent = ({ navigation }) => {
               key={index}
               style={[
                 styles.drawerItemCard,
-                isActive && { backgroundColor: "#e6f0ff" }, // Highlight active
+                isActive && { backgroundColor: "#ffd8da" }, // Highlight active
               ]}
               onPress={() => {
                 navigation.navigate(item.screen);
@@ -63,7 +63,7 @@ const DrawerContent = ({ navigation }) => {
               <Text
                 style={[
                   styles.drawerItemText,
-                  isActive && { color: "#0249AD", fontWeight: "bold" },
+                  isActive && { color: "#9e0009", fontWeight: "bold" },
                 ]}
               >
                 {item.title}
@@ -82,7 +82,7 @@ const DrawerContent = ({ navigation }) => {
           <Icon
             name="log-out"
             size={18}
-            color="#0249AD"
+            color="#9e0009"
             style={{ marginRight: 8 }}
           />
           <Text style={styles.drawerLogoutText}>Logout</Text>

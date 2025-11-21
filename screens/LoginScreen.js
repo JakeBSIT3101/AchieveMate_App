@@ -16,6 +16,58 @@ import { BASE_URL } from "../config/api";
 import LottieView from "lottie-react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
+const extractStudentId = (payload) => {
+  if (!payload) return null;
+  if (Array.isArray(payload)) {
+    for (const entry of payload) {
+      const found = extractStudentId(entry);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (typeof payload !== "object") return null;
+  return (
+    payload.student_id ??
+    payload.Student_id ??
+    payload.studentId ??
+    payload.StudentId ??
+    payload.studentID ??
+    payload.StudentID ??
+    extractStudentId(
+      payload.data ||
+        payload.student ||
+        payload.profile ||
+        payload.info ||
+        payload.result ||
+        payload.payload ||
+        null
+    )
+  );
+};
+
+const fetchStudentIdByLogin = async (baseUrl, loginId) => {
+  if (!baseUrl || !loginId) return null;
+  const url = `${baseUrl}/student_manage.php?login_id=${encodeURIComponent(
+    loginId
+  )}`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const text = await res.text();
+    let json = null;
+    try {
+      json = JSON.parse(text);
+    } catch (err) {
+      console.log("Student_id parse error:", err?.message || err);
+      return null;
+    }
+    return extractStudentId(json);
+  } catch (err) {
+    console.log("Student_id fetch error:", err?.message || err);
+    return null;
+  }
+};
+
 const LoginScreen = ({ navigation }) => {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -54,12 +106,26 @@ const LoginScreen = ({ navigation }) => {
       }
 
       if (response.ok && result.success) {
-        // Persist login info for later use (e.g., contact lookup)
+        // Persist login info for later use (e.g., contact lookup, submissions)
         try {
           const loginId =
-            result?.login_id ?? result?.Login_id ?? result?.user?.login_id ?? null;
+            result?.login_id ??
+            result?.Login_id ??
+            result?.user?.login_id ??
+            null;
           if (loginId) {
             await AsyncStorage.setItem("login_id", String(loginId));
+          }
+          let studentId =
+            result?.student_id ??
+            result?.Student_id ??
+            result?.user?.student_id ??
+            null;
+          if (!studentId && loginId) {
+            studentId = await fetchStudentIdByLogin(BASE_URL, loginId);
+          }
+          if (studentId) {
+            await AsyncStorage.setItem("student_id", String(studentId));
           }
           await AsyncStorage.setItem("login_result", JSON.stringify(result));
         } catch (e) {
@@ -149,7 +215,7 @@ const LoginScreen = ({ navigation }) => {
               <Icon
                 name={isPasswordVisible ? "eye-off" : "eye"}
                 size={24}
-                color="#0249AD"
+                color="#9e0009"
               />
             </TouchableOpacity>
           </View>
@@ -159,7 +225,7 @@ const LoginScreen = ({ navigation }) => {
               <CheckBox
                 value={rememberMe}
                 onValueChange={setRememberMe}
-                color={rememberMe ? "#0249AD" : undefined}
+                color={rememberMe ? "#9e0009" : undefined}
               />
               <Text style={styles.rememberMeText}>Remember me</Text>
             </View>

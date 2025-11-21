@@ -102,6 +102,9 @@ from reportlab.pdfgen import canvas
 import os
 import tempfile  # for DPI preprocessing
 from datetime import datetime
+import os
+
+POPPLER_PATH = os.environ.get("POPPLER_PATH", "/usr/bin")
 
 
 app = Flask(__name__)
@@ -736,7 +739,7 @@ def upload_registration_summary_pdf():
       pdf_bytes,
       first_page=1,
       last_page=1,
-      poppler_path=r"C:\poppler-24.08.0\Library\bin"  # adjust for your environment
+      poppler_path=POPPLER_PATH
     )
   except Exception as e:
     return jsonify({"error": f"PDF conversion failed: {str(e)}"}), 500
@@ -892,7 +895,7 @@ def upload_grade_pdf():
     # Render ALL pages (you can limit to first 1–2 if needed)
     pages = convert_from_bytes(
       pdf_bytes,
-      poppler_path=r"C:\poppler-24.08.0\Library\bin"  # adjust per environment
+      poppler_path=POPPLER_PATH
     )
   except Exception as e:
     return jsonify({"error": f"PDF conversion failed: {str(e)}"}), 500

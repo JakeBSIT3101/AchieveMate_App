@@ -58,12 +58,27 @@ const HomeScreen = ({ navigation }) => {
     fetchAnnouncements();
   };
 
+  const determineAnnouncementType = (item) => {
+    const title = (item?.Title || "").trim();
+    if (!title) {
+      return "Announcement";
+    }
+    const normalized = title.toLowerCase();
+    if (normalized.includes("dean") && normalized.includes("honor list")) {
+      return "Dean's Honor List";
+    }
+    return title;
+  };
+
   const handlePress = (item) => {
     console.log("Pressed:", item?.Title);
-    const t = (item?.Title || "").toLowerCase();
-    if (t.includes("dean") && t.includes("honor list")) {
-      console.log("Navigating to ApplicationforDeans");
-      navigation.navigate("ApplicationforDeans");
+    const title = (item?.Title || "").toLowerCase();
+    if (title.includes("dean") && title.includes("honor list")) {
+      const type = determineAnnouncementType(item);
+      console.log("Navigating to ApplicationforDeans with type:", type);
+      navigation.navigate("ApplicationforDeans", {
+        announcementType: type,
+      });
     }
   };
 

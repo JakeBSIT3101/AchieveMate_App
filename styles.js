@@ -19,12 +19,17 @@ export default StyleSheet.create({
     elevation: 6,
     alignItems: "center",
   },
+  stepCardFull: {
+    width: "100%",
+    alignSelf: "stretch",
+    alignItems: "flex-start",
+  },
   logo: {
-    width: 180,
+    width: 250,
     height: 180,
     borderRadius: 60,
     resizeMode: "contain",
-    marginBottom: 20,
+    marginBottom: -15,
   },
   input: {
     height: 45,
@@ -36,10 +41,10 @@ export default StyleSheet.create({
     width: "100%",
   },
   blueField: {
-    borderColor: "#0249AD",
+    borderColor: "#9e0009",
   },
   blueButton: {
-    backgroundColor: "#0249AD",
+    backgroundColor: "#9e0009",
     paddingVertical: 12,
     borderRadius: 8,
     alignItems: "center",
@@ -76,13 +81,13 @@ export default StyleSheet.create({
     color: "#333",
   },
   forgotText: {
-    color: "#0249AD",
+    color: "#000000",
     textDecorationLine: "underline",
   },
   welcomeText: {
     fontSize: 24,
     fontWeight: "bold",
-    color: "#0249AD",
+    color: "#9e0009",
     marginBottom: 20,
   },
   infoText: {
@@ -102,7 +107,7 @@ export default StyleSheet.create({
     fontSize: 18,
     fontWeight: "bold",
     marginLeft: 15,
-    color: "#0249AD",
+    color: "#9e0009",
   },
   subNavbar: {
     flexDirection: "row",
@@ -118,7 +123,7 @@ export default StyleSheet.create({
   },
   navText: {
     fontSize: 12,
-    color: "#0249AD",
+    color: "#9e0009",
     marginTop: 4,
   },
 
@@ -169,7 +174,7 @@ export default StyleSheet.create({
     alignItems: "center",
   },
   drawerLogoutText: {
-    color: "#0249AD",
+    color: "#9e0009",
     fontSize: 16,
   },
   drawerLogoutContainer: {
@@ -192,7 +197,7 @@ export default StyleSheet.create({
   homeHeaderText: {
     fontSize: 20,
     fontWeight: "bold",
-    color: "#0249AD",
+    color: "#9e0009",
     marginBottom: 12,
   },
   announcementCard: {
@@ -218,7 +223,7 @@ export default StyleSheet.create({
   announcementTitle: {
     fontSize: 18,
     fontWeight: "bold",
-    color: "#0249AD",
+    color: "#9e0009",
     marginBottom: 4,
   },
 
@@ -252,7 +257,7 @@ export default StyleSheet.create({
     backgroundColor: "#dbe9ff",
   },
   activeDrawerItemText: {
-    color: "#0249AD",
+    color: "#9e0009",
     fontWeight: "bold",
   },
   // Portfolio styles
@@ -274,7 +279,7 @@ export default StyleSheet.create({
   portfolioName: {
     fontSize: 25,
     fontWeight: "bold",
-    color: "#0249AD",
+    color: "#9e0009",
     marginTop: 10,
     paddingHorizontal: 2,
   },
@@ -296,7 +301,7 @@ export default StyleSheet.create({
 
   portfolioContactHeader: {
     fontWeight: "600",
-    color: "#0249AD",
+    color: "#9e0009",
     fontSize: 18,
     marginTop: 30,
     marginBottom: 10,
@@ -355,7 +360,7 @@ export default StyleSheet.create({
   certTitle: {
     fontWeight: "bold",
     fontSize: 16,
-    color: "#0249AD",
+    color: "#9e0009",
   },
 
   certOrg: {
@@ -389,7 +394,7 @@ export default StyleSheet.create({
   honorTitle: {
     fontWeight: "bold",
     fontSize: 16,
-    color: "#0249AD",
+    color: "#9e0009",
   },
 
   honorDesc: {
@@ -418,7 +423,7 @@ export default StyleSheet.create({
     paddingHorizontal: 20,
   },
   blueButtonupload: {
-    backgroundColor: "#0249AD",
+    backgroundColor: "#9e0009",
     paddingVertical: 30,
     borderRadius: 8,
     marginTop: 10,
@@ -607,7 +612,7 @@ export default StyleSheet.create({
     borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#4c63ff",
+    backgroundColor: "#9e0009",
   },
 
   buttonTextupload: {
