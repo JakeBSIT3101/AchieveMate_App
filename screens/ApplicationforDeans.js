@@ -886,6 +886,7 @@ export default function ApplicationforDeans() {
         setEnrollmentResult(resultText);
 
         const previewUrl =
+          json.cor_image_url ||
           json.saved_image_url ||
           (json.saved_image ? `${OCR_URL}/${json.saved_image}` : null);
         setCertificatePreviewUri(
@@ -913,7 +914,11 @@ export default function ApplicationforDeans() {
         setGradesResult(resultText);
         await saveToTxtFile("result_copy_of_grade.txt", resultText);
 
-        if (json.saved_preview_url) {
+        if (json.saved_preview_public_url) {
+          setGradesPreviewUri(
+            `${json.saved_preview_public_url}?t=${Date.now()}`
+          );
+        } else if (json.saved_preview_url) {
           setGradesPreviewUri(`${json.saved_preview_url}?t=${Date.now()}`);
         } else if (json.saved_preview) {
           setGradesPreviewUri(
@@ -2782,7 +2787,7 @@ export default function ApplicationforDeans() {
             <TouchableOpacity
               style={[
                 styles.stepFormNavBtn,
-                { backgroundColor: certificatePreviewUri ? "#007bff" : "#ccc" },
+                { backgroundColor: certificatePreviewUri ? "#9e0009" : "#ccc" },
               ]}
               onPress={() => setCurrentStep(3)}
               disabled={!certificatePreviewUri}
@@ -2944,7 +2949,7 @@ export default function ApplicationforDeans() {
                 styles.stepFormNavBtn,
                 {
                   backgroundColor:
-                    gradesPdfUri && validationOk ? "#007bff" : "#ccc",
+                    gradesPdfUri && validationOk ? "#9e0009" : "#ccc",
                 },
               ]}
               disabled={!(gradesPdfUri && validationOk)}
@@ -3115,7 +3120,7 @@ export default function ApplicationforDeans() {
                 {
                   backgroundColor:
                     tamperOk && curriculumOk && gradeValueOk
-                      ? "#007bff"
+                      ? "#9e0009"
                       : "#ccc",
                 },
               ]}
@@ -3185,7 +3190,7 @@ export default function ApplicationforDeans() {
             <TouchableOpacity
               style={[
                 styles.stepFormNavBtn,
-                { backgroundColor: consent1 && consent2 ? "#007bff" : "#ccc" },
+                { backgroundColor: consent1 && consent2 ? "#9e0009" : "#ccc" },
               ]}
               onPress={() => setCurrentStep(6)}
               disabled={!(consent1 && consent2)}
@@ -3712,7 +3717,7 @@ export default function ApplicationforDeans() {
                             styles.stepFormNavBtn,
                             {
                               backgroundColor:
-                                previewPage === n ? "#007BFF" : "#9CA3AF",
+                                previewPage === n ? "#9e0009" : "#9CA3AF",
                               paddingVertical: 6,
                               paddingHorizontal: 10,
                             },

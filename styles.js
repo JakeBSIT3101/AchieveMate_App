@@ -493,7 +493,7 @@ export default StyleSheet.create({
   navButton: {
     padding: 12,
     borderRadius: 8,
-    backgroundColor: "#007bff",
+    backgroundColor: "#9e0009",
     marginHorizontal: 10,
     minWidth: 100,
     alignItems: "center",
@@ -540,7 +540,7 @@ export default StyleSheet.create({
     zIndex: 10,
   },
   stepFormNavBtn: {
-    backgroundColor: "#007BFF",
+    backgroundColor: "#9e0009",
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderRadius: 8,
