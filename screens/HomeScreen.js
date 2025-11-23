@@ -78,6 +78,9 @@ const HomeScreen = ({ navigation }) => {
       console.log("Navigating to ApplicationforDeans with type:", type);
       navigation.navigate("ApplicationforDeans", {
         announcementType: type,
+        postId: item?.Post_id ?? null,
+        academicYear: item?.Academic_year ?? null,
+        semester: item?.Semester ?? null,
       });
     }
   };

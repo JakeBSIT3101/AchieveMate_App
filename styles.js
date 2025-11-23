@@ -505,7 +505,7 @@ export default StyleSheet.create({
   uploadButton: {
     padding: 15,
     borderRadius: 10,
-    backgroundColor: "#00C881",
+    backgroundColor: "#9e0009",
     alignItems: "center",
   },
   uploadButtonText: {
@@ -581,7 +581,7 @@ export default StyleSheet.create({
   removeImageBtn: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#ff4d4d",
+    backgroundColor: "#9e0009",
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderRadius: 8,

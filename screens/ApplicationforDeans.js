@@ -326,13 +326,30 @@ async function fetchChairDeanInfoByStudent(studentId) {
 export default function ApplicationforDeans() {
   const navigation = useNavigation();
   const route = useRoute();
-  const defaultAnnouncementType = "DeanLister";
+  const defaultAnnouncementType = "Dean's Honor List";
   const announcementTypeFromRoute = route?.params?.announcementType;
   const [announcementType, setAnnouncementType] = useState(
     () => announcementTypeFromRoute || defaultAnnouncementType
   );
+  const initialPostId = route?.params?.postId ?? null;
+  const [linkedPostId, setLinkedPostId] = useState(initialPostId);
+  const initialAcademicYear = route?.params?.academicYear ?? "";
+  const initialSemester = route?.params?.semester ?? "";
+  const [requiredAcademicYear, setRequiredAcademicYear] =
+    useState(initialAcademicYear);
+  const [requiredSemester, setRequiredSemester] = useState(initialSemester);
   const [studentId, setStudentId] = useState("");
   const [submitLoading, setSubmitLoading] = useState(false);
+
+  useEffect(() => {
+    const params = route?.params || {};
+    if (Object.prototype.hasOwnProperty.call(params, "academicYear")) {
+      setRequiredAcademicYear(params?.academicYear ?? "");
+    }
+    if (Object.prototype.hasOwnProperty.call(params, "semester")) {
+      setRequiredSemester(params?.semester ?? "");
+    }
+  }, [route?.params?.academicYear, route?.params?.semester]);
   // Column spec for Step 6 table (label, width, align)
   const COLS = [
     ["#", 40, "center"],
@@ -383,13 +400,13 @@ export default function ApplicationforDeans() {
   const [previewPage, setPreviewPage] = useState(1);
   const [previewPageCount, setPreviewPageCount] = useState(null);
   const [contactNumber, setContactNumber] = useState("");
-
   const longPressTamperPassRef = useRef(false);
   const holdTimerRef = useRef(null);
 
   // Cross-field validation (COR vs Grades)
   const [validationOk, setValidationOk] = useState(false);
   const [validationDetail, setValidationDetail] = useState(null);
+  const [termValidationOk, setTermValidationOk] = useState(false);
 
   // Curriculum validation
   const [curriculumLoading, setCurriculumLoading] = useState(false);
@@ -576,6 +593,124 @@ export default function ApplicationforDeans() {
       setValidationOk(false);
       setNoticeTitle("Notice");
       setNoticeMessage(e.message || "Validation error.");
+      setNoticeReupload(null);
+      setNoticeOpen(true);
+      return false;
+    }
+  };
+
+  const normalizeTermText = (value, { forSemester = false } = {}) => {
+    if (value === null || value === undefined) return "";
+    let normalized = String(value).toLowerCase().replace(/\s+/g, " ").trim();
+    if (!forSemester) return normalized;
+
+    normalized = normalized
+      .replace(/\b(year|semester|sem|term)\b/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (!normalized) return "";
+
+    const aliasMap = {
+      first: "1",
+      "1st": "1",
+      one: "1",
+      second: "2",
+      "2nd": "2",
+      two: "2",
+      third: "3",
+      "3rd": "3",
+      three: "3",
+      fourth: "4",
+      "4th": "4",
+      four: "4",
+      fifth: "5",
+      "5th": "5",
+      five: "5",
+      summer: "summer",
+      midyear: "summer",
+      "mid-year": "summer",
+      mid: "summer",
+    };
+
+    const tokens = normalized.split(/[\s\-_/]+/).filter(Boolean);
+    for (const rawToken of tokens) {
+      const token = rawToken.replace(/\./g, "");
+      if (aliasMap[token]) return aliasMap[token];
+      if (/^\d+$/.test(token)) return token;
+      if (/^\d+(st|nd|rd|th)$/.test(token)) {
+        return token.replace(/(st|nd|rd|th)$/i, "");
+      }
+    }
+    return normalized;
+  };
+
+  const validateGradeTermMatch = async () => {
+    if (!requiredAcademicYear && !requiredSemester) {
+      setTermValidationOk(true);
+      return true;
+    }
+    try {
+      const res = await fetch(
+        `${OCR_URL}/results/grade_for_review.txt?t=${Date.now()}`
+      );
+      if (!res.ok) {
+        throw new Error(`Unable to read grade_for_review.txt (HTTP ${res.status})`);
+      }
+      const text = await res.text();
+      const yearMatch = text.match(/Academic Year\s*:\s*([^\n]+)/i);
+      const semesterMatch = text.match(/Semester\s*:\s*([^\n]+)/i);
+      const gradeAcademicYear = yearMatch ? yearMatch[1].trim() : "";
+      const gradeSemester = semesterMatch ? semesterMatch[1].trim() : "";
+      const requiredYearNorm = normalizeTermText(requiredAcademicYear);
+      const gradeYearNorm = normalizeTermText(gradeAcademicYear);
+      const requiredSemesterNorm = normalizeTermText(requiredSemester, {
+        forSemester: true,
+      });
+      const gradeSemesterNorm = normalizeTermText(gradeSemester, {
+        forSemester: true,
+      });
+
+      console.log("[TERM] Required vs OCR", {
+        requiredAcademicYear,
+        requiredSemester,
+        gradeAcademicYear,
+        gradeSemester,
+        requiredYearNorm,
+        gradeYearNorm,
+        requiredSemesterNorm,
+        gradeSemesterNorm,
+      });
+
+      const yearOk = !requiredYearNorm || requiredYearNorm === gradeYearNorm;
+      const semesterOk =
+        !requiredSemesterNorm || requiredSemesterNorm === gradeSemesterNorm;
+
+      const allOk = yearOk && semesterOk;
+      setTermValidationOk(allOk);
+      if (allOk) return true;
+
+      console.log(
+        "[TERM] Validation failed",
+        JSON.stringify({ yearOk, semesterOk })
+      );
+      setNoticeTitle("Invalid Grade Term");
+      setNoticeMessage(
+        "Your Grade is invalid to the Application required Academic Year or Semester."
+      );
+      setNoticeReupload(() => () => {
+        setNoticeOpen(false);
+        handleRemoveGradesImage();
+      });
+      setNoticeOpen(true);
+      return false;
+    } catch (e) {
+      console.error("Grade term validation error:", e);
+      setTermValidationOk(false);
+      setNoticeTitle("Validation Error");
+      setNoticeMessage(
+        e?.message || "Unable to validate the Academic Year or Semester."
+      );
       setNoticeReupload(null);
       setNoticeOpen(true);
       return false;
@@ -813,6 +948,7 @@ export default function ApplicationforDeans() {
     setGradesResult("");
     setValidationOk(false);
     setValidationDetail(null);
+    setTermValidationOk(false);
     setCurriculumOk(false);
     setCurriculumReport(null);
     setTamperOk(false);
@@ -928,6 +1064,10 @@ export default function ApplicationforDeans() {
 
         const ok = await runCrossValidation();
         if (ok) {
+          const termOk = await validateGradeTermMatch();
+          if (!termOk) {
+            return;
+          }
           Alert.alert(
             "Uploaded",
             "Copy of Grades (PDF) uploaded successfully."
@@ -1271,6 +1411,12 @@ export default function ApplicationforDeans() {
       setAnnouncementType(announcementTypeFromRoute);
     }
   }, [announcementTypeFromRoute]);
+
+  useEffect(() => {
+    if (route?.params?.postId) {
+      setLinkedPostId(route.params.postId);
+    }
+  }, [route?.params?.postId]);
 
   useEffect(() => {
     tryResolveStudentId();
@@ -2442,14 +2588,17 @@ export default function ApplicationforDeans() {
         file_data: pdfData,
         gwa: gwaValue,
         rank: rankFromGwa(reviewSummary.gwa),
-        status: "for evaluation",
+        status: "For evaluation",
+        post_id: linkedPostId || null,
       };
+      console.log("[SUBMIT] Payload:", payload);
       const res = await fetch(`${BASE_URL}/submit_application.php`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
       const text = await res.text();
+      console.log("[SUBMIT] Raw response:", text);
       let json;
       try {
         json = JSON.parse(text);
@@ -2564,7 +2713,7 @@ export default function ApplicationforDeans() {
                 left: 0,
                 height: 2,
                 width: progressLine,
-                backgroundColor: "#00C881",
+                backgroundColor: "#9e0009",
               }}
             />
 
@@ -2582,7 +2731,7 @@ export default function ApplicationforDeans() {
                   <View
                     style={{
                       backgroundColor:
-                        currentStep - 1 >= index ? "#00C881" : "#E6E6E6",
+                        currentStep - 1 >= index ? "#9e0009" : "#E6E6E6",
                       width: 24,
                       height: 24,
                       borderRadius: 12,
@@ -2598,7 +2747,7 @@ export default function ApplicationforDeans() {
                     numberOfLines={1}
                     style={{
                       fontSize: 10,
-                      color: currentStep - 1 >= index ? "#00C881" : "#999",
+                      color: currentStep - 1 >= index ? "#9e0009" : "#999",
                       textAlign: "center",
                       marginTop: 4,
                     }}
@@ -2728,12 +2877,12 @@ export default function ApplicationforDeans() {
 
             {uploading && (
               <View style={{ alignItems: "center", marginTop: 16 }}>
-                <ActivityIndicator size="large" color="#00C881" />
+                <ActivityIndicator size="large" color="#9e0009" />
                 <Text style={{ marginTop: 8 }}>Uploading...</Text>
                 <Animated.View
                   style={{
                     height: 10,
-                    backgroundColor: "#00C881",
+                    backgroundColor: "#9e0009",
                     marginTop: 10,
                     width: progressAnim.interpolate({
                       inputRange: [0, 1],
@@ -2888,12 +3037,12 @@ export default function ApplicationforDeans() {
 
             {uploading && (
               <View style={{ alignItems: "center", marginTop: 16 }}>
-                <ActivityIndicator size="large" color="#00C881" />
+                <ActivityIndicator size="large" color="#9e0009" />
                 <Text style={{ marginTop: 8 }}>Uploading...</Text>
                 <Animated.View
                   style={{
                     height: 10,
-                    backgroundColor: "#00C881",
+                    backgroundColor: "#9e0009",
                     marginTop: 10,
                     width: progressAnim.interpolate({
                       inputRange: [0, 1],
@@ -2949,10 +3098,12 @@ export default function ApplicationforDeans() {
                 styles.stepFormNavBtn,
                 {
                   backgroundColor:
-                    gradesPdfUri && validationOk ? "#9e0009" : "#ccc",
+                    gradesPdfUri && validationOk && termValidationOk
+                      ? "#9e0009"
+                      : "#ccc",
                 },
               ]}
-              disabled={!(gradesPdfUri && validationOk)}
+              disabled={!(gradesPdfUri && validationOk && termValidationOk)}
               delayLongPress={150}
               onLongPress={async () => {
                 if (pressLockRef.current) return;
@@ -2970,7 +3121,7 @@ export default function ApplicationforDeans() {
               }}
               onPress={async () => {
                 if (pressLockRef.current) return;
-                if (!(gradesPdfUri && validationOk)) return;
+                if (!(gradesPdfUri && validationOk && termValidationOk)) return;
                 pressLockRef.current = true;
                 try {
                   await goToStep4({ forceTamperPass: false });
@@ -3013,7 +3164,7 @@ export default function ApplicationforDeans() {
               </Text>
               <View style={{ marginLeft: 4, flex: 1 }}>
                 {tamperLoading ? (
-                  <ActivityIndicator size="small" color="#00C881" />
+                  <ActivityIndicator size="small" color="#9e0009" />
                 ) : (
                   <Text
                     style={{
@@ -3047,7 +3198,7 @@ export default function ApplicationforDeans() {
               </Text>
               <View style={{ marginLeft: 4, flex: 1 }}>
                 {curriculumLoading ? (
-                  <ActivityIndicator size="small" color="#00C881" />
+                  <ActivityIndicator size="small" color="#9e0009" />
                 ) : (
                   <Text
                     style={{
@@ -3081,7 +3232,7 @@ export default function ApplicationforDeans() {
               </Text>
               <View style={{ marginLeft: 4, flex: 1 }}>
                 {gradeValueLoading ? (
-                  <ActivityIndicator size="small" color="#00C881" />
+                  <ActivityIndicator size="small" color="#9e0009" />
                 ) : (
                   <Text
                     style={{
@@ -3621,7 +3772,7 @@ export default function ApplicationforDeans() {
               <Text style={styles.navButtonText}>← Back</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.stepFormNavBtn, { backgroundColor: "#00C881" }]}
+              style={[styles.stepFormNavBtn, { backgroundColor: "#9e0009" }]}
               onPress={() => setConfirmOpen(true)}
             >
               <Text style={styles.navButtonText}>Generate Application</Text>
@@ -3755,7 +3906,7 @@ export default function ApplicationforDeans() {
             <TouchableOpacity
               style={[
                 styles.stepFormNavBtn,
-                { backgroundColor: submitLoading ? "#9CA3AF" : "#00C881" },
+                { backgroundColor: submitLoading ? "#9CA3AF" : "#9e0009" },
               ]}
               onPress={handleSubmitApplication}
               disabled={submitLoading}

@@ -102,9 +102,14 @@ from reportlab.pdfgen import canvas
 import os
 import tempfile  # for DPI preprocessing
 from datetime import datetime
-import os
+import shutil
+import traceback
 
 POPPLER_PATH = os.environ.get("POPPLER_PATH", "/usr/bin")
+CHROME_BINARY = (os.environ.get("GOOGLE_CHROME_BIN")
+                 or shutil.which("google-chrome")
+                 or shutil.which("chromium-browser")
+                 or shutil.which("chromium"))
 
 
 app = Flask(__name__)
@@ -274,9 +279,9 @@ def grade_with_units():
   return Response(result, mimetype="text/plain")
 
 # === Paths ===
-BASE_DIR = os.path.dirname(__file__)
-RESULTS_DIR = os.path.join(BASE_DIR, "results")
+RESULTS_DIR = "/opt/ocr_api/results"
 os.makedirs(RESULTS_DIR, exist_ok=True)  # ensure results/ exists
+PUBLIC_RESULTS_BASE = os.environ.get("PUBLIC_RESULTS_BASE_URL", "https://ocr.achievemate.website/results").rstrip("/")
 
 # === Canonical result files you are watching ===
 RESULT_FILE_COE = os.path.join(RESULTS_DIR, "result_certificate_of_enrollment.txt")
@@ -291,10 +296,38 @@ def atomic_write_text(path, text):
     os.fsync(f.fileno())
   os.replace(tmp, path)
 
+def debug_log(message: str):
+  """Emit a timestamped debug line to stdout for terminal visibility."""
+  try:
+    stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+  except Exception:
+    stamp = "UNKNOWN"
+  print(f"[DEBUG {stamp}] {message}", flush=True)
+
+debug_log(f"PUBLIC_RESULTS_BASE={PUBLIC_RESULTS_BASE}")
+
 # === Image Scaling Only ===
 def scale_image(image, scale_factor=2):
   new_size = (int(image.width * scale_factor), int(image.height * scale_factor))
   return image.resize(new_size, Image.LANCZOS)
+
+def crop_to_content(image, pad=20, threshold=240):
+  """Trim large white margins so OCR focuses on the page content."""
+  try:
+    gray = image.convert("L")
+    bw = gray.point(lambda x: 0 if x > threshold else 255, "1")
+    bbox = bw.getbbox()
+    if not bbox:
+      return image
+    left = max(0, bbox[0] - pad)
+    top = max(0, bbox[1] - pad)
+    right = min(image.width, bbox[2] + pad)
+    bottom = min(image.height, bbox[3] + pad)
+    if right - left <= 0 or bottom - top <= 0:
+      return image
+    return image.crop((left, top, right, bottom))
+  except Exception:
+    return image
 
 # === NEW: Preprocess uploaded image to ~300 DPI and min width 1024 px ===
 def set_image_dpi(file_path, min_width_px=1024, dpi=300):
@@ -711,19 +744,10 @@ def to_semester_word(sem_val: str) -> str:
     return "SECOND"
   return _SEM_WORD_MAP.get(up, "")
 
-# === Serve results/ files so RN <Image> can load the cropped preview ===
+# === Serve results/ files ===
 @app.route('/results/<path:filename>')
 def serve_results(filename):
-  # Disable caching so fresh files (like grade_image.txt) are always fetched
-  resp = send_from_directory(RESULTS_DIR, filename, as_attachment=False)
-  try:
-    resp.cache_control.no_store = True
-    resp.cache_control.max_age = 0
-    resp.headers['Pragma'] = 'no-cache'
-    resp.headers['Expires'] = '0'
-  except Exception:
-    pass
-  return resp
+  return send_from_directory(RESULTS_DIR, filename)
 
 # === Flask Routes ===
 @app.route('/upload_registration_summary_pdf', methods=['POST'])
@@ -770,14 +794,16 @@ def upload_registration_summary_pdf():
 
   atomic_write_text(RESULT_FILE_COE, parsed_data)
 
-  base = request.host_url.rstrip('/')
+  base = (PUBLIC_RESULTS_BASE or request.host_url).rstrip('/')
   saved_image_rel = "results/COR_pdf_image.png"
   saved_image_url = f"{base}/{saved_image_rel}"
+  cor_public_url = f"{PUBLIC_RESULTS_BASE}/{os.path.basename(cropped_path)}"
 
   return jsonify({
     "message": "COR top section cropped and processed.",
     "saved_image": saved_image_rel,
     "saved_image_url": saved_image_url,
+    "cor_image_url": cor_public_url,
     "raw_ocr_text_file": "results/raw_certificate_of_enrollment.txt",
     "ocr_text_file": "results/result_certificate_of_enrollment.txt",
     "ocr_preview": parsed_data[:500],
@@ -808,10 +834,13 @@ def upload_image():
 
   driver = None
   try:
+    if not CHROME_BINARY:
+      raise RuntimeError("Chrome/Chromium binary not found. Install google-chrome or chromium-browser and set GOOGLE_CHROME_BIN if needed.")
     chrome_options = Options()
     chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.binary_location = CHROME_BINARY
 
     service = Service(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=chrome_options)
@@ -823,8 +852,15 @@ def upload_image():
     driver.save_screenshot(screenshot_path)
 
     screenshot = Image.open(screenshot_path)
-    scaled_image = scale_image(screenshot, scale_factor=2)
+    cropped = crop_to_content(screenshot)
+    if cropped is not screenshot:
+      cropped.save(screenshot_path)
+      debug_log(f"/upload screenshot cropped {screenshot.width}x{screenshot.height} -> {cropped.width}x{cropped.height}")
+    else:
+      cropped = screenshot
+    scaled_image = scale_image(cropped, scale_factor=2)
     raw_text = pytesseract.image_to_string(scaled_image)
+    debug_log(f"/upload webpage OCR produced {len(raw_text.splitlines())} lines")
 
     raw_txt_path = os.path.join(RESULTS_DIR, "raw_ocr_text.txt")
     atomic_write_text(raw_txt_path, raw_text)
@@ -848,6 +884,7 @@ def upload_image():
 
     grade_web_path = os.path.join(RESULTS_DIR, "grade_webpage.txt")
     atomic_write_text(grade_web_path, "Grade{\n" + "\n".join(grades) + "\n}\n")
+    debug_log(f"/upload saved {len(grades)} grades to grade_webpage.txt")
 
     return jsonify({
       "mode": "qr + ocr + parse",
@@ -925,10 +962,14 @@ def upload_grade_pdf():
   if qr_data:
     driver = None
     try:
+      if not CHROME_BINARY:
+        raise RuntimeError("Chrome/Chromium binary not found. Install google-chrome or chromium-browser and set GOOGLE_CHROME_BIN if needed.")
+      debug_log(f"/upload_grade_pdf launching headless browser for {qr_data}")
       chrome_options = Options()
       chrome_options.add_argument("--headless=new")
       chrome_options.add_argument("--no-sandbox")
       chrome_options.add_argument("--disable-dev-shm-usage")
+      chrome_options.binary_location = CHROME_BINARY
 
       service = Service(ChromeDriverManager().install())
       driver = webdriver.Chrome(service=service, options=chrome_options)
@@ -938,19 +979,29 @@ def upload_grade_pdf():
 
       screenshot_path = os.path.join(RESULTS_DIR, "qr_website_screenshot.png")
       driver.save_screenshot(screenshot_path)
+      debug_log("/upload_grade_pdf captured webpage screenshot")
 
       screenshot = Image.open(screenshot_path)
-      scaled_image = scale_image(screenshot, scale_factor=2)
+      cropped = crop_to_content(screenshot)
+      if cropped is not screenshot:
+        cropped.save(screenshot_path)
+        debug_log(f"/upload_grade_pdf screenshot cropped {screenshot.width}x{screenshot.height} -> {cropped.width}x{cropped.height}")
+      else:
+        cropped = screenshot
+      scaled_image = scale_image(cropped, scale_factor=2)
       grade_web_txt = pytesseract.image_to_string(scaled_image)
+      debug_log(f"/upload_grade_pdf webpage OCR produced {len(grade_web_txt.splitlines())} lines")
 
       # Extract grades from webpage OCR and store as block
       lines_web = [ln.strip() for ln in grade_web_txt.splitlines() if ln.strip()]
       grouped_result_web, skipped_web, _, grades_web = extract_course_grade_only(lines_web)
       atomic_write_text(os.path.join(RESULTS_DIR, "grade_webpage.txt"),
                         "Grade{\n" + "\n".join(grades_web) + "\n}\n")
-    except Exception:
+      debug_log(f"/upload_grade_pdf saved {len(grades_web)} grades to grade_webpage.txt")
+    except Exception as e:
       # If webpage fails, just write empty -> tamper check will fail (as intended)
       atomic_write_text(os.path.join(RESULTS_DIR, "grade_webpage.txt"), "")
+      debug_log(f"/upload_grade_pdf webpage OCR failed: {e}\n{traceback.format_exc()}")
     finally:
       try:
         if driver:
@@ -960,6 +1011,7 @@ def upload_grade_pdf():
   else:
     # No QR → create empty webpage grades so tamper check fails (as intended)
     atomic_write_text(os.path.join(RESULTS_DIR, "grade_webpage.txt"), "")
+    debug_log("/upload_grade_pdf no QR found; grade_webpage.txt cleared")
 
   # ---- 3) OCR the PDF pages themselves ----
   raw_pdf_text_parts = []
@@ -1027,16 +1079,25 @@ def upload_grade_pdf():
     # Log or ignore error, but don't break upload
     print(f"[grade_for_review] Failed to generate: {e}")
 
-  base = request.host_url.rstrip('/')
-  saved_preview_url = f"{base}/results/{os.path.basename(preview_png)}"
+  base = (PUBLIC_RESULTS_BASE or request.host_url).rstrip('/')
+  saved_preview_rel = f"results/{os.path.basename(preview_png)}"
+  saved_preview_url = f"{base}/{saved_preview_rel}"
+  saved_preview_public_url = f"{PUBLIC_RESULTS_BASE}/{os.path.basename(preview_png)}"
+  qr_screenshot_rel = "results/qr_website_screenshot.png"
+  qr_screenshot_url = f"{base}/{qr_screenshot_rel}"
+  qr_screenshot_public_url = f"{PUBLIC_RESULTS_BASE}/qr_website_screenshot.png"
 
   # Build a visible "result" string like your other endpoints
   result_str = "Grade{\n" + "\n".join(grades_all) + "\n}\n"
 
   return jsonify({
     "mode": "pdf + qr + ocr",
-    "saved_preview": f"results/{os.path.basename(preview_png)}",
+    "saved_preview": saved_preview_rel,
     "saved_preview_url": saved_preview_url,
+    "saved_preview_public_url": saved_preview_public_url,
+    "qr_screenshot": qr_screenshot_rel,
+    "qr_screenshot_url": qr_screenshot_url,
+    "qr_screenshot_public_url": qr_screenshot_public_url,
     "qr_url": qr_data,
     "grade_count_pdf": len(grades_all),
     "ocr_preview": raw_pdf_text[:500],
@@ -1114,7 +1175,7 @@ def upload_grade_image():
     app.logger.info(f"[{datetime.now()}] WROTE {out_path} via {chosen} (grades={len(grades)})")
 
     # cache-busted URL so clients fetch fresh
-    base = request.host_url.rstrip('/')
+    base = (PUBLIC_RESULTS_BASE or request.host_url).rstrip('/')
     grade_image_url = f"{base}/results/grade_image.txt?t={int(time.time())}"
 
     return jsonify({

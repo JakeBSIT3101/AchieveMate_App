@@ -30,6 +30,10 @@ if (!$data || !is_array($data)) {
 }
 
 $studentId = isset($data['student_id']) ? intval($data['student_id']) : null;
+$postId = isset($data['post_id']) ? intval($data['post_id']) : null;
+if ($postId !== null && $postId <= 0) {
+    $postId = null;
+}
 $type = isset($data['type']) ? trim($data['type']) : "";
 $fileName = isset($data['file_name']) ? trim($data['file_name']) : "";
 $fileDataRaw = isset($data['file_data']) ? trim($data['file_data']) : "";
@@ -55,6 +59,31 @@ if ($binaryPdf === false) {
     exit();
 }
 
+$postCheckStmt = null;
+if ($postId) {
+    $postCheckStmt = $conn->prepare("SELECT Post_id FROM post WHERE Post_id = ? LIMIT 1");
+    if (!$postCheckStmt) {
+        http_response_code(500);
+        echo json_encode(["success" => false, "message" => "Failed to prepare post validation"]);
+        $conn->close();
+        exit();
+    }
+    $postCheckStmt->bind_param("i", $postId);
+    $postCheckStmt->execute();
+    $postResult = $postCheckStmt->get_result();
+    if (!$postResult || $postResult->num_rows === 0) {
+        http_response_code(400);
+        echo json_encode([
+            "success" => false,
+            "message" => "Linked announcement not found. Please refresh announcements and try again."
+        ]);
+        $postCheckStmt->close();
+        $conn->close();
+        exit();
+    }
+    $postCheckStmt->close();
+}
+
 $dupStmt = $conn->prepare("SELECT Application_id FROM application WHERE Student_id = ? LIMIT 1");
 if (!$dupStmt) {
     http_response_code(500);
@@ -78,8 +107,8 @@ if ($dupResult && $dupResult->num_rows > 0) {
 $dupStmt->close();
 
 $stmt = $conn->prepare(
-    "INSERT INTO application (Student_id, `Type`, File_name, File_data, GWA, `Rank`, `Status`)
-     VALUES (?, ?, ?, ?, ?, ?, ?)"
+    "INSERT INTO application (Student_id, Post_id, `Type`, File_name, File_data, GWA, `Rank`, `Status`)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
 );
 
 if (!$stmt) {
@@ -91,8 +120,9 @@ if (!$stmt) {
 
 $filePlaceholder = null;
 $stmt->bind_param(
-    "issbsss",
+    "iissbsss",
     $studentId,
+    $postId,
     $type,
     $fileName,
     $filePlaceholder,
@@ -100,7 +130,7 @@ $stmt->bind_param(
     $rank,
     $status
 );
-$stmt->send_long_data(3, $binaryPdf);
+$stmt->send_long_data(4, $binaryPdf);
 
 if ($stmt->execute()) {
     echo json_encode([
