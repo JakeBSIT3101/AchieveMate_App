@@ -24,7 +24,7 @@ const menuItems = [
   {
     title: "Application Status",
     icon: require("../assets/status.png"),
-    screen: "Status",
+    screen: "ApplicationStatus",
   },
 ];
 
