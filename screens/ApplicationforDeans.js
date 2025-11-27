@@ -655,7 +655,9 @@ export default function ApplicationforDeans() {
         `${OCR_URL}/results/grade_for_review.txt?t=${Date.now()}`
       );
       if (!res.ok) {
-        throw new Error(`Unable to read grade_for_review.txt (HTTP ${res.status})`);
+        throw new Error(
+          `Unable to read grade_for_review.txt (HTTP ${res.status})`
+        );
       }
       const text = await res.text();
       const yearMatch = text.match(/Academic Year\s*:\s*([^\n]+)/i);
@@ -3173,7 +3175,7 @@ export default function ApplicationforDeans() {
                     }}
                   >
                     {tamperOk
-                      ? "✅ Passed (Document authentic)"
+                      ? "✅ Passed"
                       : tamperReport?.error
                       ? `❌ Failed (${tamperReport.error})`
                       : "❌ Failed (Mismatch detected)"}
@@ -3207,7 +3209,7 @@ export default function ApplicationforDeans() {
                     }}
                   >
                     {curriculumOk
-                      ? "✅ Passed (Curriculum matches)"
+                      ? "✅ Passed"
                       : curriculumReport?.error
                       ? `❌ Failed (${curriculumReport.error})`
                       : "❌ Failed (Mismatch or missing codes)"}
@@ -3241,7 +3243,7 @@ export default function ApplicationforDeans() {
                     }}
                   >
                     {gradeValueOk
-                      ? "✅ Passed (No invalid grades)"
+                      ? "✅ Passed"
                       : gradeValueReport?.found &&
                         gradeValueReport.found.length > 0
                       ? `❌ Failed (Found: ${gradeValueReport.found.join(

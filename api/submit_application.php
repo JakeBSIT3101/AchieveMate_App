@@ -133,10 +133,85 @@ $stmt->bind_param(
 $stmt->send_long_data(4, $binaryPdf);
 
 if ($stmt->execute()) {
+    $applicationId = $conn->insert_id;
+    $notificationInserted = false;
+    $notificationError = null;
+    error_log("[SUBMIT_APP] Inserted application_id={$applicationId} for student_id={$studentId}, post_id=" . ($postId ?? 'null'));
+
+    // Optional: create a notification/assignment row for the post owner (user)
+    if ($postId) {
+        // Resolve UserDesignation_id from post
+        $postStmt = $conn->prepare("SELECT UserDesignation_id FROM post WHERE Post_id = ? LIMIT 1");
+        if ($postStmt) {
+            $postStmt->bind_param("i", $postId);
+            $postStmt->execute();
+            $postRes = $postStmt->get_result();
+            if ($postRes && $postRes->num_rows > 0) {
+                $udRow = $postRes->fetch_assoc();
+                $userDesignationId = isset($udRow['UserDesignation_id']) ? intval($udRow['UserDesignation_id']) : null;
+                if ($userDesignationId) {
+                    // Resolve User_id from user_designation
+                    $udStmt = $conn->prepare("SELECT User_id FROM user_designation WHERE UserDesignation_id = ? LIMIT 1");
+                    if ($udStmt) {
+                        $udStmt->bind_param("i", $userDesignationId);
+                        $udStmt->execute();
+                        $udRes = $udStmt->get_result();
+                        if ($udRes && $udRes->num_rows > 0) {
+                            $udUserRow = $udRes->fetch_assoc();
+                            $targetUserId = isset($udUserRow['User_id']) ? intval($udUserRow['User_id']) : null;
+
+                            if ($targetUserId) {
+                                // Pick an available notification table
+                                $notifTable = null;
+                                $candidates = [
+                                    "application_notifications",
+                                    "application_notification",
+                                    "application_recipient",
+                                ];
+                                foreach ($candidates as $tbl) {
+                                    $check = $conn->query("SHOW TABLES LIKE '$tbl'");
+                                    if ($check && $check->num_rows > 0) {
+                                        $notifTable = $tbl;
+                                        break;
+                                    }
+                                }
+
+                                if ($notifTable) {
+                                    $notifStmt = $conn->prepare("INSERT INTO $notifTable (Application_id, User_id, is_read) VALUES (?, ?, 0)");
+                                    if ($notifStmt) {
+                                        $notifStmt->bind_param("ii", $applicationId, $targetUserId);
+                                        if ($notifStmt->execute()) {
+                                            $notificationInserted = true;
+                                            error_log("[SUBMIT_APP] Notification insert ok in {$notifTable} -> application_id={$applicationId}, user_id={$targetUserId}, is_read=0");
+                                        } else {
+                                            $notificationError = $notifStmt->error;
+                                            error_log("[SUBMIT_APP] Notification insert failed in {$notifTable}: {$notificationError}");
+                                        }
+                                        $notifStmt->close();
+                                    } else {
+                                        $notificationError = "Failed to prepare notification insert";
+                                        error_log("[SUBMIT_APP] {$notificationError}");
+                                    }
+                                } else {
+                                    $notificationError = "Notification table not found";
+                                    error_log("[SUBMIT_APP] {$notificationError}");
+                                }
+                            }
+                        }
+                        $udStmt->close();
+                    }
+                }
+            }
+            $postStmt->close();
+        }
+    }
+
     echo json_encode([
         "success" => true,
         "message" => "Application stored successfully",
-        "application_id" => $conn->insert_id
+        "application_id" => $applicationId,
+        "notification_inserted" => $notificationInserted,
+        "notification_error" => $notificationError,
     ]);
 } else {
     http_response_code(500);
