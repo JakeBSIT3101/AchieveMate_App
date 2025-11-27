@@ -1,4 +1,11 @@
 import React from "react";
+// Buffer polyfill for libraries (pdf-lib) that expect Node Buffer
+try {
+  const buffer = require('buffer');
+  if (!global.Buffer) global.Buffer = buffer.Buffer;
+} catch (e) {
+  // ignore if buffer isn't available in this environment
+}
 import { NavigationContainer } from "@react-navigation/native";
 import { createDrawerNavigator } from "@react-navigation/drawer";
 import { createStackNavigator } from "@react-navigation/stack";

@@ -21,6 +21,10 @@ import { OCR_SERVER_CONFIG } from "../config/serverConfig";
 import locationsData from "../assets/load_locations.json";
 import zipCodes from "../assets/load_zipcode.json";
 import DatePicker from "react-native-date-picker";
+import Pdf from "react-native-pdf";
+import { Asset } from "expo-asset";
+import * as FileSystem from "expo-file-system/legacy";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
 const ACADEMIC_YEAR_LABELS = {
   6: "2022-2023",
@@ -210,6 +214,7 @@ export default function ApplicationForGraduation() {
   const [showBirthPicker, setShowBirthPicker] = useState(false);
   const [tempBirthDate, setTempBirthDate] = useState(new Date());
   const [birthPickerKey, setBirthPickerKey] = useState(0);
+  const [pdfUri, setPdfUri] = useState(null);
 
   const gradeStats = useMemo(() => {
     if (!Array.isArray(gradeReport) || gradeReport.length === 0) {
@@ -354,7 +359,190 @@ export default function ApplicationForGraduation() {
 
   const buildGradesPdf = useCallback(async () => { return { targetPath: null, viewerHtml: null }; }, []);
 
-  
+  const buildFilledApplicationPdf = useCallback(async (values) => {
+    try {
+      // 1. Load the template PDF from assets
+      const asset = Asset.fromModule(
+        require("../assets/ApplicationForGraduation_template.pdf")
+      );
+      await asset.downloadAsync();
+
+      const existingPdfBytes = await fetch(asset.uri).then((res) =>
+        res.arrayBuffer()
+      );
+
+      // 2. Load PDF in pdf-lib
+      const pdfDoc = await PDFDocument.load(existingPdfBytes);
+      const pages = pdfDoc.getPages();
+      const page = pages[0];
+      const { width, height } = page.getSize();
+
+      // 3. Embed font
+      const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+      const fontSize = 10;
+
+      const draw = (text, x, y) => {
+        if (!text) return;
+        page.drawText(String(text), {
+          x,
+          y,
+          size: fontSize,
+          font,
+          color: rgb(0, 0, 0),
+        });
+      };
+
+      // ========== OPTIONAL DEBUG GRID ==========
+      const SHOW_DEBUG_GRID = false;
+      if (SHOW_DEBUG_GRID) {
+        for (let y = 0; y < height; y += 50) {
+          page.drawLine({
+            start: { x: 0, y },
+            end: { x: width, y },
+            thickness: 0.3,
+            color: rgb(0.8, 0.2, 0.2),
+          });
+          page.drawText(`${y}`, {
+            x: 5,
+            y: y + 2,
+            size: 6,
+            font,
+            color: rgb(0.8, 0.2, 0.2),
+          });
+        }
+        for (let x = 0; x < width; x += 50) {
+          page.drawLine({
+            start: { x, y: 0 },
+            end: { x, y: height },
+            thickness: 0.3,
+            color: rgb(0.2, 0.2, 0.8),
+          });
+          page.drawText(`${x}`, {
+            x: x + 2,
+            y: 5,
+            size: 6,
+            font,
+            color: rgb(0.2, 0.2, 0.8),
+          });
+        }
+      }
+
+      // ========== FIELD MAPPING (adjusted down) ==========
+
+      // NAME ROW: SURNAME / FIRST / MIDDLE / EXT
+      // dating height - 145 → binaba natin (mas malaki ang minus = mas baba sa papel)
+      const nameRowY = height - 155;
+      draw(values.surname,       80,  nameRowY);  // SURNAME
+      draw(values.firstName,     230, nameRowY);  // FIRST NAME
+      draw(values.middleName,    370, nameRowY);  // MIDDLE NAME
+      draw(values.extensionName, 520, nameRowY);  // EXTENSION
+
+      // BIRTHDATE / PLACE OF BIRTH / SR CODE
+      const birthRowY = height - 178;             // (was 165, mas baba na)
+      draw(values.srCode,       110, birthRowY);  // SR CODE
+      draw(values.birthDate,    270, birthRowY);  // BIRTHDATE
+      draw(values.placeOfBirth, 460, birthRowY);  // PLACE OF BIRTH
+
+      // HOME ADDRESS (house/street + barangay + city + province)
+      const homeAddressLine = [
+        values.address,
+        values.barangay,
+        values.city,
+        values.province,
+      ]
+        .filter(Boolean)
+        .join(", ");
+
+      const homeAddrY = height - 210;             // (was 185)
+      draw(homeAddressLine, 85, homeAddrY);      // HOME ADDRESS
+
+      // ZIP / CONTACT / EMAIL
+      const zipContactRowY = height - 220;        // (was 205)
+      draw(values.zipCode,       120, zipContactRowY); // ZIP CODE
+      draw(values.contactNumber, 260, zipContactRowY); // CONTACT NUMBER
+
+      const emailRowY = height - 240;             // hiwalay na row para di sumampa sa label
+      draw(values.emailAddress,  160, emailRowY);      // EMAIL ADDRESS
+
+      // SECONDARY SCHOOL + YEAR
+      const secondaryRowY = height - 260;         // (was 235)
+      draw(values.secondarySchool, 150, secondaryRowY);
+      draw(values.secondaryYear,   width - 120, secondaryRowY);
+
+      // ELEMENTARY SCHOOL + YEAR
+      const elemRowY = height - 280;             // (was 255)
+      draw(values.elementarySchool, 150, elemRowY);
+      draw(values.elementaryYear,   width - 120, elemRowY);
+
+      // COLLEGE / PROGRAM / MAJOR
+      const collegeRowY = height - 305;          // (was 285)
+      draw(values.college, 150, collegeRowY);
+
+      const programRowY = height - 325;          // (was 305)
+      draw(values.program, 150, programRowY);
+
+      const majorRowY = height - 345;            // (was 325)
+      draw(values.major,  150, majorRowY);
+
+      // DATE OF GRADUATION (DECEMBER / MAY / MIDTERM)
+      const gradRowY = height - 370;             // (was 355)
+      if (values.gradDecemberChecked && values.gradDecemberYear) {
+        draw(values.gradDecemberYear, 165, gradRowY); // DECEMBER box
+      }
+      if (values.gradMayChecked && values.gradMayYear) {
+        draw(values.gradMayYear, 315, gradRowY);      // MAY box
+      }
+      if (values.gradMidtermChecked && values.gradMidtermYear) {
+        draw(values.gradMidtermYear, 465, gradRowY);  // MIDTERM box
+      }
+
+      // OPTIONAL: Requested by / target year kung meron ka sa form state
+      if (values.requestedBy) {
+        draw(values.requestedBy, 150, height - 405);
+      }
+      if (values.targetGradYear) {
+        draw(values.targetGradYear, 150, height - 420);
+      }
+
+      // ========== SAVE TO FILE ==========
+      const pdfBase64 = await pdfDoc.saveAsBase64();
+      const targetPath =
+        FileSystem.documentDirectory + "ApplicationForGraduation_filled.pdf";
+
+      await FileSystem.writeAsStringAsync(targetPath, pdfBase64, {
+        encoding: FileSystem.EncodingType
+          ? FileSystem.EncodingType.Base64
+          : "base64",
+      });
+
+      return targetPath;
+    } catch (e) {
+      console.warn("buildFilledApplicationPdf error:", e);
+      throw e;
+    }
+  }, []);
+
+  const openApplicationTemplate = useCallback(async () => {
+    try {
+      const asset = Asset.fromModule(
+        require("../assets/ApplicationForGraduation_template.pdf")
+      );
+
+      await asset.downloadAsync();
+      const uri = asset.localUri || asset.uri;
+
+      if (!uri) {
+        throw new Error("PDF file path not found.");
+      }
+
+      // Just set the URI – viewer will show inline when this has a value
+      setPdfUri(uri);
+
+    } catch (error) {
+      console.warn("Failed to open template:", error);
+      Alert.alert("Error", "Unable to load the application form template.");
+    }
+  }, []);
 
   const steps = [
     "Guidelines",
@@ -725,9 +913,25 @@ export default function ApplicationForGraduation() {
     setShowBirthPicker(false);
   };
 
-  const generateApplicationForm = () => {
-    Alert.alert("Generated", "Application form generated with your provided details.");
-  };
+    const generateApplicationForm = useCallback(async () => {
+      try {
+        // Build filled PDF gamit ang Step 4 form values
+        const filledUri = await buildFilledApplicationPdf(form);
+
+        // Set as source ng Step 5 viewer
+        setPdfUri(filledUri);
+
+        Alert.alert(
+          "Success",
+          "Your application form has been generated. Scroll down to view it."
+        );
+      } catch (e) {
+        Alert.alert(
+          "Error",
+          "We couldn't generate the application form. Please try again."
+        );
+      }
+    }, [buildFilledApplicationPdf, form]);
 
   const handleSelectOption = (value) => {
     if (!pickerType) return;
@@ -1677,9 +1881,28 @@ export default function ApplicationForGraduation() {
               <Text style={styles.text}>
                 Review your details and generate your application form using the information you provided.
               </Text>
-              <TouchableOpacity style={styles.submitButton} onPress={generateApplicationForm}>
+
+              <TouchableOpacity
+                style={styles.submitButton}
+                onPress={generateApplicationForm}
+              >
                 <Text style={styles.submitText}>Generate Application Form</Text>
               </TouchableOpacity>
+
+              {/* Inline PDF viewer below the button */}
+              {pdfUri && (
+                <View style={styles.pdfViewerBox}>
+                  <Text style={styles.pdfViewerTitle}>Application Form Template</Text>
+
+                  <View style={styles.pdfViewerFrame}>
+                    <Pdf
+                      source={{ uri: pdfUri }}
+                      style={{ flex: 1 }}
+                      onError={(err) => console.log("PDF load error:", err)}
+                    />
+                  </View>
+                </View>
+              )}
             </View>
           )}
 
@@ -2405,13 +2628,37 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     fontSize: 14,
   },
+    pdfViewerBox: {
+    marginTop: 16,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+  },
+    pdfViewerTitle: {
+      fontSize: 14,
+      fontWeight: "700",
+      color: "#111827",
+      marginBottom: 8,
+    },
+    pdfViewerFrame: {
+      height: 400,          // adjust as needed
+      borderRadius: 8,
+      overflow: "hidden",
+      borderWidth: 1,
+      borderColor: "#d1d5db",
+      backgroundColor: "#f3f4f6",
+    },
+    hidePdfButton: {
+      marginTop: 10,
+      paddingVertical: 10,
+      borderRadius: 8,
+      backgroundColor: "#DC143C",
+      alignItems: "center",
+    },
+    hidePdfText: {
+      color: "#fff",
+      fontWeight: "700",
+    },
 });
-
-
-
-
-
-
-
-
-

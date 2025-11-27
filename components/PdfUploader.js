@@ -15,7 +15,7 @@ export default function PdfUploader({ label, fileUri, onPickFile, style, webview
   const loadPdf = async (uri) => {
     try {
       const base64 = await FileSystem.readAsStringAsync(uri, {
-        encoding: FileSystem.EncodingType.Base64,
+        encoding: 'base64',
       });
       setBase64Pdf(`data:application/pdf;base64,${base64}`);
     } catch (error) {
