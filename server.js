@@ -1,7 +1,6 @@
 const express = require("express");
 const multer = require("multer");
 const cors = require("cors");
-const { createWorker } = require("tesseract.js");
 const fs = require("fs");
 
 const app = express();

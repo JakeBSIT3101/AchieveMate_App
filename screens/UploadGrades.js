@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 // Removed Picker import - using custom dropdown instead
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Ionicons } from '@expo/vector-icons';
 import { OCR_SERVER_CONFIG } from '../config/serverConfig';
 import { BASE_URL } from '../config/api';
@@ -37,11 +37,20 @@ const runGradeOCRBackend = async (fileUri) => {
     });
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
+      const errorBody = await response.text().catch(() => "");
+      console.log("runGradeOCRBackend failure", response.status, errorBody);
+      const errorData = (() => {
+        try {
+          return JSON.parse(errorBody);
+        } catch (e) {
+          return {};
+        }
+      })();
       throw new Error(errorData.error || `Grade OCR failed with status ${response.status}`);
     }
 
     const data = await response.json();
+    console.log("runGradeOCRBackend success", response.status);
     return data.full_text || "No text detected";
   } catch (err) {
     console.error("runGradeOCRBackend error:", err);

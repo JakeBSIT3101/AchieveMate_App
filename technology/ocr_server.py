@@ -3,7 +3,10 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
 import re
+import time
 from datetime import datetime
+import subprocess
+import tempfile
 from pdf2image import convert_from_bytes
 from PIL import Image
 import pytesseract
@@ -19,6 +22,7 @@ CORS(app)  # Allow requests from your mobile app
 BASE_DIR = os.path.dirname(__file__)
 RESULTS_DIR = os.path.join(BASE_DIR, "results")
 os.makedirs(RESULTS_DIR, exist_ok=True)
+POPPLER_BIN = r"c:\xampp\htdocs\AchievemateApp\AchieveMate_App\poppler\poppler-24.08.0\Library\bin"
 
 def scale_image(image, scale_factor=2):
     new_size = (int(image.width * scale_factor), int(image.height * scale_factor))
@@ -28,6 +32,17 @@ def extract_text_directly_from_pdf(pdf_bytes, original_filename="document.pdf"):
     """Extract text directly from PDF with enhanced accuracy"""
     pdf_document = None
     try:
+        # First try poppler's pdftotext (typically preserves spacing better)
+        poppler_text = extract_text_with_poppler(pdf_bytes, original_filename)
+        if poppler_text:
+            save_ocr_results_to_file(poppler_text, "direct_poppler", original_filename)
+            return {
+                "total_pages": poppler_text.count("=== PAGE"),
+                "full_text": poppler_text,
+                "pages": poppler_text.split("=== PAGE")[1:],
+                "extraction_method": "poppler_pdftotext",
+            }
+
         # Open PDF from bytes
         pdf_document = fitz.open(stream=pdf_bytes, filetype="pdf")
         total_pages = len(pdf_document)
@@ -66,6 +81,41 @@ def extract_text_directly_from_pdf(pdf_bytes, original_filename="document.pdf"):
         # Ensure PDF document is properly closed
         if pdf_document:
             pdf_document.close()
+
+def extract_text_with_poppler(pdf_bytes, original_filename):
+    """Use poppler's pdftotext to extract text with layout preserved."""
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_pdf:
+            tmp_pdf.write(pdf_bytes)
+            tmp_pdf_path = tmp_pdf.name
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as tmp_txt:
+            tmp_txt_path = tmp_txt.name
+
+        cmd = [
+            os.path.join(POPPLER_BIN, "pdftotext.exe"),
+            "-layout",
+            "-enc",
+            "UTF-8",
+            tmp_pdf_path,
+            tmp_txt_path,
+        ]
+        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        with open(tmp_txt_path, "r", encoding="utf-8", errors="ignore") as f:
+            text = f.read()
+
+        return text if text.strip() else ""
+    except Exception as e:
+        print(f"Poppler pdftotext failed: {e}")
+        return ""
+    finally:
+        for path in [locals().get("tmp_pdf_path"), locals().get("tmp_txt_path")]:
+            if path and os.path.exists(path):
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
 
 def extract_text_with_multiple_methods(page, page_num):
     """Extract text using multiple methods and combine for best accuracy"""
@@ -928,8 +978,13 @@ def ocr_endpoint():
 
     pdf_file = request.files["file"]
     try:
-        result = extract_cor_from_pdf(pdf_file.read(), pdf_file.filename or "document.pdf")
+        pdf_bytes = pdf_file.read()
+        start_time = time.time()
+        print(f"[OCR_COR] Received: {pdf_file.filename} ({len(pdf_bytes)} bytes)")
+        result = extract_cor_from_pdf(pdf_bytes, pdf_file.filename or "document.pdf")
         result["saved_file"] = f"OCR results saved to results folder"
+        elapsed = time.time() - start_time
+        print(f"[OCR_COR] Completed in {elapsed:.2f}s")
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -942,8 +997,13 @@ def ocr_full_text_endpoint():
 
     pdf_file = request.files["file"]
     try:
-        result = extract_all_text_from_pdf(pdf_file.read(), pdf_file.filename or "document.pdf")
+        pdf_bytes = pdf_file.read()
+        start_time = time.time()
+        print(f"[OCR_FULL] Received: {pdf_file.filename} ({len(pdf_bytes)} bytes)")
+        result = extract_all_text_from_pdf(pdf_bytes, pdf_file.filename or "document.pdf")
         result["saved_file"] = f"OCR results saved to results folder"
+        elapsed = time.time() - start_time
+        print(f"[OCR_FULL] Completed in {elapsed:.2f}s, pages={result.get('total_pages')}")
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -956,8 +1016,13 @@ def ocr_positioned_text_endpoint():
 
     pdf_file = request.files["file"]
     try:
-        result = extract_positioned_text_from_pdf(pdf_file.read(), pdf_file.filename or "document.pdf")
+        pdf_bytes = pdf_file.read()
+        start_time = time.time()
+        print(f"[OCR_POSITIONED] Received: {pdf_file.filename} ({len(pdf_bytes)} bytes)")
+        result = extract_positioned_text_from_pdf(pdf_bytes, pdf_file.filename or "document.pdf")
         result["saved_file"] = f"Positioned OCR results saved to results folder"
+        elapsed = time.time() - start_time
+        print(f"[OCR_POSITIONED] Completed in {elapsed:.2f}s, pages={result.get('total_pages')}")
         return jsonify(result)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -973,9 +1038,15 @@ def ocr_direct_pdf_endpoint():
         pdf_bytes = pdf_file.read()
         if not pdf_bytes:
             return jsonify({"error": "Empty file uploaded"}), 400
-            
+
+        start_time = time.time()
+        print(f"[OCR_DIRECT] Received: {pdf_file.filename} ({len(pdf_bytes)} bytes)")
+
         result = extract_text_directly_from_pdf(pdf_bytes, pdf_file.filename or "document.pdf")
         result["saved_file"] = f"Direct PDF extraction results saved to results folder"
+        elapsed = time.time() - start_time
+        print(f"[OCR_DIRECT] Completed in {elapsed:.2f}s, pages={result.get('total_pages')}")
+
         return jsonify(result)
     except Exception as e:
         print(f"OCR Direct endpoint error: {e}")
