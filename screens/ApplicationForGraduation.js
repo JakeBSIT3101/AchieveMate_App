@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -16,8 +16,9 @@ import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from "expo-document-picker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { BASE_URL } from "../config/api";
-import { Checkbox, Provider as PaperProvider } from "react-native-paper";
+import { Checkbox, Provider as PaperProvider, DataTable } from "react-native-paper";
 import { OCR_SERVER_CONFIG } from "../config/serverConfig";
+import { AntDesign, MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import locationsData from "../assets/load_locations.json";
 import zipCodes from "../assets/load_zipcode.json";
 import DatePicker from "react-native-date-picker";
@@ -39,6 +40,27 @@ const getAcademicYearLabel = (id) => {
 };
 
 const PLACEHOLDER_COLOR = "#999";
+const DEFAULT_REQUIRED_COURSES = 56;
+const CONSENT_FORM_BASE_DIMENSIONS = { width: 612, height: 792 };
+const CONSENT_FORM_FIELDS = {
+  lastName: { x: 166, y: 140 },
+  firstName: { x: 285, y: 140 },
+  middleName: { x: 425, y: 140 },
+  extensionName: { x: 530, y: 140 },
+  college: { x: 125, y: 180 },
+  program: { x: 125, y: 193 },
+  majorOrTrack: { x: 125, y: 206 },
+  scholarshipGrant: { x: 125, y: 222 },
+  parent1Name: { x: 125, y: 240 },
+  parent1Contact: { x: 478, y: 240 },
+  parent2Name: { x: 125, y: 254 },
+  parent2Contact: { x: 478, y: 254 },
+  fullName: { x: 110, y: 350 },
+};
+const CONSENT_FORM_CHECKBOXES = {
+  campusNasugbu: { x: 362, y: 100 },
+  consentAgreement: { x: 45.5, y: 276.5 },
+};
 const formatDateMMDDYYYY = (date) => {
   const mm = String(date.getMonth() + 1).padStart(2, "0");
   const dd = String(date.getDate()).padStart(2, "0");
@@ -55,6 +77,15 @@ const parseDateFromString = (str) => {
     return isNaN(dt.getTime()) ? null : dt;
   }
   return null;
+};
+
+const formatDateToApi = (value) => {
+  const parsed = parseDateFromString(value);
+  if (!parsed) return null;
+  const mm = String(parsed.getMonth() + 1).padStart(2, "0");
+  const dd = String(parsed.getDate()).padStart(2, "0");
+  const yyyy = parsed.getFullYear();
+  return `${yyyy}-${mm}-${dd}`;
 };
 
 const formatSemesterLabel = (semester) => {
@@ -121,6 +152,18 @@ const fixCourseTitle = (title) => {
   return cleaned.replace(/\s+/g, " ").trim();
 };
 
+const stripFeeStrings = (value = "") => {
+  const stopWords = ["internet fee", "cultural fee"];
+  let cleaned = value;
+  stopWords.forEach((word) => {
+    const idx = cleaned.toLowerCase().indexOf(word);
+    if (idx >= 0) {
+      cleaned = cleaned.slice(0, idx).trim();
+    }
+  });
+  return cleaned.trim();
+};
+
 const parseCourseData = (ocrText) => {
   try {
     const lines = ocrText.split('\n');
@@ -129,11 +172,21 @@ const parseCourseData = (ocrText) => {
       courses: [],
       semester: '',
       academicYear: '',
-      totalUnits: 0
+      totalUnits: 0,
+      scholarship: ''
+    };
+
+    const normalizeScholarshipValue = (value) =>
+      (value || "").replace(/\s+/g, " ").trim();
+    const isScholarshipCandidate = (value) => {
+      if (!value || !/[a-zA-Z]/.test(value)) return false;
+      const keywords = /(program|scholar|grant|tuition|allowance|aid|free)/i;
+      return keywords.test(value) || value.includes(":") || value.split(" ").length >= 3;
     };
 
     // Extract student information and semester/year
-    for (const line of lines) {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
       const trimmedLine = line.trim();
       
       // Extract SR Code
@@ -158,6 +211,34 @@ const parseCourseData = (ocrText) => {
           courseData.semester = semesterMatch[1];
           courseData.academicYear = semesterMatch[2];
         }
+      }
+
+      if (!courseData.scholarship && trimmedLine.toLowerCase().includes('scholarship/s')) {
+        const after = trimmedLine.split(/Scholarship\/s:/i)[1] || '';
+        const inlineValue = normalizeScholarshipValue(after);
+        let detected = "";
+
+        for (let j = i + 1; j < Math.min(lines.length, i + 8); j++) {
+          const nextLine = normalizeScholarshipValue(lines[j]);
+          if (!nextLine) continue;
+          if (isScholarshipCandidate(nextLine)) {
+            detected = nextLine;
+            break;
+          }
+          if (!detected && nextLine) {
+            detected = nextLine;
+          }
+        }
+
+        if (!detected && isScholarshipCandidate(inlineValue)) {
+          detected = inlineValue;
+        }
+
+        if (!detected && inlineValue) {
+          detected = inlineValue;
+        }
+
+        courseData.scholarship = stripFeeStrings(detected || inlineValue);
       }
     }
 
@@ -190,6 +271,369 @@ const parseCourseData = (ocrText) => {
   }
 };
 
+const REQUIREMENT_ITEMS = [
+  { key: "approvalSheet", label: "Approval Sheet", required: true },
+  { key: "libraryCertificate", label: "Certificate of Library", required: true },
+  { key: "barangayClearance", label: "Barangay Clearance", required: false },
+  { key: "birthCertificate", label: "Birth Certificate", required: false },
+];
+const GRAD_DETAILS_ENDPOINT = `${BASE_URL}/insert_graduation_details.php`;
+const GRAD_REQUIREMENTS_ENDPOINT = `${BASE_URL}/insert_graduation_requirements.php`;
+const GET_MISSING_COURSES_ENDPOINT = `${BASE_URL}/get_missing_courses.php`;
+
+const GraduationEvaluation = ({ studentId, courseData, onEvaluationChange }) => {
+  const [evaluationData, setEvaluationData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [gradeRecords, setGradeRecords] = useState(null);
+  const [missingCoursesList, setMissingCoursesList] = useState([]);
+
+  const computeEvaluationData = useCallback(
+    (gradesArray = [], programRequirements = []) => {
+      if (!Array.isArray(gradesArray)) return;
+
+      const courseMap = new Map();
+
+      gradesArray.forEach((grade) => {
+        const numericGrade = parseFloat(grade.grade);
+        const code = (grade.course_code || "").trim();
+        if (
+          !code ||
+          isNaN(numericGrade) ||
+          numericGrade > 3.0 ||
+          courseMap.has(code.toUpperCase())
+        ) {
+          return;
+        }
+
+        courseMap.set(code.toUpperCase(), {
+          code,
+          title: grade.course_title || "No title available",
+          grade: grade.grade,
+          semester: grade.semester,
+          academicYear: grade.academic_year_id,
+        });
+      });
+
+      const rawCorCourses = Array.isArray(courseData)
+        ? courseData
+        : Array.isArray(courseData?.courses)
+        ? courseData.courses
+        : [];
+
+      const normalizedCorCourses = rawCorCourses
+        .map((course) => {
+          const code = (course.courseCode || course.code || "").trim();
+          return {
+            code,
+            title: course.courseTitle || course.title || "No title available",
+            grade: "N/A",
+            semester: course.semester || course.semesterLabel || "Current",
+            academicYear: course.academicYear || course.academicYearLabel || "Current",
+          };
+        })
+        .filter((course) => !!course.code);
+
+      const corCoursesCount = normalizedCorCourses.length;
+
+      normalizedCorCourses.forEach((course) => {
+        const normalizedCode = course.code.toUpperCase();
+        if (!courseMap.has(normalizedCode)) {
+          courseMap.set(normalizedCode, course);
+        }
+      });
+
+      const normalizedCurriculum = Array.isArray(programRequirements)
+        ? programRequirements
+            .map((course) => {
+              const code = (course.course_code || course.code || "").trim();
+              return {
+                code,
+                title: course.course_title || course.title || "No title available",
+                yearLevel: course.year_level || course.year || course.level || "",
+                semester:
+                  formatSemesterLabel(course.semester) ||
+                  course.semester_label ||
+                  course.term ||
+                  "",
+                track:
+                  course.track ||
+                  course.track_name ||
+                  course.specialization ||
+                  course.major ||
+                  course.major_name ||
+                  course.major_abbrev ||
+                  "",
+                units: Number(course.units || course.credit_units || 0),
+              };
+            })
+            .filter((course) => !!course.code)
+        : [];
+
+      const completedCourses = Array.from(courseMap.values()).filter(
+        (course) => course.grade !== "N/A"
+      );
+      const gradeHistoryCount = completedCourses.length;
+      const totalTaken = gradeHistoryCount + corCoursesCount;
+      const missingCourses = normalizedCurriculum.filter((course) => {
+        const codeKey = course.code?.toUpperCase();
+        if (!codeKey) return false;
+        return !courseMap.has(codeKey);
+      });
+      const derivedTrack =
+        normalizedCurriculum.find((course) => course.track)?.track || "Your Track";
+      const totalRequired =
+        missingCourses.length > 0
+          ? totalTaken + missingCourses.length
+          : DEFAULT_REQUIRED_COURSES;
+
+      const nextEvaluation = {
+        status: "GRADUATING",
+        matchedCourses: totalTaken,
+        totalRequired,
+        completionPercentage: totalRequired
+          ? Math.round((totalTaken / totalRequired) * 100)
+          : Math.round((totalTaken / 56) * 100),
+        track: derivedTrack,
+        isEligible: totalTaken >= 50,
+        isEligibleForHonors: false,
+        courseSummary: {
+          corCourses: corCoursesCount,
+          gradeHistory: gradeHistoryCount,
+          totalTaken,
+        },
+        completedCourses,
+        missingCourses,
+      };
+
+      setEvaluationData(nextEvaluation);
+      if (typeof onEvaluationChange === "function") {
+        onEvaluationChange(nextEvaluation);
+      }
+    },
+    [courseData, onEvaluationChange]
+  );
+
+
+  useEffect(() => {
+    const fetchGrades = async () => {
+      try {
+        console.log("Fetching grades for student ID:", studentId);
+        const response = await fetch(`${BASE_URL}/get_student_grade.php?student_id=${studentId}`, {
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log("API Response:", data);
+
+        if (data.success && Array.isArray(data.grades)) {
+          setGradeRecords(data.grades);
+        } else {
+          const errorMessage = data.message || "Failed to load graduation data";
+          console.error("API Error:", errorMessage);
+          setError(errorMessage);
+        }
+      } catch (err) {
+        console.error("Network Error:", err);
+        setError("Unable to connect to the server. Please check your internet connection and try again.");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const fetchMissingCourses = async (id) => {
+      try {
+        const response = await fetch(`${GET_MISSING_COURSES_ENDPOINT}?student_id=${id}`);
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+        if (data.success && Array.isArray(data.missing_courses)) {
+          setMissingCoursesList(data.missing_courses);
+        } else {
+          setMissingCoursesList([]);
+        }
+      } catch (err) {
+        console.error("Missing courses fetch error:", err);
+        setMissingCoursesList([]);
+      }
+    };
+
+    if (studentId) {
+      console.log("Initializing grade fetch for student ID:", studentId);
+      setLoading(true);
+      setError(null);
+      setEvaluationData(null);
+      setGradeRecords(null);
+      fetchMissingCourses(studentId);
+      fetchGrades();
+    } else {
+      console.error("No student ID provided");
+      setError("Student ID is missing. Please try again.");
+      setLoading(false);
+    }
+  }, [studentId]);
+
+  useEffect(() => {
+    if (!Array.isArray(gradeRecords)) return;
+    computeEvaluationData(gradeRecords, missingCoursesList);
+  }, [gradeRecords, missingCoursesList, computeEvaluationData]);
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#DC143C" />
+        <Text style={styles.loadingText}>Loading graduation evaluation...</Text>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.errorContainer}>
+        <Text style={styles.errorText}>{error}</Text>
+      </View>
+    );
+  }
+
+  if (!evaluationData) {
+    return null;
+  }
+
+  // Use evaluationData instead of graduationData in the JSX
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Graduation Evaluation</Text>
+      </View>
+      
+      <View style={styles.statusContainer}>
+        <View style={styles.statusHeader}>
+          <View style={styles.statusBadge}>
+            <Text style={styles.statusText}>{evaluationData.status}</Text>
+          </View>
+          <Text style={styles.statusSubtext}>
+            Matched {evaluationData.matchedCourses} of {evaluationData.totalRequired} required courses ({evaluationData.completionPercentage}% complete) | 
+            Track: {evaluationData.track}
+          </Text>
+        </View>
+        
+        <View style={styles.eligibilityContainer}>
+          <View style={styles.eligibilityItem}>
+            {evaluationData.isEligible ? (
+              <AntDesign name="checkcircle" size={20} color="#4CAF50" />
+            ) : (
+              <MaterialIcons name="cancel" size={20} color="#f44336" />
+            )}
+            <Text style={styles.eligibilityText}>
+              {evaluationData.isEligible 
+                ? 'Eligible to Apply for Graduation' 
+                : 'Not Eligible to Apply Yet'}
+            </Text>
+          </View>
+          <View style={styles.eligibilityItem}>
+            {evaluationData.isEligibleForHonors ? (
+              <MaterialIcons name="stars" size={20} color="#FFC107" />
+            ) : (
+              <MaterialIcons name="warning" size={20} color="#FFC107" />
+            )}
+            <Text style={styles.eligibilityText}>
+              {evaluationData.isEligibleForHonors 
+                ? 'Eligible for Latin Honors' 
+                : 'Not eligible for Latin Honors yet'}
+            </Text>
+        </View>
+      </View>
+      
+      <View style={styles.summaryContainer}>
+        <View style={styles.summaryItem}>
+            <Text style={styles.summaryNumber}>{evaluationData.courseSummary.corCourses}</Text>
+            <Text style={styles.summaryLabel}>COR Courses</Text>
+            <Text style={styles.summarySubtext}>Currently Enrolled</Text>
+          </View>
+          <View style={styles.summaryItem}>
+            <Text style={styles.summaryNumber}>{evaluationData.courseSummary.gradeHistory}</Text>
+            <Text style={styles.summaryLabel}>Grade History</Text>
+            <Text style={styles.summarySubtext}>Previously Taken</Text>
+          </View>
+          <View style={styles.summaryItem}>
+            <Text style={styles.summaryNumber}>{evaluationData.courseSummary.totalTaken}</Text>
+            <Text style={styles.summaryLabel}>Total Taken</Text>
+          <Text style={styles.summarySubtext}>All Courses</Text>
+        </View>
+      </View>
+
+      <View style={styles.missingCoursesContainer}>
+        <View style={styles.missingCourseHeader}>
+          <MaterialIcons name="warning" size={20} color="#FFC107" />
+          <Text style={[styles.sectionTitle, { marginBottom: 0, marginLeft: 8 }]}>
+            Missing Courses ({evaluationData.missingCourses.length})
+          </Text>
+        </View>
+        {evaluationData.missingCourses.length > 0 ? (
+          evaluationData.missingCourses.map((course) => (
+            <View key={course.code} style={styles.missingCourseCard}>
+              <View style={styles.missingCourseHeader}>
+                <Text style={styles.missingCourseCode}>{course.code}</Text>
+                <Text style={styles.missingCourseTitle}>{course.title}</Text>
+              </View>
+              <View style={styles.missingCourseDetails}>
+                <Text style={styles.missingCourseDetail}>
+                  Year Level: {course.yearLevel || "N/A"}
+                </Text>
+                <Text style={styles.missingCourseDetail}>
+                  Semester: {course.semester || "N/A"}
+                </Text>
+                {course.track ? (
+                  <Text style={styles.missingCourseDetail}>Track: {course.track}</Text>
+                ) : null}
+                <Text style={styles.missingCourseDetail}>
+                  Units: {course.units || "N/A"}
+                </Text>
+                <Text style={[styles.missingCourseDetail, styles.missingCourseStatus]}>
+                  Never Taken
+                </Text>
+              </View>
+            </View>
+          ))
+        ) : (
+          <Text style={styles.noMissingCourses}>
+            All required courses are either completed or currently enrolled.
+          </Text>
+        )}
+      </View>
+    </View>
+      
+      <View style={styles.completedCoursesContainer}>
+        <Text style={styles.sectionTitle}>Completed Courses</Text>
+        <ScrollView style={styles.completedCoursesList}>
+          {evaluationData.completedCourses.length > 0 ? (
+            evaluationData.completedCourses.map((course, index) => (
+              <View key={`${course.code}-${index}`} style={styles.completedCourseItem}>
+                <MaterialCommunityIcons name="check-circle" size={20} color="#4CAF50" style={styles.courseCheckIcon} />
+                <Text style={styles.completedCourseCode}>{course.code}</Text>
+                <Text style={styles.completedCourseTitle} numberOfLines={1} ellipsizeMode="tail">
+                  {course.title}
+                </Text>
+              </View>
+            ))
+          ) : (
+            <Text style={styles.noCoursesText}>No completed courses found.</Text>
+          )}
+        </ScrollView>
+      </View>
+    </View>
+  );
+};
+
 export default function ApplicationForGraduation() {
   const [currentStep, setCurrentStep] = useState(1);
   const [coe, setCoe] = useState(null);
@@ -215,6 +659,34 @@ export default function ApplicationForGraduation() {
   const [tempBirthDate, setTempBirthDate] = useState(new Date());
   const [birthPickerKey, setBirthPickerKey] = useState(0);
   const [pdfUri, setPdfUri] = useState(null);
+  const [consentPdfUri, setConsentPdfUri] = useState(null);
+  const [showConsentModal, setShowConsentModal] = useState(false);
+  const [savingGradDetails, setSavingGradDetails] = useState(false);
+  const [savingRequirements, setSavingRequirements] = useState(false);
+  const [graduationFormId, setGraduationFormId] = useState(null);
+  const [evaluationSummary, setEvaluationSummary] = useState(null);
+  const [showLatinHonorsModal, setShowLatinHonorsModal] = useState(false);
+  const [requirements, setRequirements] = useState(() => {
+    const initial = {};
+    REQUIREMENT_ITEMS.forEach((item) => {
+      initial[item.key] = { fileName: "", uri: "", toFollow: false };
+    });
+    return initial;
+  });
+  const shouldAutoGraduate = useMemo(() => {
+    const missing = evaluationSummary?.missingCourses;
+    if (!Array.isArray(missing) || missing.length === 0) return false;
+    return missing.every((course) => {
+      const yearText = (course.yearLevel || course.year_level || "").toUpperCase();
+      const semesterText = (course.semester || "").toUpperCase();
+      return yearText.includes("FOURTH") && semesterText.includes("SECOND");
+    });
+  }, [evaluationSummary]);
+
+  const qualifiesForLatinHonors = useMemo(() => {
+    const gwaNum = parseFloat(latinHonorsGwa?.gwa ?? "NaN");
+    return !isNaN(gwaNum) && gwaNum > 0 && gwaNum <= 1.75;
+  }, [latinHonorsGwa]);
 
   const gradeStats = useMemo(() => {
     if (!Array.isArray(gradeReport) || gradeReport.length === 0) {
@@ -292,6 +764,31 @@ export default function ApplicationForGraduation() {
     });
   }, [gradeReport]);
 
+  const latinHonorsGwa = useMemo(() => {
+    if (!Array.isArray(gradeReport) || gradeReport.length === 0) {
+      return { gwa: "N/A", totalUnits: 0, count: 0 };
+    }
+    let totalUnits = 0;
+    let weighted = 0;
+    const filtered = gradeReport.filter((rec) => {
+      const code = (rec.course_code || "").toUpperCase();
+      return code !== "NSTP 111" && code !== "NSTP 121";
+    });
+    filtered.forEach((rec) => {
+      const unitsNum = parseFloat(rec.credit_units || rec.units || 0);
+      const gradeNum = parseFloat(rec.grade);
+      if (!isNaN(unitsNum) && unitsNum > 0 && !isNaN(gradeNum)) {
+        totalUnits += unitsNum;
+        weighted += unitsNum * gradeNum;
+      }
+    });
+    return {
+      gwa: totalUnits > 0 ? (weighted / totalUnits).toFixed(4) : "N/A",
+      totalUnits,
+      count: filtered.length,
+    };
+  }, [gradeReport]);
+
   const overallGwa = useMemo(() => {
     if (!Array.isArray(gradeReport) || gradeReport.length === 0) {
       return { gwa: "N/A", totalUnits: 0, count: 0 };
@@ -311,6 +808,18 @@ export default function ApplicationForGraduation() {
       totalUnits,
       count: gradeReport.length,
     };
+  }, [gradeReport]);
+
+  const highestgrade = useMemo(() => {
+    if (!Array.isArray(gradeReport) || gradeReport.length === 0) return "N/A";
+    let min = null;
+    gradeReport.forEach((rec) => {
+      const gradeNum = parseFloat(rec.grade);
+      if (!isNaN(gradeNum)) {
+        min = min === null ? gradeNum : Math.min(min, gradeNum);
+      }
+    });
+    return min === null ? "N/A" : min.toFixed(2);
   }, [gradeReport]);
 
   const [form, setForm] = useState({
@@ -361,7 +870,6 @@ export default function ApplicationForGraduation() {
 
   const buildFilledApplicationPdf = useCallback(async (values) => {
     try {
-      // 1. Load the template PDF from assets
       const asset = Asset.fromModule(
         require("../assets/ApplicationForGraduation_template.pdf")
       );
@@ -371,13 +879,11 @@ export default function ApplicationForGraduation() {
         res.arrayBuffer()
       );
 
-      // 2. Load PDF in pdf-lib
       const pdfDoc = await PDFDocument.load(existingPdfBytes);
       const pages = pdfDoc.getPages();
       const page = pages[0];
       const { width, height } = page.getSize();
 
-      // 3. Embed font
       const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
       const fontSize = 10;
 
@@ -392,119 +898,100 @@ export default function ApplicationForGraduation() {
         });
       };
 
-      // ========== OPTIONAL DEBUG GRID ==========
-      const SHOW_DEBUG_GRID = false;
-      if (SHOW_DEBUG_GRID) {
-        for (let y = 0; y < height; y += 50) {
-          page.drawLine({
-            start: { x: 0, y },
-            end: { x: width, y },
-            thickness: 0.3,
-            color: rgb(0.8, 0.2, 0.2),
-          });
-          page.drawText(`${y}`, {
-            x: 5,
-            y: y + 2,
-            size: 6,
-            font,
-            color: rgb(0.8, 0.2, 0.2),
-          });
-        }
-        for (let x = 0; x < width; x += 50) {
-          page.drawLine({
-            start: { x, y: 0 },
-            end: { x, y: height },
-            thickness: 0.3,
-            color: rgb(0.2, 0.2, 0.8),
-          });
-          page.drawText(`${x}`, {
-            x: x + 2,
-            y: 5,
-            size: 6,
-            font,
-            color: rgb(0.2, 0.2, 0.8),
-          });
-        }
-      }
+      // ==== NORMALIZE NAME PARTS ====
+      const surname = (values.surname || "").trim();
+      const firstName = (values.firstName || "").trim();
+      const middleName = (values.middleName || "").trim();
 
-      // ========== FIELD MAPPING (adjusted down) ==========
+      // Extension: skip if empty or "N/A"
+      const rawExt = values.extensionName ?? "";
+      const trimmedExt = rawExt.toString().trim();
+      const extensionName =
+        trimmedExt && trimmedExt.toUpperCase() !== "N/A" ? trimmedExt : "";
 
-      // NAME ROW: SURNAME / FIRST / MIDDLE / EXT
-      // dating height - 145 → binaba natin (mas malaki ang minus = mas baba sa papel)
-      const nameRowY = height - 155;
-      draw(values.surname,       80,  nameRowY);  // SURNAME
-      draw(values.firstName,     230, nameRowY);  // FIRST NAME
-      draw(values.middleName,    370, nameRowY);  // MIDDLE NAME
-      draw(values.extensionName, 520, nameRowY);  // EXTENSION
-
-      // BIRTHDATE / PLACE OF BIRTH / SR CODE
-      const birthRowY = height - 178;             // (was 165, mas baba na)
-      draw(values.srCode,       110, birthRowY);  // SR CODE
-      draw(values.birthDate,    270, birthRowY);  // BIRTHDATE
-      draw(values.placeOfBirth, 460, birthRowY);  // PLACE OF BIRTH
-
-      // HOME ADDRESS (house/street + barangay + city + province)
-      const homeAddressLine = [
-        values.address,
-        values.barangay,
-        values.city,
-        values.province,
-      ]
+      // Full name for signatures
+      const fullName = [firstName, middleName, surname, extensionName]
         .filter(Boolean)
-        .join(", ");
+        .join(" ");
 
-      const homeAddrY = height - 210;             // (was 185)
-      draw(homeAddressLine, 85, homeAddrY);      // HOME ADDRESS
+      // ======== FIELD MAPPING ========
 
-      // ZIP / CONTACT / EMAIL
-      const zipContactRowY = height - 220;        // (was 205)
-      draw(values.zipCode,       120, zipContactRowY); // ZIP CODE
-      draw(values.contactNumber, 260, zipContactRowY); // CONTACT NUMBER
+      const nameRowY = height - 155;
+      draw(surname, 80, nameRowY);       // SURNAME
+      draw(firstName, 230, nameRowY);    // FIRST NAME
+      draw(middleName, 370, nameRowY);   // MIDDLE NAME
+      if (extensionName) {
+        draw(extensionName, 520, nameRowY); // EXTENSION (only if valid)
+      }
 
-      const emailRowY = height - 240;             // hiwalay na row para di sumampa sa label
-      draw(values.emailAddress,  160, emailRowY);      // EMAIL ADDRESS
+      const birthRowY = height - 178;
+      draw(values.srCode, 110, birthRowY);       // SR CODE
+      draw(values.birthDate, 270, birthRowY);    // BIRTHDATE
+      draw(values.placeOfBirth, 460, birthRowY); // PLACE OF BIRTH
 
-      // SECONDARY SCHOOL + YEAR
-      const secondaryRowY = height - 260;         // (was 235)
-      draw(values.secondarySchool, 150, secondaryRowY);
-      draw(values.secondaryYear,   width - 120, secondaryRowY);
+      const homeAddrY = height - 210;
+      draw(values.address || "", 75, homeAddrY); // HOME ADDRESS
 
-      // ELEMENTARY SCHOOL + YEAR
-      const elemRowY = height - 280;             // (was 255)
-      draw(values.elementarySchool, 150, elemRowY);
-      draw(values.elementaryYear,   width - 120, elemRowY);
+      draw(values.zipCode, 500, height - 196);        // ZIP
+      draw(values.contactNumber, 465, height - 213);  // CONTACT
+      draw(values.emailAddress, 435, height - 231);   // EMAIL
 
-      // COLLEGE / PROGRAM / MAJOR
-      const collegeRowY = height - 305;          // (was 285)
-      draw(values.college, 150, collegeRowY);
+      draw(values.secondarySchool, 175, height - 260);
+      draw(values.secondaryYear, width - 80, height - 260);
 
-      const programRowY = height - 325;          // (was 305)
-      draw(values.program, 150, programRowY);
+      draw(values.elementarySchool, 175, height - 285);
+      draw(values.elementaryYear, width - 80, height - 285);
 
-      const majorRowY = height - 345;            // (was 325)
-      draw(values.major,  150, majorRowY);
+      draw(values.college, 168, height - 320);
+      draw(values.program, 168, height - 335);
+      draw(values.major, 168, height - 349);
 
-      // DATE OF GRADUATION (DECEMBER / MAY / MIDTERM)
-      const gradRowY = height - 370;             // (was 355)
+      // ======== DATE OF GRADUATION (YEAR + CHECKBOX) ========
+      const gradRowY = height - 302.8;     // text row
+      const gradCheckY = height - 302;     // small offset to center "X" in the boxes
+
+      // December
       if (values.gradDecemberChecked && values.gradDecemberYear) {
-        draw(values.gradDecemberYear, 165, gradRowY); // DECEMBER box
-      }
-      if (values.gradMayChecked && values.gradMayYear) {
-        draw(values.gradMayYear, 315, gradRowY);      // MAY box
-      }
-      if (values.gradMidtermChecked && values.gradMidtermYear) {
-        draw(values.gradMidtermYear, 465, gradRowY);  // MIDTERM box
+        draw(values.gradDecemberYear, 273, gradRowY);   // year text
+        draw("X", 180, gradCheckY);                     // checkbox before "DECEMBER"
       }
 
-      // OPTIONAL: Requested by / target year kung meron ka sa form state
-      if (values.requestedBy) {
-        draw(values.requestedBy, 150, height - 405);
+      // May
+      if (values.gradMayChecked && values.gradMayYear) {
+        draw(values.gradMayYear, 394, gradRowY);        // year text
+        draw("X", 338, gradCheckY);                     // checkbox before "MAY"
       }
+
+      // Midterm
+      if (values.gradMidtermChecked && values.gradMidtermYear) {
+        draw(values.gradMidtermYear, 550, gradRowY);    // year text
+        draw("X", 467, gradCheckY);                     // checkbox before "MIDTERM"
+      }
+
+      // ======== REQUESTED BY FIELD (AUTO FILL NAME) ========
+      const requestedByName = values.requestedBy?.trim()
+        ? values.requestedBy.trim()
+        : fullName;
+
+      // "Requested by:" line
+      draw(requestedByName, 110, height - 411);
+
+      // Optional target grad year (if you still want this)
       if (values.targetGradYear) {
         draw(values.targetGradYear, 150, height - 420);
       }
 
-      // ========== SAVE TO FILE ==========
+      // ======== DATA PRIVACY AGREEMENT ========
+
+      // Checkbox (use "X" instead of ✓ to avoid WinAnsi error)
+      draw("X", 32, height - 577);
+
+      // Signature over printed name of student (DPA area)
+      if (fullName) {
+        draw(fullName, 55, height - 638);
+      }
+
+      // ======== SAVE TO FILE ========
       const pdfBase64 = await pdfDoc.saveAsBase64();
       const targetPath =
         FileSystem.documentDirectory + "ApplicationForGraduation_filled.pdf";
@@ -521,6 +1008,130 @@ export default function ApplicationForGraduation() {
       throw e;
     }
   }, []);
+
+  const buildConsentFormPdf = useCallback(
+    async (values = {}) => {
+      try {
+        const asset = Asset.fromModule(require("../assets/Consent_Form.pdf"));
+        await asset.downloadAsync();
+        const existingPdfBytes = await fetch(asset.uri).then((res) => res.arrayBuffer());
+
+        const pdfDoc = await PDFDocument.load(existingPdfBytes);
+        const page = pdfDoc.getPages()[0];
+        const { width, height } = page.getSize();
+        const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+        const fontSize = 10;
+
+        const scaleX = width / CONSENT_FORM_BASE_DIMENSIONS.width;
+        const scaleY = height / CONSENT_FORM_BASE_DIMENSIONS.height;
+
+        const toCoords = ({ x, y }) => ({
+          x: x * scaleX,
+          y: height - y * scaleY,
+        });
+
+        const drawText = (text, key, size = fontSize) => {
+          if (!text || !CONSENT_FORM_FIELDS[key]) return;
+          const coords = toCoords(CONSENT_FORM_FIELDS[key]);
+          page.drawText(String(text), {
+            x: coords.x,
+            y: coords.y,
+            size,
+            font,
+            color: rgb(0, 0, 0),
+          });
+        };
+
+        const checkBox = (key) => {
+          if (!CONSENT_FORM_CHECKBOXES[key]) return;
+          const coords = toCoords(CONSENT_FORM_CHECKBOXES[key]);
+          page.drawText("X", {
+            x: coords.x,
+            y: coords.y,
+            size: 12,
+            font,
+            color: rgb(0, 0, 0),
+          });
+        };
+
+        const middleInitial = values.middleName
+          ? values.middleName.charAt(0) + "."
+          : "";
+
+        const fullName = `${values.firstName} ${middleInitial} ${values.lastName}`.trim();
+
+        drawText(values.lastName, "lastName");
+        drawText(values.firstName, "firstName");
+        drawText(values.middleName, "middleName");
+        drawText(values.extensionName, "extensionName");
+        drawText(fullName, "fullName");
+
+        drawText(values.college, "college");
+        drawText(values.program, "program");
+        drawText(values.majorOrTrack, "majorOrTrack");
+        drawText(values.scholarshipGrant || "None", "scholarshipGrant");
+
+        drawText(values.parent1Name, "parent1Name");
+        drawText(values.parent1Contact, "parent1Contact");
+        drawText(values.parent2Name, "parent2Name");
+        drawText(values.parent2Contact, "parent2Contact");
+
+        checkBox("campusNasugbu");
+        checkBox("consentAgreement");
+
+        const pdfBase64 = await pdfDoc.saveAsBase64();
+        const targetPath = FileSystem.documentDirectory + "Consent_Form_filled.pdf";
+
+        await FileSystem.writeAsStringAsync(targetPath, pdfBase64, {
+          encoding: FileSystem.EncodingType
+            ? FileSystem.EncodingType.Base64
+            : "base64",
+        });
+
+        return targetPath;
+      } catch (error) {
+        console.warn("buildConsentFormPdf error:", error);
+        throw error;
+      }
+    },
+    []
+  );
+
+  const refreshConsentForm = useCallback(async () => {
+    try {
+      const consentPath = await buildConsentFormPdf({
+        lastName: form.surname,
+        firstName: form.firstName,
+        middleName: form.middleName,
+        extensionName: form.extensionName,
+        college: form.college,
+        program: form.program,
+        majorOrTrack: form.major || evaluationSummary?.track || "",
+        scholarshipGrant: form.scholarshipGrant || "None",
+        parent1Name: form.parent1Name,
+        parent1Contact: form.parent1Contact,
+        parent2Name: form.parent2Name,
+        parent2Contact: form.parent2Contact,
+      });
+      setConsentPdfUri(consentPath);
+    } catch (error) {
+      Alert.alert("Consent Form Error", "Unable to refresh the consent form.");
+    }
+  }, [
+    buildConsentFormPdf,
+    evaluationSummary?.track,
+    form.college,
+    form.extensionName,
+    form.firstName,
+    form.major,
+    form.parent1Contact,
+    form.parent1Name,
+    form.parent2Contact,
+    form.parent2Name,
+    form.program,
+    form.scholarshipGrant,
+    form.surname,
+  ]);
 
   const openApplicationTemplate = useCallback(async () => {
     try {
@@ -544,13 +1155,15 @@ export default function ApplicationForGraduation() {
     }
   }, []);
 
+  // Update steps array to reflect the new step 2
   const steps = [
     "Guidelines",
-    "Upload COR",
+    "Graduation Evaluation",
     "Upload Grades",
     "Application Form",
-    "Validation & Info",
-    "Review & Submit",
+    "Generate Form",
+    "Requirements Upload",
+    "Review",
   ];
 
   const STORAGE_KEY = "@app_grad_form_v1";
@@ -689,6 +1302,15 @@ export default function ApplicationForGraduation() {
       fetchStudentInfo(loginId);
     }
   }, [loginId, fetchStudentInfo]);
+
+  useEffect(() => {
+    if (courseData?.scholarship) {
+      setForm((prev) => {
+        if (prev.scholarshipGrant === courseData.scholarship) return prev;
+        return { ...prev, scholarshipGrant: courseData.scholarship };
+      });
+    }
+  }, [courseData?.scholarship]);
 
   useEffect(() => {
     (async () => {
@@ -1018,7 +1640,12 @@ export default function ApplicationForGraduation() {
       const text = data.full_text || data.raw_text || "";
       setOcrText(text);
       const parsedData = parseCourseData(text);
-      if (parsedData) setCourseData(parsedData);
+      if (parsedData) {
+        setCourseData(parsedData);
+        if (parsedData.scholarship) {
+          setForm((prev) => ({ ...prev, scholarshipGrant: parsedData.scholarship }));
+        }
+      }
       Alert.alert("Uploaded", "COR uploaded and processed.");
     } catch (error) {
       Alert.alert("Upload failed", error.message || "Unable to process COR file.");
@@ -1027,8 +1654,279 @@ export default function ApplicationForGraduation() {
     }
   };
 
-  const nextStep = () =>
+  const handleRequirementUpload = async (key) => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ["application/pdf", "image/*"],
+        copyToCacheDirectory: true,
+      });
+      if (result.type === "cancel") return;
+      const file = result.assets ? result.assets[0] : result;
+      if (!file?.uri) {
+        Alert.alert("Upload failed", "No file URI returned.");
+        return;
+      }
+      setRequirements((prev) => ({
+        ...prev,
+        [key]: {
+          ...prev[key],
+          fileName: file.name || "document",
+          uri: file.uri,
+          toFollow: false,
+        },
+      }));
+    } catch (error) {
+      Alert.alert("Upload failed", "Unable to select file.");
+    }
+  };
+
+  const toggleRequirementFollow = (key) => {
+    setRequirements((prev) => ({
+      ...prev,
+      [key]: {
+        ...prev[key],
+        toFollow: !prev[key]?.toFollow,
+        ...(prev[key]?.toFollow
+          ? {}
+          : {
+              fileName: "",
+              uri: "",
+            }),
+      },
+    }));
+  };
+
+  const renderRequirementCard = ({ key, label, required }) => {
+    const data = requirements[key] || {};
+    return (
+      <View key={key} style={styles.requirementCard}>
+        <View style={styles.requirementHeader}>
+          <Text style={styles.requirementTitle}>
+            {label}
+            {required && <Text style={styles.requiredAsterisk}> *</Text>}
+          </Text>
+          <Text style={styles.requirementHint}>
+            PDF or Image (JPG/PNG) {required ? "" : "(optional)"}
+          </Text>
+        </View>
+
+        <View style={styles.requirementFileRow}>
+          <TouchableOpacity
+            style={styles.requirementUploadButton}
+            onPress={() => handleRequirementUpload(key)}
+          >
+            <Ionicons name="cloud-upload-outline" size={16} color="#fff" />
+            <Text style={styles.requirementUploadText}>Choose File</Text>
+          </TouchableOpacity>
+          <Text style={styles.requirementFileName}>
+            {data.fileName || "No file chosen"}
+          </Text>
+        </View>
+
+        <View style={styles.requirementFollowRow}>
+          <Checkbox
+            status={data.toFollow ? "checked" : "unchecked"}
+            onPress={() => toggleRequirementFollow(key)}
+            color="#DC143C"
+          />
+          <Text style={styles.requirementFollowText}>Mark as To Follow</Text>
+        </View>
+      </View>
+    );
+  };
+
+  const saveGraduationDetails = useCallback(async () => {
+    if (!studentId) {
+      throw new Error("Student ID is missing.");
+    }
+
+    const derivedHomeAddress =
+      form.address ||
+      [form.barangay, form.city, form.province, form.region]
+        .filter((part) => !!part)
+        .join(", ");
+
+    const payload = {
+      student_id: Number(studentId),
+      birthdate: formatDateToApi(form.birthDate),
+      place_of_birth: form.placeOfBirth || null,
+      home_address: derivedHomeAddress || null,
+      zip_code: form.zipCode || null,
+      secondary_school: form.secondarySchool || null,
+      secondary_year: form.secondaryYear || null,
+      elementary_school: form.elementarySchool || null,
+      elementary_year: form.elementaryYear || null,
+      scholarship_grant: form.scholarshipGrant || null,
+      guardian_1: form.parent1Name || guardianName || null,
+      guardian_1_contact: form.parent1Contact || guardianContact || null,
+      guardian_2: form.parent2Name || null,
+      guardian_2_contact: form.parent2Contact || null,
+    };
+
+    const response = await fetch(GRAD_DETAILS_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    let data = null;
+    try {
+      data = await response.json();
+    } catch (_error) {
+      // ignore parse error; handled below
+    }
+
+    if (!response.ok || !data?.success) {
+      throw new Error(data?.message || "Failed to save graduation details.");
+    }
+
+    if (data?.graduation_form_id) {
+      setGraduationFormId(data.graduation_form_id);
+    }
+
+    return data;
+  }, [
+    studentId,
+    form.address,
+    form.barangay,
+    form.birthDate,
+    form.city,
+    form.elementarySchool,
+    form.elementaryYear,
+    form.parent1Contact,
+    form.parent1Name,
+    form.parent2Contact,
+    form.parent2Name,
+    form.placeOfBirth,
+    form.province,
+    form.region,
+    form.scholarshipGrant,
+    form.secondarySchool,
+    form.secondaryYear,
+    form.zipCode,
+    guardianContact,
+    guardianName,
+  ]);
+
+  const saveGraduationRequirements = useCallback(async () => {
+    let formId = graduationFormId;
+    if (!formId) {
+      const saved = await saveGraduationDetails();
+      formId = saved?.graduation_form_id;
+    }
+
+    if (!formId) {
+      throw new Error("Graduation Form ID is missing. Please complete Step 4 first.");
+    }
+
+    const resolveRequirementValue = (key) => {
+      const data = requirements[key];
+      if (!data || data.toFollow) return null;
+      return data.uri || data.fileName || null;
+    };
+
+    const payload = {
+      graduation_form_id: formId,
+      approval_sheet: resolveRequirementValue("approvalSheet"),
+      certificate_library: resolveRequirementValue("libraryCertificate"),
+      barangay_clearance: resolveRequirementValue("barangayClearance"),
+      birth_certificate: resolveRequirementValue("birthCertificate"),
+      applicationform_grad: pdfUri || null,
+      reportofgrade_path: null,
+      remarks: shouldAutoGraduate ? "GRADUATING" : "Pending Review",
+      status: "For Evaluation",
+    };
+
+    const response = await fetch(GRAD_REQUIREMENTS_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    let data = null;
+    try {
+      data = await response.json();
+    } catch (_error) {
+      // ignore parse error
+    }
+
+    if (!response.ok || !data?.success) {
+      throw new Error(data?.message || "Failed to save graduation requirements.");
+    }
+
+    return data;
+  }, [graduationFormId, pdfUri, requirements, saveGraduationDetails, shouldAutoGraduate]);
+
+  const handleSubmitApplication = () => {
+    setShowLatinHonorsModal(true);
+  };
+
+  const handleLatinHonorsChoice = async (apply) => {
+    setShowLatinHonorsModal(false);
+    if (apply) {
+      try {
+        const consentPath = await buildConsentFormPdf({
+          lastName: form.surname,
+          firstName: form.firstName,
+          middleName: form.middleName,
+          extensionName: form.extensionName,
+          college: form.college,
+          program: form.program,
+          majorOrTrack: form.major || evaluationSummary?.track || "",
+          scholarshipGrant: form.scholarshipGrant || "None",
+          parent1Name: form.parent1Name,
+          parent1Contact: form.parent1Contact,
+          parent2Name: form.parent2Name,
+          parent2Contact: form.parent2Contact,
+        });
+        setConsentPdfUri(consentPath);
+        setShowConsentModal(true);
+        Alert.alert(
+          "Submitted",
+          "Your application and Latin Honors consent form have been submitted."
+        );
+      } catch (error) {
+        Alert.alert(
+          "Consent Form Error",
+          "Unable to generate the consent form. Please try again."
+        );
+      }
+    } else {
+      Alert.alert("Submitted", "Your application has been submitted.");
+    }
+  };
+
+  const nextStep = useCallback(async () => {
+    if (currentStep === 4) {
+      try {
+        setSavingGradDetails(true);
+        await saveGraduationDetails();
+        setCurrentStep((prev) => (prev < steps.length ? prev + 1 : prev));
+      } catch (error) {
+        Alert.alert("Save failed", error.message || "Unable to save graduation details.");
+      } finally {
+        setSavingGradDetails(false);
+      }
+      return;
+    }
+
+    if (currentStep === 6) {
+      try {
+        setSavingRequirements(true);
+        await saveGraduationRequirements();
+        setCurrentStep((prev) => (prev < steps.length ? prev + 1 : prev));
+      } catch (error) {
+        Alert.alert("Save failed", error.message || "Unable to save requirements.");
+      } finally {
+        setSavingRequirements(false);
+      }
+      return;
+    }
+
     setCurrentStep((prev) => (prev < steps.length ? prev + 1 : prev));
+  }, [currentStep, saveGraduationDetails, saveGraduationRequirements, steps.length]);
   const prevStep = () =>
     setCurrentStep((prev) => (prev > 1 ? prev - 1 : prev));
 
@@ -1170,26 +2068,57 @@ export default function ApplicationForGraduation() {
             </View>
           )}
 
-          {/* STEP 2 - Upload COR */}
+          {/* STEP 2 - Upload COR and Graduation Evaluation */}
           {currentStep === 2 && (
-            <View>
-              <Text style={styles.stepTitle}>Step 2: Upload Certificate of Registration (COR)</Text>
-              <Text style={styles.text}>
-                Upload your current COR (PDF). Make sure it is clear, complete, and follows the filename format
-                <Text style={{ fontWeight: "700" }}> Lastname_Firstname_COR.pdf</Text>.
-              </Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.stepTitle}>Step 2: Upload COR and View Graduation Status</Text>
+              
+              <View style={{ marginBottom: 20 }}>
+                <Text style={[styles.stepTitle, { fontSize: 18, marginBottom: 10 }]}>Upload Certificate of Registration (COR)</Text>
+                <Text style={styles.text}>
+                  Please upload your current COR (PDF) to check your graduation status.
+                  Make sure it is clear, complete, and follows the filename format
+                  <Text style={{ fontWeight: "700" }}> Lastname_Firstname_COR.pdf</Text>.
+                </Text>
 
-              <View style={styles.requirementsContainer}>
-                <Text style={styles.requirementsTitle}>File Requirements</Text>
-                <Text style={styles.requirementText}>• Accepted format: PDF only</Text>
-                <Text style={styles.requirementText}>• Ensure the file is clear, complete, and official</Text>
-                <Text style={styles.requirementText}>• Example filename: Lastname_Firstname_COR.pdf</Text>
+                <View style={styles.requirementsContainer}>
+                  <Text style={styles.requirementsTitle}>File Requirements</Text>
+                  <Text style={styles.requirementText}>• Accepted format: PDF only</Text>
+                  <Text style={styles.requirementText}>• Ensure the file is clear, complete, and official</Text>
+                  <Text style={styles.requirementText}>• Example filename: Lastname_Firstname_COR.pdf</Text>
+                </View>
+
+                <TouchableOpacity style={styles.uploadButton} onPress={handlePickCor}>
+                  <Ionicons name="cloud-upload-outline" size={18} color="#fff" />
+                  <Text style={styles.uploadButtonText}>Choose File</Text>
+                </TouchableOpacity>
               </View>
+              
+              {/* Show uploaded file info and preview */}
+              {corFile && !ocrLoading && (
+                <View style={{ marginTop: 20 }}>
+                  <Text style={[styles.stepTitle, { fontSize: 18, marginBottom: 10 }]}>Uploaded COR</Text>
+                  <View style={styles.card}>
+                    <Text style={styles.cardTitle}>{corFile.name}</Text>
+                    <Pdf
+                      source={{ uri: corFile.uri }}
+                      style={styles.pdfPreview}
+                      onError={(error) => console.log('PDF error:', error)}
+                    />
+                  </View>
+                </View>
+              )}
 
-              <TouchableOpacity style={styles.uploadButton} onPress={handlePickCor}>
-                <Ionicons name="cloud-upload-outline" size={18} color="#fff" />
-                <Text style={styles.uploadButtonText}>Choose File</Text>
-              </TouchableOpacity>
+              {/* Graduation Evaluation - Show after file upload */}
+              {corFile && !ocrLoading && studentId && (
+                <View style={{ marginTop: 20, marginBottom: 20, flex: 1 }}>
+                  <GraduationEvaluation 
+                    studentId={studentId} 
+                    courseData={courseData}
+                    onEvaluationChange={setEvaluationSummary}
+                  />
+                </View>
+              )}
 
               {ocrLoading && (
                 <View style={{ marginTop: 12, alignItems: "center" }}>
@@ -1371,9 +2300,9 @@ export default function ApplicationForGraduation() {
 
                   <View style={styles.overallCard}>
                     <Text style={styles.overallTitle}>Overall GWA</Text>
-                    <Text style={styles.overallValue}>{overallGwa.gwa}</Text>
+                    <Text style={styles.overallValue}>{overallGwa?.gwa ?? "N/A"}</Text>
                     <Text style={styles.overallMeta}>
-                      Subjects: {overallGwa.count} • Total Units: {overallGwa.totalUnits || "N/A"}
+                      Subjects: {overallGwa?.count ?? "N/A"} • Total Units: {overallGwa?.totalUnits || "N/A"}
                     </Text>
                   </View>
 
@@ -1906,19 +2835,30 @@ export default function ApplicationForGraduation() {
             </View>
           )}
 
-          {/* STEP 6 - Review & Submit */}
+          {/* STEP 6 - Requirements Upload */}
           {currentStep === 6 && (
             <View>
-              <Text style={styles.stepTitle}>Step 6: Review & Submit</Text>
+              <Text style={styles.stepTitle}>Step 6: Requirements Upload</Text>
+              <Text style={styles.text}>
+                Upload the required documents below. You may mark an item as "To Follow" if you plan to submit it later.
+              </Text>
+              <View style={styles.requirementsUploadSection}>
+                {REQUIREMENT_ITEMS.map((item) => renderRequirementCard(item))}
+              </View>
+            </View>
+          )}
+
+          {/* STEP 7 - Review & Submit */}
+          {currentStep === 7 && (
+            <View>
+              <Text style={styles.stepTitle}>Step 7: Review & Submit</Text>
               <Text style={styles.text}>
                 Please review all your inputs and attachments before submitting.
               </Text>
 
               <TouchableOpacity
                 style={styles.submitButton}
-                onPress={() =>
-                  Alert.alert("Submitted", "Your application has been submitted.")
-                }
+                onPress={handleSubmitApplication}
               >
                 <Text style={styles.submitText}>Submit Application</Text>
               </TouchableOpacity>
@@ -1945,11 +2885,23 @@ export default function ApplicationForGraduation() {
               style={[
                 styles.navButtonPrimary,
                 currentStep === 1 && !step1Consent && { backgroundColor: "#aaa" },
+                currentStep === 4 && savingGradDetails && { backgroundColor: "#aaa" },
+                currentStep === 6 && savingRequirements && { backgroundColor: "#aaa" },
               ]}
               onPress={nextStep}
-              disabled={currentStep === 1 && !step1Consent}
+              disabled={
+                (currentStep === 1 && !step1Consent) ||
+                (currentStep === 4 && savingGradDetails) ||
+                (currentStep === 6 && savingRequirements)
+              }
             >
-              <Text style={styles.navButtonTextPrimary}>Next</Text>
+              <Text style={styles.navButtonTextPrimary}>
+                {currentStep === 4 && savingGradDetails
+                  ? "Saving..."
+                  : currentStep === 6 && savingRequirements
+                  ? "Saving..."
+                  : "Next"}
+              </Text>
             </TouchableOpacity>
           )}
         </View>
@@ -1992,6 +2944,113 @@ export default function ApplicationForGraduation() {
           </View>
         </View>
       </Modal>
+      {/* Latin Honors Modal */}
+      <Modal
+        transparent
+        animationType="fade"
+        visible={showLatinHonorsModal}
+        onRequestClose={() => handleLatinHonorsChoice(false)}
+      >
+        <View style={styles.latinModalOverlay}>
+          <View style={styles.latinModal}>
+            <View style={styles.latinModalHeader}>
+              <Text style={styles.latinModalTitle}>Apply for Latin Honors?</Text>
+              <TouchableOpacity onPress={() => handleLatinHonorsChoice(false)}>
+                <Ionicons name="close" size={20} color="#555" />
+              </TouchableOpacity>
+            </View>
+            <View
+              style={[
+                styles.latinModalCard,
+                qualifiesForLatinHonors
+                  ? styles.latinModalCardSuccess
+                  : styles.latinModalCardWarning,
+              ]}
+            >
+              <View style={styles.latinModalBadge}>
+                <MaterialIcons
+                  name={qualifiesForLatinHonors ? "emoji-events" : "warning"}
+                  size={20}
+                  color="#1F513F"
+                />
+                <Text style={styles.latinModalBadgeText}>
+                  {qualifiesForLatinHonors ? "Congratulations!" : "Heads up!"}
+                </Text>
+              </View>
+              <Text style={styles.latinModalHighlight}>
+                {qualifiesForLatinHonors
+                  ? "You qualify for POTENTIAL OUTSTANDING AWARD"
+                  : "You are not yet eligible for Latin Honors"}
+              </Text>
+              <Text style={styles.latinModalMetrics}>
+                GWA: {latinHonorsGwa?.gwa ?? "N/A"} • Highest Grade: {highestgrade}
+              </Text>
+            </View>
+            <Text style={styles.latinModalQuestion}>
+              Would you like to apply for Latin Honors?
+            </Text>
+            <View style={styles.latinModalActions}>
+              <TouchableOpacity
+                style={[styles.latinModalButton, styles.latinModalButtonGhost]}
+                onPress={() => handleLatinHonorsChoice(false)}
+              >
+                <Text style={styles.latinModalButtonGhostText}>No, thanks</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.latinModalButton,
+                  styles.latinModalButtonPrimary,
+                  !qualifiesForLatinHonors && { opacity: 0.6 },
+                ]}
+                onPress={() => handleLatinHonorsChoice(true)}
+              >
+                <Text style={styles.latinModalButtonPrimaryText}>Yes</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      {/* Consent Form Modal */}
+      <Modal
+        transparent
+        animationType="slide"
+        visible={showConsentModal}
+        onRequestClose={() => setShowConsentModal(false)}
+      >
+        <View style={styles.consentModalOverlay}>
+          <View style={styles.consentModal}>
+            <View style={styles.consentModalHeader}>
+              <Text style={styles.consentModalTitle}>
+                Consent Form for the Evaluation of Academic Records
+              </Text>
+              <TouchableOpacity onPress={() => setShowConsentModal(false)}>
+                <Ionicons name="close" size={20} color="#555" />
+              </TouchableOpacity>
+            </View>
+            {consentPdfUri ? (
+              <View style={styles.consentPdfWrapper}>
+                <Pdf
+                  source={{ uri: consentPdfUri }}
+                  style={styles.consentPdf}
+                  onError={(error) => console.warn("Consent PDF error:", error)}
+                />
+              </View>
+            ) : (
+              <View style={styles.consentEmpty}>
+                <Text style={styles.consentEmptyText}>Generating consent form...</Text>
+              </View>
+            )}
+            <View style={styles.consentActions}>
+              <TouchableOpacity
+                style={[styles.latinModalButton, styles.latinModalButtonPrimary]}
+                onPress={() => setShowConsentModal(false)}
+              >
+                <Text style={styles.latinModalButtonPrimaryText}>Done</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
       {/* Birthdate picker modal */}
       <Modal
         transparent
@@ -2030,6 +3089,206 @@ export default function ApplicationForGraduation() {
 }
 
 const styles = StyleSheet.create({
+  // Graduation Evaluation Styles
+  header: {
+    backgroundColor: '#fff',
+    padding: 16,
+    width: '100%',
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  statusContainer: {
+    backgroundColor: '#fff',
+    padding: 16,
+    marginBottom: 12,
+  },
+  statusHeader: {
+    marginBottom: 16,
+  },
+  statusBadge: {
+    backgroundColor: '#E3F2FD',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    alignSelf: 'flex-start',
+    marginBottom: 8,
+  },
+  statusText: {
+    color: '#1976D2',
+    fontWeight: '500',
+  },
+  statusSubtext: {
+    color: '#666',
+    fontSize: 14,
+  },
+  eligibilityContainer: {
+    backgroundColor: '#F5F5F5',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+  },
+  eligibilityItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 4,
+  },
+  eligibilityText: {
+    marginLeft: 8,
+    color: '#333',
+  },
+  summaryContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 12,
+  },
+  summaryItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  summaryNumber: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  summaryLabel: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 4,
+  },
+  summarySubtext: {
+    fontSize: 10,
+    color: '#999',
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 12,
+  },
+  missingCoursesContainer: {
+    backgroundColor: '#fff',
+    padding: 16,
+    marginBottom: 12,
+  },
+  missingCourseCard: {
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    borderRadius: 8,
+    padding: 12,
+  },
+  missingCourseHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  missingCourseCode: {
+    fontWeight: 'bold',
+    marginRight: 8,
+    color: '#333',
+  },
+  missingCourseTitle: {
+    flex: 1,
+    color: '#333',
+  },
+  missingCourseDetails: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  missingCourseDetail: {
+    backgroundColor: '#F5F5F5',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+    marginRight: 8,
+    marginBottom: 8,
+    fontSize: 12,
+    color: '#666',
+  },
+  missingCourseStatus: {
+    fontWeight: '500',
+  },
+  noMissingCourses: {
+    color: '#4CAF50',
+    textAlign: 'center',
+    padding: 16,
+    backgroundColor: '#E8F5E9',
+    borderRadius: 8,
+  },
+  completedCoursesContainer: {
+    flex: 1,
+    backgroundColor: '#fff',
+    padding: 16,
+  },
+  completedCoursesList: {
+    flex: 1,
+  },
+  completedCourseItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F5F5F5',
+  },
+  courseCheckIcon: {
+    marginRight: 8,
+  },
+  completedCourseCode: {
+    fontWeight: '500',
+    color: '#333',
+    width: 60,
+  },
+  completedCourseTitle: {
+    flex: 1,
+    color: '#666',
+    paddingRight: 10,
+  },
+  courseGrade: {
+    fontWeight: 'bold',
+    color: '#DC143C',
+    width: 40,
+    textAlign: 'right',
+  },
+  loadingContainer: {
+    padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingText: {
+    marginTop: 10,
+    color: '#666',
+  },
+  errorContainer: {
+    padding: 20,
+    backgroundColor: '#FFEBEE',
+    borderRadius: 8,
+    margin: 10,
+  },
+  errorText: {
+    color: '#B71C1C',
+    textAlign: 'center',
+  },
+  noCoursesText: {
+    textAlign: 'center',
+    color: '#666',
+    marginTop: 20,
+    fontStyle: 'italic',
+  },
+  // PDF Preview styles
+  pdfPreview: {
+    width: '100%',
+    height: 500,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 8,
+  },
+  
+  // Original styles
   container: { padding: 16, paddingBottom: 40, backgroundColor: "#f6f6f6" },
   title: { fontSize: 22, fontWeight: "700", marginBottom: 12 },
   gradeList: { marginTop: 12, gap: 12 },
@@ -2628,6 +3887,158 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     fontSize: 14,
   },
+  latinModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  latinModal: {
+    width: "100%",
+    maxWidth: 420,
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 20,
+    shadowColor: "#000",
+    shadowOpacity: 0.15,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  latinModalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  latinModalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#111",
+  },
+  latinModalCard: {
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 16,
+  },
+  latinModalCardSuccess: {
+    backgroundColor: "#d1f5e5",
+    borderWidth: 1,
+    borderColor: "#9ed9c2",
+  },
+  latinModalCardWarning: {
+    backgroundColor: "#fff7e0",
+    borderWidth: 1,
+    borderColor: "#f2d27c",
+  },
+  latinModalBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  latinModalBadgeText: {
+    fontWeight: "600",
+    color: "#1F513F",
+  },
+  latinModalHighlight: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#1F513F",
+    marginTop: 8,
+  },
+  latinModalMetrics: {
+    marginTop: 4,
+    color: "#333",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  latinModalQuestion: {
+    marginTop: 18,
+    fontSize: 14,
+    color: "#333",
+    textAlign: "center",
+  },
+  latinModalActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 12,
+    marginTop: 20,
+  },
+  latinModalButton: {
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  latinModalButtonGhost: {
+    borderWidth: 1,
+    borderColor: "#d1d5db",
+    backgroundColor: "#fff",
+  },
+  latinModalButtonGhostText: {
+    color: "#444",
+    fontWeight: "600",
+  },
+  latinModalButtonPrimary: {
+    backgroundColor: "#2563eb",
+  },
+  latinModalButtonPrimaryText: {
+    color: "#fff",
+    fontWeight: "700",
+  },
+  consentModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  consentModal: {
+    width: "100%",
+    maxWidth: 520,
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 20,
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  consentModalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  consentModalTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#111",
+  },
+  consentPdfWrapper: {
+    borderWidth: 1,
+    borderColor: "#d1d5db",
+    borderRadius: 10,
+    overflow: "hidden",
+    height: 420,
+    marginBottom: 16,
+  },
+  consentPdf: {
+    flex: 1,
+  },
+  consentEmpty: {
+    height: 200,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  consentEmptyText: {
+    color: "#555",
+  },
+  consentActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+  },
     pdfViewerBox: {
     marginTop: 16,
     padding: 12,
@@ -2657,8 +4068,72 @@ const styles = StyleSheet.create({
       backgroundColor: "#DC143C",
       alignItems: "center",
     },
-    hidePdfText: {
-      color: "#fff",
-      fontWeight: "700",
-    },
+  hidePdfText: {
+    color: "#fff",
+    fontWeight: "700",
+  },
+  requirementsUploadSection: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    marginTop: 16,
+  },
+  requirementCard: {
+    flex: 1,
+    minWidth: 260,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    marginBottom: 16,
+    marginHorizontal: 6,
+  },
+  requirementHeader: {
+    marginBottom: 12,
+  },
+  requirementTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#111",
+  },
+  requiredAsterisk: {
+    color: "#DC143C",
+  },
+  requirementHint: {
+    fontSize: 12,
+    color: "#666",
+    marginTop: 4,
+  },
+  requirementFileRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  requirementUploadButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#DC143C",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    marginRight: 10,
+  },
+  requirementUploadText: {
+    color: "#fff",
+    fontWeight: "600",
+  },
+  requirementFileName: {
+    flex: 1,
+    color: "#555",
+    fontStyle: "italic",
+  },
+  requirementFollowRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  requirementFollowText: {
+    color: "#333",
+    fontWeight: "500",
+  },
 });

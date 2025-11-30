@@ -481,93 +481,6 @@ const levenshteinDistance = (str1, str2) => {
   return matrix[str2.length][str1.length];
 };
 
-// Insert validated grades to database
-const insertValidatedGrades = async (validatedCourses, studentData, academicYear, semester) => {
-  try {
-    const insertPromises = validatedCourses.map(async (course) => {
-      if (!course.isValid || !course.curriculumSubject) return null;
-
-      // Determine grade status based on grade value
-      const gradeStatus = getGradeStatus(course.grade);
-
-      const semesterLabel = getSemesterLabel(semester);
-
-      const gradeData = {
-        student_id: studentData.Student_id,
-        course_code: course.courseCode,
-        subject_id: parseInt(course.curriculumSubject.subject_id || course.curriculumSubject.id),
-        academic_year_id: getAcademicYearId(academicYear),
-        semester: semesterLabel,
-        grade: course.grade,
-        section: course.section,
-        instructor: course.instructor,
-        remarks: gradeStatus // Set remarks based on grade status (PASSED/FAIL/INC)
-      };
-
-      const response = await fetch(`${BASE_URL}/insert_grade.php`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(gradeData),
-      });
-
-      // Check if response is OK
-      if (!response.ok) {
-        const responseText = await response.text();
-        
-        // Check if it's a duplicate error (409) - don't log as error since it's expected
-        if (response.status === 409) {
-          return { 
-            success: false, 
-            message: "Duplicate grade found",
-            course_code: gradeData.course_code,
-            error: "This course already exists for this student"
-          };
-        }
-        
-        // Only log actual errors (not duplicates)
-        console.error(`insert_grade.php returned status ${response.status}:`, responseText);
-        console.error("Course data being sent:", gradeData);
-        
-        return { 
-          success: false, 
-          message: `Server error: ${response.status}`,
-          course_code: gradeData.course_code
-        };
-      }
-
-      // Get response text first to check if it's valid JSON
-      const responseText = await response.text();
-      if (!responseText) {
-        console.error("insert_grade.php returned empty response");
-        return { 
-          success: false, 
-          message: "Empty response from server",
-          course_code: gradeData.course_code
-        };
-      }
-
-      try {
-        const result = JSON.parse(responseText);
-        // Add course code to successful responses too
-        return { ...result, course_code: gradeData.course_code };
-      } catch (parseError) {
-        console.error("Failed to parse insert_grade.php response:", responseText);
-        return { 
-          success: false, 
-          message: "Invalid response format from server",
-          course_code: gradeData.course_code
-        };
-      }
-    });
-
-    const results = await Promise.all(insertPromises);
-    return results.filter(result => result !== null);
-  } catch (error) {
-    console.error("Error inserting grades:", error);
-    throw error;
-  }
-};
-
 // Helper function to get academic year ID (you may need to adjust this based on your data)
 const getAcademicYearId = (academicYear) => {
   // Map academic year string to ID based on the current academic_years table
@@ -580,6 +493,17 @@ const getAcademicYearId = (academicYear) => {
 
   // Fall back to the latest known academic year to avoid invalid FK references
   return yearMap[academicYear] || 18;
+};
+
+// NEW: reverse mapping for labels when viewing grades
+const getAcademicYearLabel = (academicYearId) => {
+  const map = {
+    6: "2022-2023",
+    9: "2023-2024",
+    17: "2024-2025",
+    18: "2025-2026",
+  };
+  return map[academicYearId] || null;
 };
 
 // Determine grade status based on grade value
@@ -608,6 +532,98 @@ const getGradeStatus = (grade) => {
   } else {
     return "UNKNOWN";
   }
+};
+
+// NEW: helper to build term label from a grade record safely
+const getGradeTermLabelFromRecord = (grade) => {
+  if (!grade) return null;
+
+  const academicYear =
+    grade.academicYear ||
+    grade.academic_year ||
+    grade.academicYearLabel ||
+    grade.academic_year_label ||
+    null;
+
+  const rawSem =
+    grade.semester ||
+    grade.sem ||
+    grade.term ||
+    grade.semester_label ||
+    null;
+
+  const semLabel = rawSem ? getSemesterLabel(rawSem) : null;
+
+  if (!academicYear || !semLabel) return null;
+
+  return `${academicYear} ${semLabel}`;
+};
+
+// NEW: group backend grades into terms like "AY + Semester" (with de-duplication)
+const groupGradesByTerm = (grades) => {
+  if (!Array.isArray(grades)) return [];
+
+  // 1) Remove duplicates coming from the backend
+  const uniqueMap = new Map();
+
+  grades.forEach((g) => {
+    const sem = getSemesterLabel(g.semester) || g.semester || '';
+    const yearId = g.academic_year_id;
+
+    // Prefer a stable unique id if backend sends one
+    const baseKey =
+      g.id ||
+      g.grade_id ||
+      `${g.student_id || ''}-${g.course_code || ''}-${yearId || ''}-${sem}`;
+
+    if (!uniqueMap.has(baseKey)) {
+      uniqueMap.set(baseKey, { ...g, semester: sem, academic_year_id: yearId });
+    }
+  });
+
+  const uniqueGrades = Array.from(uniqueMap.values());
+
+  // 2) Group by term (AY + Semester)
+  const termMap = new Map();
+
+  uniqueGrades.forEach((g) => {
+    const sem = g.semester || '';
+    const yearId = g.academic_year_id;
+    const key = `${yearId || 'unknown'}-${sem || 'unknown'}`;
+
+    if (!termMap.has(key)) {
+      termMap.set(key, {
+        key,
+        academic_year_id: yearId,
+        academicYearLabel:
+          getAcademicYearLabel(yearId) || (yearId ? `AY ${yearId}` : 'Academic Year'),
+        semester: sem,
+        courses: [],
+      });
+    }
+    termMap.get(key).courses.push(g);
+  });
+
+  // 3) Sort terms (latest AY first, then FIRST/SECOND/SUMMER)
+  const SEM_ORDER = { FIRST: 1, SECOND: 2, SUMMER: 3 };
+
+  return Array.from(termMap.values()).sort((a, b) => {
+    const ayA = a.academic_year_id || 0;
+    const ayB = b.academic_year_id || 0;
+    if (ayA !== ayB) return ayB - ayA; // latest first
+
+    const sA = SEM_ORDER[a.semester] || 99;
+    const sB = SEM_ORDER[b.semester] || 99;
+    return sA - sB;
+  });
+};
+
+// NEW: format grade for display in list/table
+const formatGradeValue = (grade) => {
+  if (grade === null || grade === undefined) return 'N/A';
+  const num = parseFloat(grade);
+  if (!isNaN(num)) return num.toFixed(2);
+  return grade.toString();
 };
 
 const STUDENT_PROGRESS_KEY_PREFIX = "studentProgress_";
@@ -703,6 +719,93 @@ const checkExistingGrades = async (studentId, courses, academicYear, semester) =
     console.error("Error checking existing grades:", error);
     // Return empty duplicates list instead of throwing, so grade upload can continue
     return { success: true, duplicates: [] };
+  }
+};
+
+// Insert validated grades to database
+const insertValidatedGrades = async (validatedCourses, studentData, academicYear, semester) => {
+  try {
+    const insertPromises = validatedCourses.map(async (course) => {
+      if (!course.isValid || !course.curriculumSubject) return null;
+
+      // Determine grade status based on grade value
+      const gradeStatus = getGradeStatus(course.grade);
+
+      const semesterLabel = getSemesterLabel(semester);
+
+      const gradeData = {
+        student_id: studentData.Student_id,
+        course_code: course.courseCode,
+        subject_id: parseInt(course.curriculumSubject.subject_id || course.curriculumSubject.id),
+        academic_year_id: getAcademicYearId(academicYear),
+        semester: semesterLabel,
+        grade: course.grade,
+        section: course.section,
+        instructor: course.instructor,
+        remarks: gradeStatus // Set remarks based on grade status (PASSED/FAIL/INC)
+      };
+
+      const response = await fetch(`${BASE_URL}/insert_grade.php`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(gradeData),
+      });
+
+      // Check if response is OK
+      if (!response.ok) {
+        const responseText = await response.text();
+        
+        // Check if it's a duplicate error (409) - don't log as error since it's expected
+        if (response.status === 409) {
+          return { 
+            success: false, 
+            message: "Duplicate grade found",
+            course_code: gradeData.course_code,
+            error: "This course already exists for this student"
+          };
+        }
+        
+        // Only log actual errors (not duplicates)
+        console.error(`insert_grade.php returned status ${response.status}:`, responseText);
+        console.error("Course data being sent:", gradeData);
+        
+        return { 
+          success: false, 
+          message: `Server error: ${response.status}`,
+          course_code: gradeData.course_code
+        };
+      }
+
+      // Get response text first to check if it's valid JSON
+      const responseText = await response.text();
+      if (!responseText) {
+        console.error("insert_grade.php returned empty response");
+        return { 
+          success: false, 
+          message: "Empty response from server",
+          course_code: gradeData.course_code
+        };
+      }
+
+      try {
+        const result = JSON.parse(responseText);
+        // Add course code to successful responses too
+        return { ...result, course_code: gradeData.course_code };
+      } catch (parseError) {
+        console.error("Failed to parse insert_grade.php response:", responseText);
+        return { 
+          success: false, 
+          message: "Invalid response format from server",
+          course_code: gradeData.course_code
+        };
+      }
+    });
+
+    const results = await Promise.all(insertPromises);
+    return results.filter(result => result !== null);
+  } catch (error) {
+    console.error("Error inserting grades:", error);
+    throw error;
   }
 };
 
@@ -877,6 +980,32 @@ const UploadGrades = ({ navigation }) => {
   const [selectedGrade, setSelectedGrade] = useState(null);
   const [savingGrades, setSavingGrades] = useState(false);
 
+  // NEW: view grades modal state
+  const [viewGradesVisible, setViewGradesVisible] = useState(false);
+  const [gradesLoading, setGradesLoading] = useState(false);
+  const [studentGrades, setStudentGrades] = useState([]);
+  const [groupedGrades, setGroupedGrades] = useState([]);
+  const [selectedTermIndex, setSelectedTermIndex] = useState(0);
+  const [gradeViewMode, setGradeViewMode] = useState('list');
+  const [showGradesFilterDropdown, setShowGradesFilterDropdown] = useState(false);
+
+  // NEW: term filter state for top dropdown
+  const [selectedTermFilter, setSelectedTermFilter] = useState('ALL');
+  const [showTermDropdown, setShowTermDropdown] = useState(false);
+
+  const termOptions = React.useMemo(() => {
+    const termSet = new Set();
+    uploadedGrades.forEach((grade) => {
+      const label = getGradeTermLabelFromRecord(grade);
+      if (label) {
+        termSet.add(label);
+      }
+    });
+    return Array.from(termSet);
+  }, [uploadedGrades]);
+
+  const selectedTermLabel = selectedTermFilter === 'ALL' ? 'All Terms' : selectedTermFilter;
+
   // Load uploaded grades on component mount
   useEffect(() => {
     loadUploadedGrades();
@@ -917,6 +1046,33 @@ const UploadGrades = ({ navigation }) => {
     
     saveGradesToStorage();
   }, [uploadedGrades]);
+
+  // 🔗 NEW: Use existing term filter dropdown to also control which term is shown in View Grades modal
+  useEffect(() => {
+    if (!viewGradesVisible || groupedGrades.length === 0) return;
+
+    if (selectedTermFilter === 'ALL') {
+      setSelectedTermIndex(0);
+      return;
+    }
+
+    // selectedTermFilter format: "2024-2025 FIRST"
+    const parts = selectedTermFilter.split(' ');
+    const yearLabel = parts[0];              // "2024-2025"
+    const semLabel = parts.slice(1).join(' '); // "FIRST"
+
+    const idx = groupedGrades.findIndex((term) => {
+      const termYear = term.academicYearLabel || '';
+      const termSem = term.semester || '';
+
+      return (
+        (termYear === yearLabel || termYear === `AY ${yearLabel}`) &&
+        (termSem === semLabel || getSemesterLabel(termSem) === semLabel)
+      );
+    });
+
+    setSelectedTermIndex(idx >= 0 ? idx : 0);
+  }, [groupedGrades, selectedTermFilter, viewGradesVisible]);
 
   const handleUploadGrades = () => {
     pickGradeFile(setUploadedGrades, setOcrLoading, uploadedGrades);
@@ -1113,15 +1269,67 @@ const UploadGrades = ({ navigation }) => {
     );
   };
 
+  // NEW: load official grades for view grades modal
+  const loadStudentGradesFromServer = async ({ academicYear, semester }) => {
+    try {
+      setGradesLoading(true);
+      const student = await getStudentData();
+      if (!student || !student.Student_id) {
+        throw new Error('Student ID not found.');
+      }
+
+      // ✅ PHP endpoint now returns ALL grades for the student.
+      // Filtering/grouping is handled here in the UI.
+      const url =
+        `${BASE_URL}/get_student_grade.php` +
+        `?student_id=${encodeURIComponent(student.Student_id)}`;
+
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch grades (status ${response.status})`);
+      }
+
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.message || 'Failed to fetch grades.');
+      }
+
+      const grades = Array.isArray(data.grades) ? data.grades : [];
+      setStudentGrades(grades);
+
+      // ✅ Group all grades by AY + Semester in the UI
+      const terms = groupGradesByTerm(grades);
+      setGroupedGrades(terms);
+      setSelectedTermIndex(0);
+    } catch (error) {
+      console.error('Error loading student grades:', error);
+      Alert.alert('Error', error.message || 'Failed to load grades.');
+    } finally {
+      setGradesLoading(false);
+    }
+  };
+
+  // NEW: open/close modal
+  const openViewGrades = async () => {
+    setViewGradesVisible(true);
+    await loadStudentGradesFromServer({
+      academicYear: "2024-2025",
+      semester: "FIRST",
+    });
+  };
+
+  const closeViewGrades = () => {
+    setViewGradesVisible(false);
+  };
 
   return (
     <View style={styles.container}>
-        <ScrollView 
-          style={styles.scrollView} 
-          contentContainerStyle={styles.scrollViewContent}
-          showsVerticalScrollIndicator={true}
-          bounces={true}
-        >
+      <ScrollView 
+        style={styles.scrollView} 
+        contentContainerStyle={styles.scrollViewContent}
+        showsVerticalScrollIndicator={true}
+        bounces={true}
+      >
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity 
@@ -1131,6 +1339,118 @@ const UploadGrades = ({ navigation }) => {
             <Ionicons name="arrow-back" size={24} color="#DC143C" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Upload Grades</Text>
+        </View>
+
+        {/* Term filter + quick actions (adapted from portal UI) */}
+        <View style={styles.termCardWrapper}>
+          <View style={styles.termCard}>
+            {/* Term dropdown */}
+            <View style={styles.termFilterRow}>
+              <TouchableOpacity
+                style={styles.termFilterButton}
+                onPress={() => setShowTermDropdown((prev) => !prev)}
+              >
+                <Ionicons name="funnel-outline" size={16} color="#4B5563" />
+                <Text style={styles.termFilterText}>{selectedTermLabel}</Text>
+                <Ionicons
+                  name={showTermDropdown ? 'chevron-up-outline' : 'chevron-down-outline'}
+                  size={16}
+                  color="#4B5563"
+                />
+              </TouchableOpacity>
+            </View>
+
+            {showTermDropdown && (
+              <View style={styles.termDropdown}>
+                <TouchableOpacity
+                  style={[
+                    styles.termDropdownItem,
+                    selectedTermFilter === 'ALL' && styles.termDropdownItemActive,
+                  ]}
+                  onPress={() => {
+                    setSelectedTermFilter('ALL');
+                    setShowTermDropdown(false);
+                  }}
+                >
+                  <Text style={styles.termDropdownItemText}>All Terms</Text>
+                </TouchableOpacity>
+
+                {termOptions.length > 0 ? (
+                  termOptions.map((term) => (
+                    <TouchableOpacity
+                      key={term}
+                      style={[
+                        styles.termDropdownItem,
+                        selectedTermFilter === term && styles.termDropdownItemActive,
+                      ]}
+                      onPress={() => {
+                        setSelectedTermFilter(term);
+                        setShowTermDropdown(false);
+                      }}
+                    >
+                      <Text style={styles.termDropdownItemText}>{term}</Text>
+                    </TouchableOpacity>
+                  ))
+                ) : (
+                  <View style={styles.termDropdownEmpty}>
+                    <Text style={styles.termDropdownEmptyText}>
+                      No uploaded grades yet
+                    </Text>
+                  </View>
+                )}
+              </View>
+            )}
+
+            {/* Quick action row similar to web UI */}
+            <View style={styles.gradeMenuRow}>
+              <TouchableOpacity
+                style={styles.gradeMenuItem}
+                onPress={openViewGrades}   // UPDATED: open official view grades modal
+              >
+                <View style={styles.gradeMenuIconCircle}>
+                  <Ionicons name="document-text-outline" size={20} color="#1B5E20" />
+                </View>
+                <Text style={styles.gradeMenuLabel}>Grades</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.gradeMenuItem}
+                onPress={() =>
+                  Alert.alert(
+                    'View All Grades',
+                    'Use the main portal to view your consolidated grades.'
+                  )
+                }
+              >
+                <View style={styles.gradeMenuIconCircle}>
+                  <Ionicons name="book-outline" size={20} color="#1B5E20" />
+                </View>
+                <Text style={styles.gradeMenuLabel}>View All Grades</Text>
+              </TouchableOpacity>
+
+              <View style={[styles.gradeMenuItem, styles.gradeMenuItemActive]}>
+                <View style={styles.gradeMenuIconCircle}>
+                  <Ionicons name="cloud-upload-outline" size={20} color="#1B5E20" />
+                </View>
+                <Text style={styles.gradeMenuLabel}>Upload Grades</Text>
+              </View>
+
+              <TouchableOpacity
+                style={styles.gradeMenuItem}
+                onPress={() =>
+                  Alert.alert(
+                    'View Copy of Grades',
+                    'Your official copy of grades will be available in the registrar portal.'
+                  )
+                }
+              >
+                <View style={styles.gradeMenuIconCircle}>
+                  <Ionicons name="copy-outline" size={20} color="#1B5E20" />
+                </View>
+                <Text style={styles.gradeMenuLabel}>View Copy of Grades</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
 
         {/* Upload Section */}
@@ -1169,37 +1489,45 @@ const UploadGrades = ({ navigation }) => {
         {uploadedGrades.length > 0 && (
           <View style={styles.gradesSection}>
             <Text style={styles.sectionTitle}>Uploaded Grades ({uploadedGrades.length})</Text>
-            {uploadedGrades.map((grade) => (
-              <View key={grade.id} style={styles.gradeCard}>
-                <View style={styles.gradeHeader}>
-                  <View style={styles.gradeInfo}>
-                    <Text style={styles.gradeSemester}>
-                      {grade.semester || 'N/A'} - {grade.academicYear || 'N/A'}
-                    </Text>
-                    <Text style={styles.gradeYear}>
-                      Year Level: {grade.yearLevel || 'N/A'}
-                    </Text>
+            {uploadedGrades.map((grade) => {
+              const termLabel = getGradeTermLabelFromRecord(grade);
+
+              if (selectedTermFilter !== 'ALL' && termLabel !== selectedTermFilter) {
+                return null;
+              }
+
+              return (
+                <View key={grade.id} style={styles.gradeCard}>
+                  <View style={styles.gradeHeader}>
+                    <View style={styles.gradeInfo}>
+                      <Text style={styles.gradeSemester}>
+                        {(grade.semester || grade.sem || 'N/A')} - {(grade.academicYear || grade.academic_year || 'N/A')}
+                      </Text>
+                      <Text style={styles.gradeYear}>
+                        Year Level: {grade.yearLevel || 'N/A'}
+                      </Text>
+                    </View>
+                    <View style={styles.gradeActions}>
+                      <TouchableOpacity 
+                        style={styles.actionButton}
+                        onPress={() => viewGradeDetails(grade)}
+                      >
+                        <Ionicons name="eye-outline" size={20} color="#DC143C" />
+                      </TouchableOpacity>
+                      <TouchableOpacity 
+                        style={[styles.actionButton, styles.deleteButton]}
+                        onPress={() => deleteGrade(grade.id)}
+                      >
+                        <Ionicons name="trash-outline" size={20} color="#D32F2F" />
+                      </TouchableOpacity>
+                    </View>
                   </View>
-                  <View style={styles.gradeActions}>
-                    <TouchableOpacity 
-                      style={styles.actionButton}
-                      onPress={() => viewGradeDetails(grade)}
-                    >
-                      <Ionicons name="eye-outline" size={20} color="#DC143C" />
-                    </TouchableOpacity>
-                    <TouchableOpacity 
-                      style={[styles.actionButton, styles.deleteButton]}
-                      onPress={() => deleteGrade(grade.id)}
-                    >
-                      <Ionicons name="trash-outline" size={20} color="#D32F2F" />
-                    </TouchableOpacity>
-                  </View>
+                  <Text style={styles.gradeDate}>
+                    Uploaded: {new Date(grade.uploadDate).toLocaleDateString()}
+                  </Text>
                 </View>
-                <Text style={styles.gradeDate}>
-                  Uploaded: {new Date(grade.uploadDate).toLocaleDateString()}
-                </Text>
-              </View>
-            ))}
+              );
+            })}
             {/* Bottom spacing for grades list */}
             <View style={styles.gradesBottomSpacing} />
           </View>
@@ -1228,210 +1556,468 @@ const UploadGrades = ({ navigation }) => {
             
             return (
               <View style={styles.modalContentWrapper}>
-              <ScrollView style={styles.modalContent}>
-                {/* Basic Information */}
-                <View style={styles.infoSection}>
-                  <View style={styles.infoRow}>
-                    <Text style={styles.infoLabel}>Academic Year:</Text>
-                    <Text style={styles.infoValue}>{selectedGrade.academicYear || 'N/A'}</Text>
+                <ScrollView style={styles.modalContent}>
+                  {/* Basic Information */}
+                  <View style={styles.infoSection}>
+                    <View style={styles.infoRow}>
+                      <Text style={styles.infoLabel}>Academic Year:</Text>
+                      <Text style={styles.infoValue}>{selectedGrade.academicYear || 'N/A'}</Text>
+                    </View>
+                    <View style={styles.infoRow}>
+                      <Text style={styles.infoLabel}>Semester:</Text>
+                      <Text style={styles.infoValue}>{selectedGrade.semester || 'N/A'}</Text>
+                    </View>
+                    <View style={styles.infoRow}>
+                      <Text style={styles.infoLabel}>Year Level:</Text>
+                      <Text style={styles.infoValue}>{selectedGrade.yearLevel || 'N/A'}</Text>
+                    </View>
+                    <View style={styles.infoRow}>
+                      <Text style={styles.infoLabel}>Upload Date:</Text>
+                      <Text style={styles.infoValue}>
+                        {new Date(selectedGrade.uploadDate).toLocaleDateString()}
+                      </Text>
+                    </View>
                   </View>
-                  <View style={styles.infoRow}>
-                    <Text style={styles.infoLabel}>Semester:</Text>
-                    <Text style={styles.infoValue}>{selectedGrade.semester || 'N/A'}</Text>
-                  </View>
-                  <View style={styles.infoRow}>
-                    <Text style={styles.infoLabel}>Year Level:</Text>
-                    <Text style={styles.infoValue}>{selectedGrade.yearLevel || 'N/A'}</Text>
-                  </View>
-                  <View style={styles.infoRow}>
-                    <Text style={styles.infoLabel}>Upload Date:</Text>
-                    <Text style={styles.infoValue}>
-                      {new Date(selectedGrade.uploadDate).toLocaleDateString()}
-                    </Text>
-                  </View>
-                </View>
 
-
-
-                {/* Courses Table - Show detailed courses and grades with curriculum validation */}
-                {gradeData.courses.length > 0 ? (
-                  <View style={styles.tableSection}>
-                    <Text style={styles.tableSectionTitle}>Course Details ({gradeData.courses.length} courses)</Text>
-                    
-                    {/* Horizontally Scrollable Table Container */}
-                    <View style={styles.scrollableTableContainer}>
-                      <ScrollView 
-                        horizontal={true}
-                        showsHorizontalScrollIndicator={true}
-                        style={styles.horizontalScrollView}
-                      >
-                        <View style={styles.tableContent}>
-                          {/* Table Header */}
-                          <View style={styles.tableHeader}>
-                            <Text style={[styles.tableHeaderText, styles.codeColumnWide]}>Course Code</Text>
-                            <Text style={[styles.tableHeaderText, styles.titleColumnWide]}>Course Title</Text>
-                            <Text style={[styles.tableHeaderText, styles.unitsColumnWide]}>Units</Text>
-                            <Text style={[styles.tableHeaderText, styles.gradeColumnWide]}>Grade</Text>
-                            <Text style={[styles.tableHeaderText, styles.statusColumnWide]}>Status</Text>
-                            <Text style={[styles.tableHeaderText, styles.matchColumnWide]}>Curriculum Match</Text>
-                            <Text style={[styles.tableHeaderText, styles.sectionColumnWide]}>Section</Text>
-                            <Text style={[styles.tableHeaderText, styles.instructorColumnWide]}>Instructor</Text>
-                          </View>
-                          
-                          {/* Vertically Scrollable Table Content */}
-                          <ScrollView 
-                            style={styles.tableScrollView}
-                            showsVerticalScrollIndicator={true}
-                            nestedScrollEnabled={true}
-                          >
-                            {gradeData.courses.map((course, index) => {
-                              // Find validation info for this course
-                              const matchedCourse = selectedGrade.validationResults?.matchedCourses?.find(
-                                mc => mc.courseCode === course.courseCode
-                              );
-                              const unmatchedCourse = selectedGrade.validationResults?.unmatchedCourses?.find(
-                                uc => uc.courseCode === course.courseCode
-                              );
-                              
-                              const isMatched = !!matchedCourse;
-                              const gradeStatus = getGradeStatus(course.grade);
-                              
-                              return (
-                                <View key={index} style={[
-                                  styles.tableRow, 
-                                  index % 2 === 0 ? styles.evenRow : styles.oddRow,
-                                  !isMatched && styles.unmatchedRow
-                                ]}>
-                                  <Text style={[styles.tableCellText, styles.codeColumnWide]} numberOfLines={2}>
-                                    {course.courseCode}
-                                  </Text>
-                                  <Text style={[styles.tableCellText, styles.titleColumnWide]} numberOfLines={3}>
-                                    {course.courseTitle}
-                                  </Text>
-                                  <Text style={[styles.tableCellText, styles.unitsColumnWide]}>
-                                    {course.units}
-                                  </Text>
-                                  <Text style={[styles.tableCellText, styles.gradeColumnWide, styles.gradeText]}>
-                                    {course.grade}
-                                  </Text>
-                                  <Text style={[
-                                    styles.tableCellText, 
-                                    styles.statusColumnWide,
-                                    gradeStatus === 'PASSED' ? styles.passedStatus : 
-                                    gradeStatus === 'FAIL' ? styles.failedStatus : 
-                                    gradeStatus === 'INC' ? styles.incStatus : styles.unknownStatus
+                  {/* Courses Table - Show detailed courses and grades with curriculum validation */}
+                  {gradeData.courses.length > 0 ? (
+                    <View style={styles.tableSection}>
+                      <Text style={styles.tableSectionTitle}>Course Details ({gradeData.courses.length} courses)</Text>
+                      
+                      {/* Horizontally Scrollable Table Container */}
+                      <View style={styles.scrollableTableContainer}>
+                        <ScrollView 
+                          horizontal={true}
+                          showsHorizontalScrollIndicator={true}
+                          style={styles.horizontalScrollView}
+                        >
+                          <View style={styles.tableContent}>
+                            {/* Table Header */}
+                            <View style={styles.tableHeader}>
+                              <Text style={[styles.tableHeaderText, styles.codeColumnWide]}>Course Code</Text>
+                              <Text style={[styles.tableHeaderText, styles.titleColumnWide]}>Course Title</Text>
+                              <Text style={[styles.tableHeaderText, styles.unitsColumnWide]}>Units</Text>
+                              <Text style={[styles.tableHeaderText, styles.gradeColumnWide]}>Grade</Text>
+                              <Text style={[styles.tableHeaderText, styles.statusColumnWide]}>Status</Text>
+                              <Text style={[styles.tableHeaderText, styles.matchColumnWide]}>Curriculum Match</Text>
+                              <Text style={[styles.tableHeaderText, styles.sectionColumnWide]}>Section</Text>
+                              <Text style={[styles.tableHeaderText, styles.instructorColumnWide]}>Instructor</Text>
+                            </View>
+                            
+                            {/* Vertically Scrollable Table Content */}
+                            <ScrollView 
+                              style={styles.tableScrollView}
+                              showsVerticalScrollIndicator={true}
+                              nestedScrollEnabled={true}
+                            >
+                              {gradeData.courses.map((course, index) => {
+                                // Find validation info for this course
+                                const matchedCourse = selectedGrade.validationResults?.matchedCourses?.find(
+                                  mc => mc.courseCode === course.courseCode
+                                );
+                                const unmatchedCourse = selectedGrade.validationResults?.unmatchedCourses?.find(
+                                  uc => uc.courseCode === course.courseCode
+                                );
+                                
+                                const isMatched = !!matchedCourse;
+                                const gradeStatus = getGradeStatus(course.grade);
+                                
+                                return (
+                                  <View key={index} style={[
+                                    styles.tableRow, 
+                                    index % 2 === 0 ? styles.evenRow : styles.oddRow,
+                                    !isMatched && styles.unmatchedRow
                                   ]}>
-                                    {gradeStatus}
-                                  </Text>
-                                  <View style={[styles.tableCellText, styles.matchColumnWide]}>
-                                    {isMatched ? (
-                                      <View style={styles.matchedIndicator}>
-                                        <Text style={styles.matchedText}>✅ MATCHED</Text>
-                                        {matchedCourse.matchStrategy && (
-                                          <Text style={styles.matchStrategyText}>
-                                            ({matchedCourse.matchStrategy})
-                                          </Text>
-                                        )}
-                                        {matchedCourse.curriculumCourseCode !== course.courseCode && (
-                                          <Text style={styles.curriculumCodeText}>
-                                            Curriculum: {matchedCourse.curriculumCourseCode}
-                                          </Text>
-                                        )}
-                                      </View>
-                                    ) : (
-                                      <View style={styles.unmatchedIndicator}>
-                                        <Text style={styles.unmatchedText}>❌ NOT FOUND</Text>
-                                        {unmatchedCourse?.suggestedMatches?.length > 0 && (
-                                          <Text style={styles.suggestionText}>
-                                            Similar: {unmatchedCourse.suggestedMatches[0].courseCode}
-                                          </Text>
-                                        )}
-                                      </View>
-                                    )}
+                                    <Text style={[styles.tableCellText, styles.codeColumnWide]} numberOfLines={2}>
+                                      {course.courseCode}
+                                    </Text>
+                                    <Text style={[styles.tableCellText, styles.titleColumnWide]} numberOfLines={3}>
+                                      {course.courseTitle}
+                                    </Text>
+                                    <Text style={[styles.tableCellText, styles.unitsColumnWide]}>
+                                      {course.units}
+                                    </Text>
+                                    <Text style={[styles.tableCellText, styles.gradeColumnWide, styles.gradeText]}>
+                                      {course.grade}
+                                    </Text>
+                                    <Text style={[
+                                      styles.tableCellText, 
+                                      styles.statusColumnWide,
+                                      gradeStatus === 'PASSED' ? styles.passedStatus : 
+                                      gradeStatus === 'FAIL' ? styles.failedStatus : 
+                                      gradeStatus === 'INC' ? styles.incStatus : styles.unknownStatus
+                                    ]}>
+                                      {gradeStatus}
+                                    </Text>
+                                    <View style={[styles.tableCellText, styles.matchColumnWide]}>
+                                      {isMatched ? (
+                                        <View style={styles.matchedIndicator}>
+                                          <Text style={styles.matchedText}>✅ MATCHED</Text>
+                                          {matchedCourse.matchStrategy && (
+                                            <Text style={styles.matchStrategyText}>
+                                              ({matchedCourse.matchStrategy})
+                                            </Text>
+                                          )}
+                                          {matchedCourse.curriculumCourseCode !== course.courseCode && (
+                                            <Text style={styles.curriculumCodeText}>
+                                              Curriculum: {matchedCourse.curriculumCourseCode}
+                                            </Text>
+                                          )}
+                                        </View>
+                                      ) : (
+                                        <View style={styles.unmatchedIndicator}>
+                                          <Text style={styles.unmatchedText}>❌ NOT FOUND</Text>
+                                          {unmatchedCourse?.suggestedMatches?.length > 0 && (
+                                            <Text style={styles.suggestionText}>
+                                              Similar: {unmatchedCourse.suggestedMatches[0].courseCode}
+                                            </Text>
+                                          )}
+                                        </View>
+                                      )}
+                                    </View>
+                                    <Text style={[styles.tableCellText, styles.sectionColumnWide]} numberOfLines={2}>
+                                      {course.section}
+                                    </Text>
+                                    <Text style={[styles.tableCellText, styles.instructorColumnWide]} numberOfLines={2}>
+                                      {course.instructor}
+                                    </Text>
                                   </View>
-                                  <Text style={[styles.tableCellText, styles.sectionColumnWide]} numberOfLines={2}>
-                                    {course.section}
-                                  </Text>
-                                  <Text style={[styles.tableCellText, styles.instructorColumnWide]} numberOfLines={2}>
-                                    {course.instructor}
-                                  </Text>
-                                </View>
-                              );
-                            })}
-                          </ScrollView>
-                        </View>
-                      </ScrollView>
-                    </View>
-                  </View>
-                ) : (
-                  <View style={styles.noDataSection}>
-                    <Text style={styles.noDataText}>No course data could be extracted from this document.</Text>
-                    <Text style={styles.noDataSubtext}>Please ensure the document contains a clear grade table.</Text>
-                  </View>
-                )}
-
-                {/* GWA Summary - Show after detailed courses */}
-                {gradeData.gwa && (
-                  <View style={styles.gwaSection}>
-                    <Text style={styles.gwaSectionTitle}>Academic Summary</Text>
-                    <View style={styles.gwaCard}>
-                      <View style={styles.gwaRow}>
-                        <Text style={styles.gwaLabel}>General Weighted Average (GWA):</Text>
-                        <Text style={styles.gwaValue}>{gradeData.gwa.toFixed(4)}</Text>
+                                );
+                              })}
+                            </ScrollView>
+                          </View>
+                        </ScrollView>
                       </View>
-                      {gradeData.totalCourses && (
+                    </View>
+                  ) : (
+                    <View style={styles.noDataSection}>
+                      <Text style={styles.noDataText}>No course data could be extracted from this document.</Text>
+                      <Text style={styles.noDataSubtext}>Please ensure the document contains a clear grade table.</Text>
+                    </View>
+                  )}
+
+                  {/* GWA Summary - Show after detailed courses */}
+                  {gradeData.gwa && (
+                    <View style={styles.gwaSection}>
+                      <Text style={styles.gwaSectionTitle}>Academic Summary</Text>
+                      <View style={styles.gwaCard}>
                         <View style={styles.gwaRow}>
-                          <Text style={styles.gwaLabel}>Total Courses:</Text>
-                          <Text style={styles.gwaValue}>{gradeData.totalCourses}</Text>
+                          <Text style={styles.gwaLabel}>General Weighted Average (GWA):</Text>
+                          <Text style={styles.gwaValue}>{gradeData.gwa.toFixed(4)}</Text>
+                        </View>
+                        {gradeData.totalCourses && (
+                          <View style={styles.gwaRow}>
+                            <Text style={styles.gwaLabel}>Total Courses:</Text>
+                            <Text style={styles.gwaValue}>{gradeData.totalCourses}</Text>
+                          </View>
+                        )}
+                        {gradeData.totalUnits && (
+                          <View style={styles.gwaRow}>
+                            <Text style={styles.gwaLabel}>Total Units:</Text>
+                            <Text style={styles.gwaValue}>{gradeData.totalUnits}</Text>
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                  )}
+                  
+                  {/* Bottom spacing to prevent content from touching screen bottom */}
+                  <View style={styles.bottomSpacing} />
+                </ScrollView>
+
+                {/* Save Button and Status at Bottom */}
+                <View style={styles.modalFooter}>
+                  {selectedGrade?.savedToDatabase ? (
+                    <View style={styles.savedIndicator}>
+                      <Ionicons name="checkmark-circle" size={20} color="#28A745" />
+                      <Text style={styles.savedText}>Grades have been uploaded</Text>
+                    </View>
+                  ) : (
+                    <TouchableOpacity 
+                      style={[
+                        styles.confirmButton,
+                        savingGrades && styles.buttonDisabled
+                      ]}
+                      onPress={() => handleSaveGradesToDatabase(selectedGrade)}
+                      disabled={savingGrades}
+                    >
+                      {savingGrades ? (
+                        <View style={styles.loadingContainer}>
+                          <ActivityIndicator size="small" color="#FFF" />
+                          <Text style={styles.buttonText}>Uploading...</Text>
+                        </View>
+                      ) : (
+                        <View style={styles.buttonContent}>
+                          <Ionicons name="cloud-upload-outline" size={20} color="#FFF" />
+                          <Text style={styles.buttonText}>Confirm & Upload</Text>
                         </View>
                       )}
-                      {gradeData.totalUnits && (
-                        <View style={styles.gwaRow}>
-                          <Text style={styles.gwaLabel}>Total Units:</Text>
-                          <Text style={styles.gwaValue}>{gradeData.totalUnits}</Text>
-                        </View>
-                      )}
-                    </View>
-                  </View>
-                )}
-                
-                {/* Bottom spacing to prevent content from touching screen bottom */}
-                <View style={styles.bottomSpacing} />
-              </ScrollView>
-
-              {/* Save Button and Status at Bottom */}
-              <View style={styles.modalFooter}>
-                {selectedGrade?.savedToDatabase ? (
-                  <View style={styles.savedIndicator}>
-                    <Ionicons name="checkmark-circle" size={20} color="#28A745" />
-                    <Text style={styles.savedText}>Grades have been uploaded</Text>
-                  </View>
-                ) : (
-                  <TouchableOpacity 
-                    style={[
-                      styles.confirmButton,
-                      savingGrades && styles.buttonDisabled
-                    ]}
-                    onPress={() => handleSaveGradesToDatabase(selectedGrade)}
-                    disabled={savingGrades}
-                  >
-                    {savingGrades ? (
-                      <View style={styles.loadingContainer}>
-                        <ActivityIndicator size="small" color="#FFF" />
-                        <Text style={styles.buttonText}>Uploading...</Text>
-                      </View>
-                    ) : (
-                      <View style={styles.buttonContent}>
-                        <Ionicons name="cloud-upload-outline" size={20} color="#FFF" />
-                        <Text style={styles.buttonText}>Confirm & Upload</Text>
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                )}
-              </View>
+                    </TouchableOpacity>
+                  )}
+                </View>
               </View>
             );
           })()}
+        </View>
+      </Modal>
+
+      {/* View Grades Modal (official grades from backend) */}
+      <Modal
+        visible={viewGradesVisible}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={closeViewGrades}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>
+              {(() => {
+                const term = groupedGrades[selectedTermIndex];
+                if (!term) return 'Grades';
+                const yearLabel = term.academicYearLabel || 'Academic Year';
+                const semLabel = term.semester || '';
+                return `Grades — ${yearLabel}${semLabel ? ` • ${semLabel}` : ''}`;
+              })()}
+            </Text>
+            <TouchableOpacity style={styles.closeButton} onPress={closeViewGrades}>
+              <Ionicons name="close" size={24} color="#666" />
+            </TouchableOpacity>
+          </View>
+
+          {gradesLoading ? (
+            <View style={styles.viewGradesLoadingContainer}>
+              <ActivityIndicator size="large" color="#DC143C" />
+              <Text style={styles.viewGradesLoadingText}>Loading grades...</Text>
+            </View>
+          ) : groupedGrades.length === 0 ? (
+            <View style={styles.viewGradesEmptyContainer}>
+              <Text style={styles.viewGradesEmptyText}>No grades found.</Text>
+              <Text style={styles.viewGradesEmptySubtext}>
+                Upload your COG or check back later.
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.viewGradesContentWrapper}>
+              {/* Term chips */}
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.termChipRow}
+              >
+                {groupedGrades.map((term, index) => {
+                  const label =
+                    (term.academicYearLabel || 'AY') +
+                    (term.semester ? ` • ${term.semester}` : '');
+                  const isActive = index === selectedTermIndex;
+                  return (
+                    <TouchableOpacity
+                      key={term.key}
+                      style={[
+                        styles.termChip,
+                        isActive && styles.termChipActive,
+                      ]}
+                      onPress={() => setSelectedTermIndex(index)}
+                    >
+                      <Text
+                        style={[
+                          styles.termChipText,
+                          isActive && styles.termChipTextActive,
+                        ]}
+                      >
+                        {label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+
+              {/* View mode toggle */}
+              <View style={styles.viewModeToggleRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.viewModeButton,
+                    gradeViewMode === 'list' && styles.viewModeButtonActive,
+                  ]}
+                  onPress={() => setGradeViewMode('list')}
+                >
+                  <Ionicons
+                    name="list-outline"
+                    size={16}
+                    color={gradeViewMode === 'list' ? '#DC143C' : '#6B7280'}
+                  />
+                  <Text
+                    style={[
+                      styles.viewModeButtonText,
+                      gradeViewMode === 'list' && styles.viewModeButtonTextActive,
+                    ]}
+                  >
+                    List View
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.viewModeButton,
+                    gradeViewMode === 'table' && styles.viewModeButtonActive,
+                  ]}
+                  onPress={() => setGradeViewMode('table')}
+                >
+                  <Ionicons
+                    name="grid-outline"
+                    size={16}
+                    color={gradeViewMode === 'table' ? '#DC143C' : '#6B7280'}
+                  />
+                  <Text
+                    style={[
+                      styles.viewModeButtonText,
+                      gradeViewMode === 'table' && styles.viewModeButtonTextActive,
+                    ]}
+                  >
+                    Table View
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Selected term content */}
+              {(() => {
+                const term = groupedGrades[selectedTermIndex];
+                if (!term) return null;
+
+                if (gradeViewMode === 'table') {
+                  return (
+                    <ScrollView
+                      style={styles.viewGradesBody}
+                      contentContainerStyle={{ paddingBottom: 24 }}
+                    >
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={true}
+                      >
+                        <View style={styles.gradeTable}>
+                          <View style={styles.gradeTableHeaderRow}>
+                            <Text
+                              style={[styles.gradeTableHeaderCell, { flex: 1.4 }]}
+                            >
+                              Course Code
+                            </Text>
+                            <Text
+                              style={[styles.gradeTableHeaderCell, { flex: 3 }]}
+                            >
+                              Course Title
+                            </Text>
+                            <Text
+                              style={[styles.gradeTableHeaderCell, { flex: 0.8 }]}
+                            >
+                              Units
+                            </Text>
+                            <Text
+                              style={[styles.gradeTableHeaderCell, { flex: 0.8 }]}
+                            >
+                              Grade
+                            </Text>
+                            <Text
+                              style={[styles.gradeTableHeaderCell, { flex: 1.4 }]}
+                            >
+                              Instructor
+                            </Text>
+                          </View>
+                          {term.courses.map((course, idx) => (
+                            <View
+                              key={`${course.course_code}-${idx}`}
+                              style={[
+                                styles.gradeTableRow,
+                                idx % 2 === 0
+                                  ? styles.gradeTableRowEven
+                                  : styles.gradeTableRowOdd,
+                              ]}
+                            >
+                              <Text
+                                style={[styles.gradeTableCell, { flex: 1.4 }]}
+                                numberOfLines={1}
+                              >
+                                {course.course_code}
+                              </Text>
+                              <Text
+                                style={[styles.gradeTableCell, { flex: 3 }]}
+                                numberOfLines={2}
+                              >
+                                {course.course_title || 'N/A'}
+                              </Text>
+                              <Text
+                                style={[styles.gradeTableCell, { flex: 0.8 }]}
+                              >
+                                {course.course_units ?? ''}
+                              </Text>
+                              <Text
+                                style={[
+                                  styles.gradeTableCell,
+                                  { flex: 0.8 },
+                                  styles.gradeTableGrade,
+                                ]}
+                              >
+                                {formatGradeValue(course.grade)}
+                              </Text>
+                              <Text
+                                style={[styles.gradeTableCell, { flex: 1.4 }]}
+                                numberOfLines={2}
+                              >
+                                {course.instructor || 'N/A'}
+                              </Text>
+                            </View>
+                          ))}
+                        </View>
+                      </ScrollView>
+                    </ScrollView>
+                  );
+                }
+
+                // List view
+                return (
+                  <ScrollView
+                    style={styles.viewGradesBody}
+                    contentContainerStyle={{ paddingBottom: 24 }}
+                  >
+                    {term.courses.map((course, idx) => (
+                      <View
+                        key={`${course.course_code}-${idx}`}
+                        style={styles.gradeListItem}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.gradeListTextMain}>
+                            {course.course_code}{' '}
+                            {course.course_title
+                              ? `- ${course.course_title}`
+                              : ''}
+                            {course.course_units
+                              ? ` (${course.course_units} units)`
+                              : ''}
+                          </Text>
+                          {course.instructor ? (
+                            <Text style={styles.gradeListTextSub}>
+                              {course.instructor}
+                            </Text>
+                          ) : null}
+                        </View>
+                        <View style={styles.gradeListGradeWrapper}>
+                          <Text style={styles.gradeListGradeText}>
+                            {formatGradeValue(course.grade)}
+                          </Text>
+                          {course.remarks === 'PASSED' && (
+                            <Ionicons
+                              name="checkmark-circle"
+                              size={18}
+                              color="#16A34A"
+                              style={{ marginTop: 2 }}
+                            />
+                          )}
+                        </View>
+                      </View>
+                    ))}
+                  </ScrollView>
+                );
+              })()}
+            </View>
+          )}
         </View>
       </Modal>
     </View>
@@ -1467,6 +2053,107 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#DC143C',
   },
+
+  /* NEW styles for term header & quick actions */
+  termCardWrapper: {
+    backgroundColor: '#7B0010',
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+  },
+  termCard: {
+    marginTop: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  termFilterRow: {
+    marginBottom: 8,
+    flexDirection: 'row',
+    justifyContent: 'flex-start',
+  },
+  termFilterButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  termFilterText: {
+    marginHorizontal: 6,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  termDropdown: {
+    marginTop: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
+    overflow: 'hidden',
+  },
+  termDropdownItem: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  termDropdownItemActive: {
+    backgroundColor: '#FEE2E2',
+  },
+  termDropdownItemText: {
+    fontSize: 13,
+    color: '#111827',
+  },
+  termDropdownEmpty: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  termDropdownEmptyText: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontStyle: 'italic',
+  },
+  gradeMenuRow: {
+    marginTop: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  gradeMenuItem: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  gradeMenuItemActive: {
+    backgroundColor: '#FFF5F5',
+    borderRadius: 12,
+  },
+  gradeMenuIconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#1B5E20',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+    backgroundColor: '#FFFFFF',
+  },
+  gradeMenuLabel: {
+    fontSize: 11,
+    color: '#111827',
+    textAlign: 'center',
+  },
+
   uploadSection: {
     backgroundColor: '#FFF',
     margin: 20,
@@ -1536,10 +2223,14 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   matchedText: {
+    fontSize: 10,
     color: '#28A745',
+    fontWeight: 'bold',
   },
   unmatchedText: {
+    fontSize: 10,
     color: '#DC3545',
+    fontWeight: 'bold',
   },
   saveButton: {
     backgroundColor: '#28A745',
@@ -1738,6 +2429,7 @@ const styles = StyleSheet.create({
   buttonContent: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
   },
   loadingContainer: {
     flexDirection: 'row',
@@ -2040,16 +2732,6 @@ const styles = StyleSheet.create({
   unmatchedIndicator: {
     alignItems: 'center',
   },
-  matchedText: {
-    fontSize: 10,
-    color: '#28A745',
-    fontWeight: 'bold',
-  },
-  unmatchedText: {
-    fontSize: 10,
-    color: '#DC3545',
-    fontWeight: 'bold',
-  },
   matchStrategyText: {
     fontSize: 8,
     color: '#6C757D',
@@ -2141,10 +2823,161 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginLeft: 8,
   },
-  buttonContent: {
+
+  /* NEW styles for View Grades modal (official grades) */
+  viewGradesLoadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  viewGradesLoadingText: {
+    marginTop: 8,
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  viewGradesEmptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  viewGradesEmptyText: {
+    fontSize: 16,
+    color: '#6B7280',
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  viewGradesEmptySubtext: {
+    fontSize: 14,
+    color: '#9CA3AF',
+    textAlign: 'center',
+  },
+  viewGradesContentWrapper: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+  },
+  termChipRow: {
+    paddingVertical: 6,
+  },
+  termChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#F9FAFB',
+    marginRight: 8,
+  },
+  termChipActive: {
+    backgroundColor: '#FEE2E2',
+    borderColor: '#DC143C',
+  },
+  termChipText: {
+    fontSize: 12,
+    color: '#374151',
+    fontWeight: '500',
+  },
+  termChipTextActive: {
+    color: '#B91C1C',
+  },
+  viewModeToggleRow: {
+    flexDirection: 'row',
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  viewModeButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    marginRight: 8,
+    backgroundColor: '#F3F4F6',
+  },
+  viewModeButtonActive: {
+    backgroundColor: '#FFE4E6',
+    borderWidth: 1,
+    borderColor: '#DC143C',
+  },
+  viewModeButtonText: {
+    marginLeft: 4,
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '500',
+  },
+  viewModeButtonTextActive: {
+    color: '#B91C1C',
+  },
+  viewGradesBody: {
+    flex: 1,
+    marginTop: 8,
+  },
+  gradeListItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  gradeListTextMain: {
+    fontSize: 14,
+    color: '#111827',
+    fontWeight: '600',
+  },
+  gradeListTextSub: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  gradeListGradeWrapper: {
+    marginLeft: 12,
+    alignItems: 'flex-end',
+  },
+  gradeListGradeText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  gradeTable: {
+    minWidth: '100%',
+    borderRadius: 8,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
+  },
+  gradeTableHeaderRow: {
+    flexDirection: 'row',
+    backgroundColor: '#DC143C',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+  },
+  gradeTableHeaderCell: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    paddingHorizontal: 4,
+  },
+  gradeTableRow: {
+    flexDirection: 'row',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+  },
+  gradeTableRowEven: {
+    backgroundColor: '#F9FAFB',
+  },
+  gradeTableRowOdd: {
+    backgroundColor: '#FFFFFF',
+  },
+  gradeTableCell: {
+    fontSize: 12,
+    color: '#111827',
+    paddingHorizontal: 4,
+  },
+  gradeTableGrade: {
+    fontWeight: '700',
+    color: '#DC143C',
   },
 });
 

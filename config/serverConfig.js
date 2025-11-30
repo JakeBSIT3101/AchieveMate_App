@@ -2,7 +2,7 @@
 // Update this IP address when your network changes
 export const OCR_SERVER_CONFIG = {
   // Current network IP address
-  HOST: '192.168.254.127',
+  HOST: '192.168.254.111',
   PORT: '5000',
   
   // Full server URL

@@ -1,495 +1,377 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Alert,
-  Image,
 } from "react-native";
-import { Checkbox, Provider as PaperProvider } from "react-native-paper";
+import { Provider as PaperProvider, Checkbox } from "react-native-paper";
 import * as DocumentPicker from "expo-document-picker";
-import * as ImagePicker from "expo-image-picker";
-import Icon from "react-native-vector-icons/MaterialCommunityIcons";
+import { Ionicons } from "@expo/vector-icons";
 
-export default function ApplicationForLatinHonor() {
-  const [currentStep, setCurrentStep] = useState(1);
-  const [consentChecked, setConsentChecked] = useState(false);
-  const [step1Checked, setStep1Checked] = useState(false);
-  const [validationDone, setValidationDone] = useState(false);
+const registrarRequirements = [
+  "TOR (with remark for evaluation purposes only)",
+  "Birth Certificate / PSA",
+  "Library Certificate",
+  "Shifter: include Honorable Dismissal from previous school.",
+  "4th year / transferee cases: attach BatStateU evaluation copy if applicable.",
+];
 
-  // File states
-  const [consentFile, setConsentFile] = useState(null);
-  const [gradeFile, setGradeFile] = useState(null);
-  const [goodMoralFile, setGoodMoralFile] = useState(null);
-  const [ojtFile, setOjtFile] = useState(null);
-  const [barangayFile, setBarangayFile] = useState(null);
+const chairpersonChecklist = [
+  "Consent form / Application form (generate below)",
+  "Evaluation set: updated prospectus & curriculum sheet, copy of PSA, Approval Sheet",
+  "Endorsement letter to Registrar",
+  "Barangay Clearance",
+];
 
-  const steps = [
-    "Guidelines",
-    "Consent Form",
-    "Grade Requirements",
-    "Grades Validation",
-    "Required Documents",
-    "Review & Submit",
-  ];
+const chairpersonRequirements = [
+  { key: "approvalSheet", label: "Approval Sheet", required: true },
+  { key: "libraryCertificate", label: "Certificate of Library", required: true },
+  { key: "barangayClearance", label: "Barangay Clearance", required: false },
+  { key: "birthCertificate", label: "Birth Certificate", required: false },
+];
 
-  const nextStep = () =>
-    setCurrentStep((prev) => (prev < steps.length ? prev + 1 : prev));
-  const prevStep = () =>
-    setCurrentStep((prev) => (prev > 1 ? prev - 1 : prev));
+const ApplicationForLatinHonor = () => {
+  const [registrarExpanded, setRegistrarExpanded] = useState(true);
+  const [chairExpanded, setChairExpanded] = useState(true);
+  const [requirements, setRequirements] = useState(() => {
+    const initial = {};
+    chairpersonRequirements.forEach((item) => {
+      initial[item.key] = { file: null, toFollow: false };
+    });
+    return initial;
+  });
 
-  // File picker for PDFs
-  const pickPDF = async (setter) => {
+  const toggleSection = (sectionSetter) => {
+    sectionSetter((prev) => !prev);
+  };
+
+  const handleUpload = async (key) => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: "application/pdf",
+        type: ["application/pdf", "image/*"],
         copyToCacheDirectory: true,
       });
-      if (result.type === "success") setter(result);
-    } catch (err) {
-      console.warn("Error picking file:", err);
+      if (result.type === "cancel") return;
+      const file = result.assets ? result.assets[0] : result;
+      setRequirements((prev) => ({
+        ...prev,
+        [key]: { ...prev[key], file, toFollow: false },
+      }));
+    } catch (error) {
+      console.warn("Upload error:", error);
     }
   };
 
-  // Image picker for barangay clearance
-  const pickImage = async () => {
-    try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        quality: 1,
-      });
-      if (!result.canceled) setBarangayFile(result.assets[0]);
-    } catch (err) {
-      console.warn("Image picker error:", err);
-    }
+  const toggleFollow = (key) => {
+    setRequirements((prev) => ({
+      ...prev,
+      [key]: {
+        ...prev[key],
+        toFollow: !prev[key].toFollow,
+        file: prev[key].toFollow ? prev[key].file : null,
+      },
+    }));
   };
 
-  // Mock grades validation
-  const validateGrades = () => {
-    if (!gradeFile) {
-      Alert.alert("Missing File", "Please upload your grades before validation.");
-      return;
-    }
-    setValidationDone(true);
-    Alert.alert("Validated", "Grades successfully validated. No deficiencies found.");
-  };
+  const requirementCards = useMemo(
+    () =>
+      chairpersonRequirements.map((item) => {
+        const data = requirements[item.key];
+        return (
+          <View key={item.key} style={styles.requirementCard}>
+            <Text style={styles.requirementTitle}>
+              {item.label}
+              {item.required ? (
+                <Text style={styles.required}> *</Text>
+              ) : (
+                <Text style={styles.optional}> (optional)</Text>
+              )}
+            </Text>
+            <Text style={styles.requirementHint}>PDF or Image (JPG/PNG)</Text>
+            <TouchableOpacity
+              style={styles.uploadInput}
+              onPress={() => handleUpload(item.key)}
+              disabled={data.toFollow}
+            >
+              <Text style={styles.uploadButtonText}>Choose File</Text>
+              <Text style={styles.fileName}>
+                {data.file?.name || "No file chosen"}
+              </Text>
+            </TouchableOpacity>
+            <View style={styles.followRow}>
+              <Checkbox
+                status={data.toFollow ? "checked" : "unchecked"}
+                onPress={() => toggleFollow(item.key)}
+                color="#1d4ed8"
+              />
+              <Text style={styles.followText}>Mark as To Follow</Text>
+            </View>
+          </View>
+        );
+      }),
+    [requirements]
+  );
 
   return (
     <PaperProvider>
-      <ScrollView contentContainerStyle={styles.container}>
-        <Text style={styles.title}>Application for Latin Honors</Text>
-
-        {/* Step Progress */}
-        <View style={styles.progressContainer}>
-          {steps.map((step, index) => (
-            <View key={index} style={styles.stepContainer}>
-              <View
-                style={[
-                  styles.circle,
-                  currentStep === index + 1 && styles.activeCircle,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.stepNumber,
-                    currentStep === index + 1 && styles.activeStepNumber,
-                  ]}
-                >
-                  {index + 1}
-                </Text>
-              </View>
-              <Text style={styles.stepLabel}>{step}</Text>
-            </View>
-          ))}
+      <ScrollView style={styles.screen}>
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Latin Honors Requirements</Text>
+          <Text style={styles.headerTagline}>
+            Upload the following for Latin Honors evaluation.
+          </Text>
         </View>
 
-        <View style={styles.card}>
-          {/* STEP 1 - Guidelines */}
-          {currentStep === 1 && (
-            <View>
-              <Text style={styles.stepTitle}>Step 1: Guidelines</Text>
-              <Text style={styles.text}>
-                The following are the general guidelines for applying for Latin
-                Honors at Batangas State University:
-              </Text>
-              <View style={styles.list}>
-                <Text style={styles.listItem}>
-                  1. Must have completed at least 50% of total units at Batangas
-                  State University.
+        <View style={styles.sectionCard}>
+          <TouchableOpacity
+            style={styles.sectionHeader}
+            onPress={() => toggleSection(setRegistrarExpanded)}
+          >
+            <Text style={styles.sectionHeaderText}>
+              Registrar Requirements (depends on department)
+            </Text>
+            <Ionicons
+              name={registrarExpanded ? "chevron-up" : "chevron-down"}
+              size={18}
+              color="#1d4ed8"
+            />
+          </TouchableOpacity>
+          {registrarExpanded && (
+            <View style={styles.sectionBody}>
+              {registrarRequirements.map((req, idx) => (
+                <Text key={idx} style={styles.listEntry}>
+                  {"\u2022"} {req}
                 </Text>
-                <Text style={styles.listItem}>
-                  2. Must have continuous residence for at least 2 years (4-year
-                  course) or 2.5 years (5-year course).
-                </Text>
-                <Text style={styles.listItem}>
-                  3. Shiftees must have taken at least 50% of units in the
-                  current program with required continuous residence.
-                </Text>
-                <Text style={styles.listItem}>
-                  4. Must carry a normal load of at least 15 units per semester
-                  unless justified.
-                </Text>
-              </View>
-
-              <View style={styles.checkboxContainer}>
-                <Checkbox
-                  status={step1Checked ? "checked" : "unchecked"}
-                  onPress={() => setStep1Checked(!step1Checked)}
-                  color="#DC143C"
-                />
-                <Text style={styles.text}>
-                  I have read and understood the guidelines.
-                </Text>
-              </View>
-            </View>
-          )}
-
-          {/* STEP 2 - Consent Form Upload */}
-          {currentStep === 2 && (
-            <View>
-              <Text style={styles.stepTitle}>Step 2: Data Privacy Agreement</Text>
-              <Text style={styles.text}>
-                Submit a signed Consent Form allowing Batangas State University
-                to process your academic information for Latin Honor evaluation.
+              ))}
+              <Text style={styles.note}>
+                Note: some colleges may ask for additional paperwork—follow your
+                department memo.
               </Text>
-
-              <TouchableOpacity
-                style={styles.uploadBox}
-                onPress={() => pickPDF(setConsentFile)}
-              >
-                {consentFile ? (
-                  <View style={{ alignItems: "center" }}>
-                    <Icon name="file-pdf-box" size={50} color="#e74c3c" />
-                    <Text style={styles.fileName}>{consentFile.name}</Text>
-                    <Text style={styles.successText}>Uploaded successfully</Text>
-                  </View>
-                ) : (
-                  <>
-                    <Icon name="upload" size={40} color="#666" />
-                    <Text style={styles.uploadText}>
-                      Tap to upload your signed Consent Form (PDF)
-                    </Text>
-                  </>
-                )}
-              </TouchableOpacity>
-
-              <View style={styles.checkboxContainer}>
-                <Checkbox
-                  status={consentChecked ? "checked" : "unchecked"}
-                  onPress={() => setConsentChecked(!consentChecked)}
-                  color="#DC143C"
-                />
-                <Text style={styles.text}>I agree to the Data Privacy Statement.</Text>
-              </View>
-            </View>
-          )}
-
-          {/* STEP 3 - Grade Requirements */}
-          {currentStep === 3 && (
-            <View>
-              <Text style={styles.stepTitle}>Step 3: Grade Requirements</Text>
-              <Text style={styles.text}>
-                Candidates must meet the following academic standards:
-              </Text>
-              <View style={styles.list}>
-                <Text style={styles.listItem}>• No grade of 4.00 or INC.</Text>
-                <Text style={styles.listItem}>• No dropped or failing grades.</Text>
-                <Text style={styles.listItem}>• Must have no record of misconduct.</Text>
-              </View>
-
-              <Text style={styles.sectionHeader}>Upload Copy of Grades (PDF)</Text>
-              <TouchableOpacity
-                style={styles.uploadBox}
-                onPress={() => pickPDF(setGradeFile)}
-              >
-                {gradeFile ? (
-                  <View style={{ alignItems: "center" }}>
-                    <Icon name="file-pdf-box" size={50} color="#e74c3c" />
-                    <Text style={styles.fileName}>{gradeFile.name}</Text>
-                    <Text style={styles.successText}>Uploaded successfully</Text>
-                  </View>
-                ) : (
-                  <>
-                    <Icon name="upload" size={40} color="#666" />
-                    <Text style={styles.uploadText}>Tap to upload Grades PDF</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {/* STEP 4 - Grades Validation */}
-          {currentStep === 4 && (
-            <View>
-              <Text style={styles.stepTitle}>Step 4: Grades Validation</Text>
-              <Text style={styles.text}>
-                This section verifies the uploaded grades. The system checks for
-                inconsistencies, missing units, or invalid grades.
-              </Text>
-
-              <View style={styles.cardInner}>
-                <Text style={styles.cardTitle}>Validation Summary</Text>
-                <Text style={styles.text}>
-                  Uploaded File:{" "}
-                  {gradeFile ? (
-                    <Text style={styles.bold}>{gradeFile.name}</Text>
-                  ) : (
-                    <Text style={{ color: "#999" }}>No file uploaded yet</Text>
-                  )}
-                </Text>
-                <Text style={styles.text}>
-                  Status:{" "}
-                  {validationDone ? (
-                    <Text style={{ color: "#00C881", fontWeight: "600" }}>
-                      Validated – No deficiencies found.
-                    </Text>
-                  ) : (
-                    <Text style={{ color: "#f39c12" }}>Pending validation</Text>
-                  )}
-                </Text>
-              </View>
-
-              <TouchableOpacity
-                style={[
-                  styles.validateButton,
-                  validationDone && { backgroundColor: "#00C881" },
-                ]}
-                onPress={validateGrades}
-              >
-                <Text style={styles.validateText}>
-                  {validationDone ? "Grades Validated" : "Validate Grades"}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {/* STEP 5 - Required Documents */}
-          {currentStep === 5 && (
-            <View>
-              <Text style={styles.stepTitle}>Step 5: Required Documents</Text>
-              <Text style={styles.text}>
-                Upload the following required documents for verification:
-              </Text>
-
-              <Text style={styles.sectionHeader}>
-                Certificate of Good Moral Character (PDF)
-              </Text>
-              <TouchableOpacity
-                style={styles.uploadBoxSmall}
-                onPress={() => pickPDF(setGoodMoralFile)}
-              >
-                {goodMoralFile ? (
-                  <Text style={styles.fileName}>{goodMoralFile.name}</Text>
-                ) : (
-                  <>
-                    <Icon name="upload" size={30} color="#666" />
-                    <Text style={styles.uploadText}>Upload PDF</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-
-              <Text style={styles.sectionHeader}>
-                Certificate of OJT Completion (PDF)
-              </Text>
-              <TouchableOpacity
-                style={styles.uploadBoxSmall}
-                onPress={() => pickPDF(setOjtFile)}
-              >
-                {ojtFile ? (
-                  <Text style={styles.fileName}>{ojtFile.name}</Text>
-                ) : (
-                  <>
-                    <Icon name="upload" size={30} color="#666" />
-                    <Text style={styles.uploadText}>Upload PDF</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-
-              <Text style={styles.sectionHeader}>
-                Barangay Clearance (Image)
-              </Text>
-              <TouchableOpacity style={styles.uploadBoxSmall} onPress={pickImage}>
-                {barangayFile ? (
-                  <Image
-                    source={{ uri: barangayFile.uri }}
-                    style={styles.previewSmall}
-                  />
-                ) : (
-                  <>
-                    <Icon name="image" size={30} color="#666" />
-                    <Text style={styles.uploadText}>Upload JPEG / PNG</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {/* STEP 6 - Review & Submit */}
-          {currentStep === 6 && (
-            <View>
-              <Text style={styles.stepTitle}>Step 6: Review & Submit</Text>
-              <Text style={styles.text}>
-                Review all your uploaded files and validated results before final submission.
-              </Text>
-
-              <TouchableOpacity
-                style={[
-                  styles.submitButton,
-                  !consentChecked && { backgroundColor: "#aaa" },
-                ]}
-                disabled={!consentChecked}
-                onPress={() =>
-                  Alert.alert(
-                    "Submitted",
-                    "Your Latin Honor application has been submitted (mock)."
-                  )
-                }
-              >
-                <Text style={styles.submitText}>Submit Application</Text>
-              </TouchableOpacity>
             </View>
           )}
         </View>
 
-        {/* Navigation */}
-        <View style={styles.navigation}>
-          {currentStep > 1 && (
-            <TouchableOpacity style={styles.navButton} onPress={prevStep}>
-              <Text style={styles.navButtonText}>Back</Text>
-            </TouchableOpacity>
+        <View style={styles.sectionCard}>
+          <TouchableOpacity
+            style={styles.sectionHeader}
+            onPress={() => toggleSection(setChairExpanded)}
+          >
+            <Text style={styles.sectionHeaderText}>
+              Chairperson (Latin Honors) Requirements
+            </Text>
+            <Ionicons
+              name={chairExpanded ? "chevron-up" : "chevron-down"}
+              size={18}
+              color="#1d4ed8"
+            />
+          </TouchableOpacity>
+          {chairExpanded && (
+            <View style={{ padding: 16 }}>
+              {chairpersonChecklist.map((line, idx) => (
+                <Text key={idx} style={styles.listEntry}>
+                  {"\u2022"} {line}
+                </Text>
+              ))}
+              <View style={styles.reminderCard}>
+                <Text style={styles.reminderLabel}>Eligibility reminder (example rule):</Text>
+                <Text style={styles.reminderText}>
+                  If the student has a grade of 2.25 in any subject, they do not qualify for Cum Laude even
+                  with a GWA of 1.75. Apply equivalent thresholds to higher honors.
+                </Text>
+              </View>
+            </View>
           )}
-          {currentStep < steps.length && (
-            <TouchableOpacity
-              style={[
-                styles.navButtonPrimary,
-                currentStep === 1 && !step1Checked && { backgroundColor: "#aaa" },
-              ]}
-              onPress={nextStep}
-              disabled={currentStep === 1 && !step1Checked}
-            >
-              <Text style={styles.navButtonTextPrimary}>Next</Text>
-            </TouchableOpacity>
-          )}
+        </View>
+
+        <View style={styles.requirementGrid}>{requirementCards}</View>
+
+        <View style={styles.actionRow}>
+          <TouchableOpacity style={styles.primaryButton}>
+            <Ionicons name="save-outline" size={18} color="#fff" />
+            <Text style={styles.primaryButtonText}>Save Requirements</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.secondaryButton}>
+            <Ionicons name="document-text-outline" size={18} color="#1d4ed8" />
+            <Text style={styles.secondaryButtonText}>Generate Consent</Text>
+          </TouchableOpacity>
         </View>
       </ScrollView>
     </PaperProvider>
   );
-}
+};
 
 const styles = StyleSheet.create({
-  container: { padding: 16, paddingBottom: 40, backgroundColor: "#f6f6f6" },
-  title: { fontSize: 22, fontWeight: "700", marginBottom: 12 },
-  card: {
-    backgroundColor: "#fff",
+  screen: {
+    flex: 1,
+    backgroundColor: "#f6f6f6",
+    padding: 16,
+  },
+  header: {
+    backgroundColor: "#991b1b",
     borderRadius: 16,
     padding: 20,
-    shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowOffset: { width: 0, height: 3 },
-    shadowRadius: 6,
-    elevation: 3,
-    marginBottom: 12,
+    marginBottom: 16,
   },
-  progressContainer: {
+  headerTitle: {
+    color: "#fff",
+    fontSize: 20,
+    fontWeight: "700",
+  },
+  headerTagline: {
+    color: "#fcd34d",
+    marginTop: 6,
+    fontSize: 13,
+  },
+  sectionCard: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: "#dbeafe",
+    overflow: "hidden",
+  },
+  sectionHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 20,
-  },
-  stepContainer: { alignItems: "center", width: "15%" },
-  circle: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    borderWidth: 2,
-    borderColor: "#ccc",
     alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 4,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    backgroundColor: "#eff6ff",
   },
-  activeCircle: { borderColor: "#DC143C", backgroundColor: "#DC143C" },
-  stepNumber: { color: "#666", fontWeight: "600" },
-  activeStepNumber: { color: "#fff" },
-  stepLabel: { fontSize: 10, textAlign: "center" },
-  stepTitle: { fontSize: 18, fontWeight: "600", marginBottom: 10 },
-  text: { color: "#555", lineHeight: 20 },
-  bold: { fontWeight: "700" },
-  sectionHeader: { fontSize: 16, fontWeight: "700", marginTop: 10 },
-  list: { paddingLeft: 12, marginTop: 4 },
-  listItem: { marginBottom: 4, color: "#555" },
-  checkboxContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginVertical: 12,
+  sectionHeaderText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#1d4ed8",
   },
-  uploadBox: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 8,
-    padding: 20,
-    alignItems: "center",
-    justifyContent: "center",
+  sectionBody: {
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+  },
+  listEntry: {
+    color: "#1f2937",
+    marginBottom: 6,
+  },
+  note: {
     marginTop: 10,
-    backgroundColor: "#fafafa",
+    fontSize: 12,
+    color: "#6b7280",
+    fontStyle: "italic",
   },
-  uploadBoxSmall: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 8,
+  reminderCard: {
+    marginTop: 16,
+    marginBottom: 12,
+    backgroundColor: "#dbeafe",
+    borderRadius: 12,
     padding: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 10,
-    backgroundColor: "#fafafa",
-  },
-  fileName: { marginTop: 8, fontWeight: "600", color: "#333" },
-  successText: { fontSize: 12, color: "#00C881", marginTop: 2 },
-  uploadText: { marginTop: 8, color: "#666", textAlign: "center" },
-  previewSmall: { width: 80, height: 80, marginTop: 8, borderRadius: 8 },
-  cardInner: {
-    marginTop: 10,
     borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 10,
-    padding: 10,
-    backgroundColor: "#fafafa",
+    borderColor: "#bfdbfe",
   },
-  cardTitle: { fontWeight: "700", fontSize: 15, marginBottom: 6 },
-  validateButton: {
-    backgroundColor: "#DC143C",
-    paddingVertical: 12,
+  reminderLabel: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#1e3a8a",
+  },
+  reminderText: {
+    fontSize: 12,
+    color: "#1e3a8a",
+    marginTop: 4,
+  },
+  requirementGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    paddingHorizontal: 4,
+    paddingTop: 4,
+  },
+  requirementCard: {
+    width: "48%",
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    backgroundColor: "#fff",
+  },
+  requirementTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  required: {
+    color: "#dc2626",
+  },
+  optional: {
+    color: "#6b7280",
+    fontWeight: "500",
+  },
+  requirementHint: {
+    fontSize: 12,
+    color: "#6b7280",
+    marginTop: 4,
+  },
+  uploadInput: {
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: "#d1d5db",
     borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: "#f9fafb",
+  },
+  uploadButtonText: {
+    color: "#1d4ed8",
+    fontWeight: "600",
+  },
+  fileName: {
+    marginTop: 6,
+    fontSize: 12,
+    color: "#374151",
+  },
+  followRow: {
+    flexDirection: "row",
     alignItems: "center",
     marginTop: 12,
   },
-  validateText: { color: "#fff", fontWeight: "600", fontSize: 16 },
-  submitButton: {
-    backgroundColor: "#DC143C",
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: "center",
-    marginTop: 10,
+  followText: {
+    color: "#1f2937",
+    fontWeight: "500",
   },
-  submitText: { color: "#fff", fontWeight: "600", fontSize: 16 },
-  navigation: {
+  actionRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 20,
+    justifyContent: "flex-start",
+    gap: 12,
+    marginTop: 10,
+    marginBottom: 30,
   },
-  navButton: {
-    backgroundColor: "#eee",
-    paddingVertical: 10,
-    paddingHorizontal: 20,
+  primaryButton: {
+    backgroundColor: "#1d4ed8",
     borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
-  navButtonPrimary: {
-    backgroundColor: "#DC143C",
-    paddingVertical: 10,
-    paddingHorizontal: 20,
+  primaryButtonText: {
+    color: "#fff",
+    fontWeight: "700",
+  },
+  secondaryButton: {
     borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    borderWidth: 1,
+    borderColor: "#1d4ed8",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
-  navButtonText: { color: "#333", fontWeight: "600" },
-  navButtonTextPrimary: { color: "#fff", fontWeight: "600" },
+  secondaryButtonText: {
+    color: "#1d4ed8",
+    fontWeight: "700",
+  },
 });
+
+export default ApplicationForLatinHonor;
