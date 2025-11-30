@@ -384,7 +384,7 @@ const Notification = () => {
               return (
                 <TouchableOpacity
                   style={styles.claimButton}
-                  onPress={() => {
+                  onPress={async () => {
                     if (!selectedAward) return;
                     console.log('[AWARDS][button-press]', {
                       id: selectedAward.id,
@@ -397,6 +397,34 @@ const Notification = () => {
                       updateAwardClaimableOnServer(selectedAward.id);
                     } else {
                       // View: open certificate modal
+                      try {
+                        const resp = await fetch(
+                          `${BASE_URL}/certificate_name.php?id=${selectedAward.id}`
+                        );
+                        const text = await resp.text();
+                        try {
+                          const json = JSON.parse(text);
+                          console.log('[CERT][php-response]', json);
+                          if (
+                            !selectedAward.certificatePath &&
+                            json?.success &&
+                            json?.filename
+                          ) {
+                            const storageBase = BASE_URL.replace(/\/api$/, '');
+                            const fallbackUrl = `${storageBase}/storage/certificates/${json.filename}`;
+                            console.log('[CERT][fallback-url]', fallbackUrl);
+                            setCertificateUrl(fallbackUrl);
+                            setCertificateModalVisible(true);
+                            setModalVisible(false);
+                            return;
+                          }
+                        } catch (parseErr) {
+                          console.log('[CERT][php-parse-error]', parseErr?.message || parseErr);
+                          console.log('[CERT][php-raw]', text.slice(0, 200));
+                        }
+                      } catch (err) {
+                        console.log('[CERT][php-error]', err?.message || err);
+                      }
                       if (selectedAward.certificatePath) {
                         const url = `${BASE_URL}/${selectedAward.certificatePath}`;
                         console.log('[CERT][open]', url);
@@ -408,7 +436,6 @@ const Notification = () => {
                       setModalVisible(false);
                     }
                   }}
-
                   disabled={updatingReadId === selectedAward?.id}
                 >
                   <Text style={styles.claimButtonText}>
@@ -441,16 +468,15 @@ const Notification = () => {
                 <View
                   style={{
                     width: '100%',
-                    height: 300,
-                    backgroundColor: '#000',
+                    backgroundColor: '#fff',
+                    borderRadius: 8,
                   }}
                 >
-                  {console.log('[CERT][render-image]', certificateUrl)}
                   <Image
                     source={{ uri: certificateUrl }}
                     style={{
                       width: '100%',
-                      height: '100%',
+                      aspectRatio: 1.4,
                       resizeMode: 'contain',
                     }}
                   />
