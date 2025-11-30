@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   ScrollView,
+  RefreshControl,
   TouchableOpacity,
   TextInput,
   Alert,
@@ -277,9 +278,19 @@ const REQUIREMENT_ITEMS = [
   { key: "barangayClearance", label: "Barangay Clearance", required: false },
   { key: "birthCertificate", label: "Birth Certificate", required: false },
 ];
+const EDIT_REQUIREMENT_FIELDS = [
+  { key: "approval_sheet", label: "Approval Sheet", dbKey: "Approval_Sheet" },
+  { key: "certificate_library", label: "Library Clearance", dbKey: "Certificate_Library" },
+  { key: "barangay_clearance", label: "Barangay Clearance", dbKey: "Barangay_Clearance" },
+  { key: "birth_certificate", label: "Birth Certificate (PSA)", dbKey: "Birth_Certificate" },
+  { key: "applicationform_grad", label: "Graduation Application Form", dbKey: "applicationform_grad" },
+  { key: "reportofgrade_path", label: "Report of Grades (COG)", dbKey: "reportofgrade_path" },
+];
 const GRAD_DETAILS_ENDPOINT = `${BASE_URL}/insert_graduation_details.php`;
 const GRAD_REQUIREMENTS_ENDPOINT = `${BASE_URL}/insert_graduation_requirements.php`;
 const GET_MISSING_COURSES_ENDPOINT = `${BASE_URL}/get_missing_courses.php`;
+const GET_GRADUATION_STATUS_ENDPOINT = `${BASE_URL}/get_graduation.php`;
+const DELETE_GRADUATION_FORM_ENDPOINT = `${BASE_URL}/delete_form.php`;
 
 const GraduationEvaluation = ({ studentId, courseData, onEvaluationChange }) => {
   const [evaluationData, setEvaluationData] = useState(null);
@@ -634,6 +645,174 @@ const GraduationEvaluation = ({ studentId, courseData, onEvaluationChange }) => 
   );
 };
 
+const StatusIndicator = ({ value }) => (
+  <Text
+    style={[
+      styles.statusIndicator,
+      value ? styles.statusIndicatorYes : styles.statusIndicatorNo,
+    ]}
+  >
+    {value ? "✔" : "X"}
+  </Text>
+);
+
+const GraduationStatusSummary = ({
+  data,
+  studentInfo,
+  onEdit,
+  onDelete,
+  onPrint,
+  onDownload,
+  onRefresh,
+  honorEligible = false,
+}) => {
+  const formRow = data?.graduation_form || {};
+  const requirementsRow = data?.graduation_requirements || {};
+
+  const srCode =
+    studentInfo?.srCode ||
+    formRow.SRCode ||
+    formRow.sr_code ||
+    formRow.srCode ||
+    "N/A";
+  const name =
+    studentInfo?.fullName ||
+    formRow.fullName ||
+    [formRow.surname, formRow.firstName, formRow.middleName]
+      .filter(Boolean)
+      .join(", ") ||
+    "N/A";
+  const statusLabel =
+    formRow.remarks || requirementsRow.remarks || "PENDING EVALUATION";
+
+  const honorValue =
+    honorEligible &&
+    (requirementsRow.honor_applicant ||
+      formRow.honor_applicant ||
+      (requirementsRow.remarks || "")
+        .toString()
+        .toUpperCase()
+        .includes("HONOR"));
+
+  const requirementColumns = [
+    { label: "AppSheet", value: requirementsRow.Approval_Sheet },
+    { label: "Lib Cert", value: requirementsRow.Certificate_Library },
+    { label: "PSA", value: requirementsRow.birth_certificate || requirementsRow.Birth_Certificate },
+    { label: "TOR/F137", value: requirementsRow.reportofgrade_path },
+    {
+      label: "Honor Applicant?",
+      value: honorValue,
+    },
+  ];
+
+  return (
+    <ScrollView style={styles.statusScreen}>
+      <View style={styles.statusHeaderCard}>
+        <Text style={styles.statusHeaderTitle}>Graduation Status</Text>
+        <Text style={styles.statusHeaderSubtitle}>
+          Track your submitted graduation requirements.
+        </Text>
+        <TouchableOpacity style={styles.refreshBadge} onPress={onRefresh}>
+          <Ionicons name="refresh" size={16} color="#1d4ed8" />
+          <Text style={styles.refreshBadgeText}>Refresh Status</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.statusCard}>
+        <Text style={styles.statusSectionTitle}>
+          Graduation Requirements Summary
+        </Text>
+        <View style={styles.statusTableWrapper}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <View style={styles.statusTable}>
+          <View style={[styles.statusRow, styles.statusRowHeader]}>
+            <Text style={[styles.statusCell, styles.cellNumber]}>No.</Text>
+            <Text style={[styles.statusCell, styles.cellSR]}>SR CODE</Text>
+            <Text style={[styles.statusCell, styles.cellName]}>NAME</Text>
+            <Text style={[styles.statusCell, styles.cellStatus]}>Graduation Status</Text>
+            {requirementColumns.map((col) => (
+              <Text key={col.label} style={[styles.statusCell, styles.cellRequirement]}>
+                {col.label}
+              </Text>
+            ))}
+            <Text style={[styles.statusCell, styles.cellActions]}>Action</Text>
+          </View>
+
+          <View style={styles.statusRow}>
+            <Text style={[styles.statusCell, styles.cellNumber]}>1</Text>
+            <Text style={[styles.statusCell, styles.cellSR]}>{srCode}</Text>
+            <Text style={[styles.statusCell, styles.cellName]}>{name}</Text>
+            <Text style={[styles.statusCell, styles.cellStatus]}>
+              {statusLabel}
+            </Text>
+            {requirementColumns.map((col) => (
+              <View key={col.label} style={[styles.statusCell, styles.cellRequirement]}>
+                <StatusIndicator value={!!col.value} />
+              </View>
+            ))}
+            <View style={[styles.statusCell, styles.cellActions]}>
+              <TouchableOpacity style={styles.tableActionButton} onPress={onEdit}>
+                <Ionicons name="create-outline" size={16} color="#1d4ed8" />
+                <Text style={styles.tableActionText}>Edit</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.tableActionButton, styles.tableActionDanger]}
+                onPress={onDelete}
+              >
+                <Ionicons name="trash-outline" size={16} color="#dc2626" />
+                <Text style={[styles.tableActionText, { color: "#dc2626" }]}>
+                  Delete
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={styles.statusLegendRow}>
+            <Text style={styles.legendItem}>
+              <Text style={{ color: "#16a34a", fontWeight: "700" }}>✔</Text> submitted / cleared
+            </Text>
+            <Text style={styles.legendItem}>
+              <Text style={{ color: "#dc2626", fontWeight: "700" }}>X</Text> not yet submitted / not
+              cleared
+            </Text>
+          </View>
+            </View>
+          </ScrollView>
+        </View>
+      </View>
+
+      <View style={styles.applicationDetailsCard}>
+        <Text style={styles.applicationDetailsTitle}>Application Details</Text>
+        <View style={styles.applicationInfoRow}>
+          <View style={styles.applicationInfoItem}>
+            <Text style={styles.applicationInfoLabel}>Application Date</Text>
+            <Text style={styles.applicationInfoValue}>
+              {formRow.application_date || formRow.created_at || "N/A"}
+            </Text>
+          </View>
+          <View style={styles.applicationInfoItem}>
+            <Text style={styles.applicationInfoLabel}>Last Updated</Text>
+            <Text style={styles.applicationInfoValue}>
+              {requirementsRow.updated_at || formRow.updated_at || "N/A"}
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      <View style={styles.statusActions}>
+        <TouchableOpacity style={styles.primaryButton} onPress={onPrint}>
+          <Ionicons name="print-outline" size={18} color="#fff" />
+          <Text style={styles.primaryButtonText}>Print Status</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.secondaryButton} onPress={onDownload}>
+          <Ionicons name="download-outline" size={18} color="#1d4ed8" />
+          <Text style={styles.secondaryButtonText}>Download Documents</Text>
+        </TouchableOpacity>
+      </View>
+    </ScrollView>
+  );
+};
+
 export default function ApplicationForGraduation() {
   const [currentStep, setCurrentStep] = useState(1);
   const [coe, setCoe] = useState(null);
@@ -673,6 +852,24 @@ export default function ApplicationForGraduation() {
     });
     return initial;
   });
+  const [statusLoading, setStatusLoading] = useState(false);
+  const [statusError, setStatusError] = useState(null);
+  const [graduationStatusData, setGraduationStatusData] = useState(null);
+  const [editRequirementsVisible, setEditRequirementsVisible] = useState(false);
+  const [editRequirementsSaving, setEditRequirementsSaving] = useState(false);
+  const buildEmptyEditRequirementState = () => ({
+    approval_sheet: { fileName: "", uri: "" },
+    certificate_library: { fileName: "", uri: "" },
+    barangay_clearance: { fileName: "", uri: "" },
+    birth_certificate: { fileName: "", uri: "" },
+    applicationform_grad: { fileName: "", uri: "" },
+    reportofgrade_path: { fileName: "", uri: "" },
+    remarks: "",
+  });
+
+  const [editRequirementsForm, setEditRequirementsForm] = useState(
+    buildEmptyEditRequirementState()
+  );
   const shouldAutoGraduate = useMemo(() => {
     const missing = evaluationSummary?.missingCourses;
     if (!Array.isArray(missing) || missing.length === 0) return false;
@@ -683,10 +880,28 @@ export default function ApplicationForGraduation() {
     });
   }, [evaluationSummary]);
 
-  const qualifiesForLatinHonors = useMemo(() => {
+  const latinHonorsEvaluation = useMemo(() => {
     const gwaNum = parseFloat(latinHonorsGwa?.gwa ?? "NaN");
-    return !isNaN(gwaNum) && gwaNum > 0 && gwaNum <= 1.75;
-  }, [latinHonorsGwa]);
+    const lowestNum = parseFloat(lowestGradeValue);
+    if (isNaN(gwaNum) || isNaN(lowestNum)) {
+      return { eligible: false, tier: null, outstandingEligible: false };
+    }
+
+    if (gwaNum <= 1.25 && lowestNum <= 1.75) {
+      return { eligible: true, tier: "Summa Cum Laude", outstandingEligible: false };
+    }
+    if (gwaNum <= 1.5 && lowestNum <= 2.0) {
+      return { eligible: true, tier: "Magna Cum Laude", outstandingEligible: false };
+    }
+    if (gwaNum <= 1.75 && lowestNum <= 2.5) {
+      return { eligible: true, tier: "Cum Laude", outstandingEligible: false };
+    }
+
+    const outstandingEligible = gwaNum <= 1.99 && lowestNum <= 3.0;
+    return { eligible: false, tier: outstandingEligible ? "Outstanding Award" : null, outstandingEligible };
+  }, [latinHonorsGwa, lowestGradeValue]);
+
+  const qualifiesForLatinHonors = latinHonorsEvaluation.eligible;
 
   const gradeStats = useMemo(() => {
     if (!Array.isArray(gradeReport) || gradeReport.length === 0) {
@@ -810,16 +1025,16 @@ export default function ApplicationForGraduation() {
     };
   }, [gradeReport]);
 
-  const highestgrade = useMemo(() => {
+  const lowestGradeValue = useMemo(() => {
     if (!Array.isArray(gradeReport) || gradeReport.length === 0) return "N/A";
-    let min = null;
+    let max = null;
     gradeReport.forEach((rec) => {
       const gradeNum = parseFloat(rec.grade);
       if (!isNaN(gradeNum)) {
-        min = min === null ? gradeNum : Math.min(min, gradeNum);
+        max = max === null ? gradeNum : Math.max(max, gradeNum);
       }
     });
-    return min === null ? "N/A" : min.toFixed(2);
+    return max === null ? "N/A" : max.toFixed(2);
   }, [gradeReport]);
 
   const [form, setForm] = useState({
@@ -1184,16 +1399,49 @@ export default function ApplicationForGraduation() {
         if (resolvedId) setStudentId(resolvedId);
         if (session?.login_id) setLoginId(session.login_id);
         if (session?.SRCODE || session?.srCode || session?.sr_code) {
-          setStudentInfo((prev) => ({
-            ...prev,
-            srCode: session.SRCODE || session.srCode || session.sr_code,
-          }));
-        }
+        setStudentInfo((prev) => ({
+          ...prev,
+          srCode: session.SRCODE || session.srCode || session.sr_code,
+        }));
+      }
       } catch (error) {
         console.warn("Failed to resolve student ID:", error);
       }
     })();
   }, []);
+
+  const loadGraduationStatus = useCallback(
+    async (id) => {
+      try {
+        setStatusLoading(true);
+        setStatusError(null);
+        const response = await fetch(
+          `${GET_GRADUATION_STATUS_ENDPOINT}?student_id=${encodeURIComponent(id)}`
+        );
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+        if (!data.success) {
+          throw new Error(data.message || "Unable to load graduation status.");
+        }
+        setGraduationStatusData(data);
+      } catch (error) {
+        console.warn("Graduation status error:", error);
+        setStatusError(error.message || "Failed to load graduation status.");
+        setGraduationStatusData(null);
+      } finally {
+        setStatusLoading(false);
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (studentId) {
+      loadGraduationStatus(studentId);
+    }
+  }, [studentId, loadGraduationStatus]);
 
   useEffect(() => {
     (async () => {
@@ -1322,7 +1570,7 @@ export default function ApplicationForGraduation() {
     })();
   }, [form]);
 
-  const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
+const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
     if (!id) return;
 
     if (!fromRefresh) {
@@ -1378,6 +1626,12 @@ export default function ApplicationForGraduation() {
       setGradeLoading(false);
     }
   };
+
+  const refreshApplicationData = useCallback(() => {
+    if (!studentId) return;
+    loadGraduationStatus(studentId);
+    fetchGradeReport(studentId, { fromRefresh: true });
+  }, [studentId, loadGraduationStatus]);
 
   // Support either array-of-regions structure or PSGC-style object structure
   const regionsArray = useMemo(() => {
@@ -1866,6 +2120,15 @@ export default function ApplicationForGraduation() {
   const handleLatinHonorsChoice = async (apply) => {
     setShowLatinHonorsModal(false);
     if (apply) {
+      if (!latinHonorsEvaluation.eligible) {
+        Alert.alert(
+          "Not Eligible",
+          latinHonorsEvaluation.outstandingEligible
+            ? "You currently qualify for the Outstanding Award, but not for Latin Honors."
+            : "You are not yet eligible for Latin Honors. Keep improving your grades."
+        );
+        return;
+      }
       try {
         const consentPath = await buildConsentFormPdf({
           lastName: form.surname,
@@ -1885,7 +2148,7 @@ export default function ApplicationForGraduation() {
         setShowConsentModal(true);
         Alert.alert(
           "Submitted",
-          "Your application and Latin Honors consent form have been submitted."
+          `Your application and ${latinHonorsEvaluation.tier} consent form have been submitted.`
         );
       } catch (error) {
         Alert.alert(
@@ -1980,10 +2243,188 @@ export default function ApplicationForGraduation() {
     }
   };
 
-  return (
-    <PaperProvider>
-      <ScrollView contentContainerStyle={styles.container}>
+  const hasExistingApplication = graduationStatusData?.has_graduation_form;
+
+  const handleStatusEdit = () => {
+    const req = graduationStatusData?.graduation_requirements || {};
+    const mapField = (dbKey) => {
+      const value = req[dbKey] || req[dbKey?.toLowerCase?.()] || "";
+      return { fileName: value || "", uri: "" };
+    };
+    setEditRequirementsForm({
+      approval_sheet: mapField("Approval_Sheet"),
+      certificate_library: mapField("Certificate_Library"),
+      barangay_clearance: mapField("Barangay_Clearance"),
+      birth_certificate: mapField("Birth_Certificate"),
+      applicationform_grad: mapField("applicationform_grad"),
+      reportofgrade_path: mapField("reportofgrade_path"),
+      remarks: req.remarks || "",
+    });
+    setEditRequirementsVisible(true);
+  };
+  const handleStatusDelete = () => {
+    if (!studentId) return;
+    Alert.alert(
+      "Delete Application",
+      "Are you sure you want to delete your graduation application? This cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Yes, delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setStatusLoading(true);
+              const response = await fetch(
+                `${DELETE_GRADUATION_FORM_ENDPOINT}?student_id=${encodeURIComponent(studentId)}`
+              );
+              const data = await response.json();
+              if (!response.ok || !data?.success) {
+                throw new Error(data?.message || "Failed to delete graduation form.");
+              }
+              Alert.alert("Deleted", "Your graduation form has been removed.");
+              setGraduationStatusData(null);
+              loadGraduationStatus(studentId);
+            } catch (error) {
+              Alert.alert("Delete failed", error.message || "Unable to delete application.");
+            } finally {
+              setStatusLoading(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+  const handleStatusPrint = () => {
+    Alert.alert("Print Status", "Printing will be available soon.");
+  };
+  const handleStatusDownload = () => {
+    Alert.alert("Download", "Download option will be available soon.");
+  };
+  const handleStatusRefresh = () => {
+    if (studentId) {
+      loadGraduationStatus(studentId);
+    }
+  };
+
+  const handleEditRequirementPick = async (fieldKey) => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ["application/pdf", "image/*"],
+        copyToCacheDirectory: true,
+      });
+      if (result.type === "cancel") return;
+      const file = result.assets ? result.assets[0] : result;
+      if (!file?.uri) {
+        Alert.alert("Upload failed", "No file URI returned.");
+        return;
+      }
+      setEditRequirementsForm((prev) => ({
+        ...prev,
+        [fieldKey]: {
+          fileName: file.name || "document",
+          uri: file.uri,
+        },
+      }));
+    } catch (error) {
+      Alert.alert("Upload failed", "Unable to select file.");
+    }
+  };
+
+  const handleSaveRequirementsEdit = async () => {
+    if (!graduationStatusData?.graduation_form_id) return;
+    try {
+      setEditRequirementsSaving(true);
+      const resolveValue = (key) =>
+        editRequirementsForm[key]?.uri || editRequirementsForm[key]?.fileName || null;
+
+      const payload = {
+        graduation_form_id: graduationStatusData.graduation_form_id,
+        approval_sheet: resolveValue("approval_sheet"),
+        certificate_library: resolveValue("certificate_library"),
+        barangay_clearance: resolveValue("barangay_clearance"),
+        birth_certificate: resolveValue("birth_certificate"),
+        applicationform_grad: resolveValue("applicationform_grad"),
+        reportofgrade_path: resolveValue("reportofgrade_path"),
+        remarks: editRequirementsForm.remarks || null,
+        status:
+          graduationStatusData?.graduation_requirements?.status ||
+          graduationStatusData?.graduation_form?.status ||
+          "For Evaluation",
+      };
+
+      const response = await fetch(GRAD_REQUIREMENTS_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.message || "Unable to update requirements.");
+      }
+
+      Alert.alert("Saved", "Graduation requirements updated.");
+      setEditRequirementsVisible(false);
+      loadGraduationStatus(studentId);
+    } catch (error) {
+      Alert.alert("Update failed", error.message || "Unable to update requirements.");
+    } finally {
+      setEditRequirementsSaving(false);
+    }
+  };
+
+  if (statusLoading) {
+    return (
+      <PaperProvider>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#DC143C" />
+          <Text style={styles.loadingText}>Checking graduation status...</Text>
+        </View>
+      </PaperProvider>
+    );
+  }
+
+  if (statusError) {
+    return (
+      <PaperProvider>
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>{statusError}</Text>
+          <TouchableOpacity style={[styles.primaryButton, { alignSelf: "center", marginTop: 12 }]} onPress={handleStatusRefresh}>
+            <Ionicons name="refresh" size={16} color="#fff" />
+            <Text style={styles.primaryButtonText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      </PaperProvider>
+    );
+  }
+
+  const honorsBadgeText = qualifiesForLatinHonors
+    ? `Congratulations!`
+    : latinHonorsEvaluation.outstandingEligible
+    ? `Great effort!`
+    : `Heads up!`;
+  const honorsHighlightText = qualifiesForLatinHonors
+    ? `You qualify for ${latinHonorsEvaluation.tier}.`
+    : latinHonorsEvaluation.outstandingEligible
+    ? "You qualify for the Outstanding Award."
+    : "You are not yet eligible for Latin Honors.";
+  const honorsQuestionText = qualifiesForLatinHonors
+    ? "Would you like to apply for Latin Honors?"
+    : latinHonorsEvaluation.outstandingEligible
+    ? "Outstanding Award recognition will be noted."
+    : "Keep improving to become eligible for Latin Honors.";
+
+  const renderWizard = () => (
+    <ScrollView
+      contentContainerStyle={styles.container}
+      refreshControl={
+        <RefreshControl refreshing={statusLoading || gradeLoading} onRefresh={refreshApplicationData} />
+      }
+    >
+      <View style={styles.titleRow}>
         <Text style={styles.title}>Application for Graduation</Text>
+      </View>
 
         {/* Step progress */}
         <View style={styles.progressContainer}>
@@ -2905,8 +3346,36 @@ export default function ApplicationForGraduation() {
             </TouchableOpacity>
           )}
         </View>
-      </ScrollView>
+    </ScrollView>
+  );
 
+  const renderContent = () => {
+    if (hasExistingApplication) {
+      return (
+        <ScrollView
+          refreshControl={
+            <RefreshControl refreshing={statusLoading} onRefresh={handleStatusRefresh} />
+          }
+        >
+          <GraduationStatusSummary
+            data={graduationStatusData}
+            studentInfo={studentInfo}
+            onEdit={handleStatusEdit}
+            onDelete={handleStatusDelete}
+            onPrint={handleStatusPrint}
+            onDownload={handleStatusDownload}
+            onRefresh={handleStatusRefresh}
+            honorEligible={latinHonorsEvaluation.eligible}
+          />
+        </ScrollView>
+      );
+    }
+    return renderWizard();
+  };
+
+  return (
+    <PaperProvider>
+      {renderContent()}
       {/* Location picker modal */}
       <Modal
         transparent
@@ -2973,22 +3442,14 @@ export default function ApplicationForGraduation() {
                   size={20}
                   color="#1F513F"
                 />
-                <Text style={styles.latinModalBadgeText}>
-                  {qualifiesForLatinHonors ? "Congratulations!" : "Heads up!"}
-                </Text>
+                <Text style={styles.latinModalBadgeText}>{honorsBadgeText}</Text>
               </View>
-              <Text style={styles.latinModalHighlight}>
-                {qualifiesForLatinHonors
-                  ? "You qualify for POTENTIAL OUTSTANDING AWARD"
-                  : "You are not yet eligible for Latin Honors"}
-              </Text>
+              <Text style={styles.latinModalHighlight}>{honorsHighlightText}</Text>
               <Text style={styles.latinModalMetrics}>
-                GWA: {latinHonorsGwa?.gwa ?? "N/A"} • Highest Grade: {highestgrade}
+                GWA: {latinHonorsGwa?.gwa ?? "N/A"} • Lowest Grade: {lowestGradeValue}
               </Text>
             </View>
-            <Text style={styles.latinModalQuestion}>
-              Would you like to apply for Latin Honors?
-            </Text>
+            <Text style={styles.latinModalQuestion}>{honorsQuestionText}</Text>
             <View style={styles.latinModalActions}>
               <TouchableOpacity
                 style={[styles.latinModalButton, styles.latinModalButtonGhost]}
@@ -3003,6 +3464,7 @@ export default function ApplicationForGraduation() {
                   !qualifiesForLatinHonors && { opacity: 0.6 },
                 ]}
                 onPress={() => handleLatinHonorsChoice(true)}
+                disabled={!qualifiesForLatinHonors}
               >
                 <Text style={styles.latinModalButtonPrimaryText}>Yes</Text>
               </TouchableOpacity>
@@ -3046,6 +3508,86 @@ export default function ApplicationForGraduation() {
                 onPress={() => setShowConsentModal(false)}
               >
                 <Text style={styles.latinModalButtonPrimaryText}>Done</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      {/* Edit Requirements Modal */}
+      <Modal
+        transparent
+        animationType="fade"
+        visible={editRequirementsVisible}
+        onRequestClose={() => setEditRequirementsVisible(false)}
+      >
+        <View style={styles.latinModalOverlay}>
+          <View style={styles.editModal}>
+            <View style={styles.editModalHeader}>
+              <Text style={styles.editModalTitle}>Edit Graduation Requirements</Text>
+              <TouchableOpacity onPress={() => setEditRequirementsVisible(false)}>
+                <Ionicons name="close" size={20} color="#555" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={{ maxHeight: 480 }}>
+              {EDIT_REQUIREMENT_FIELDS.map((field) => {
+                const fieldState = editRequirementsForm[field.key] || { fileName: "", uri: "" };
+                const existingValue =
+                  graduationStatusData?.graduation_requirements?.[field.dbKey] ||
+                  graduationStatusData?.graduation_requirements?.[field.key];
+                return (
+                  <View key={field.key} style={styles.editField}>
+                    <Text style={styles.editLabel}>{field.label}</Text>
+                    <View style={styles.editUploadRow}>
+                      <TouchableOpacity
+                        style={styles.editUploadButton}
+                        onPress={() => handleEditRequirementPick(field.key)}
+                      >
+                        <Ionicons name="cloud-upload-outline" size={16} color="#fff" />
+                        <Text style={styles.editUploadButtonText}>Choose File</Text>
+                      </TouchableOpacity>
+                      <Text style={styles.editFileName}>
+                        {fieldState.fileName || "No file chosen"}
+                      </Text>
+                    </View>
+                    {existingValue ? (
+                      <Text style={styles.existingFileNote}>Already uploaded</Text>
+                    ) : null}
+                  </View>
+                );
+              })}
+              <View style={styles.editField}>
+                <Text style={styles.editLabel}>Remarks (Optional)</Text>
+                <TextInput
+                  style={[styles.editInput, styles.editTextarea]}
+                  value={editRequirementsForm.remarks}
+                  onChangeText={(text) =>
+                    setEditRequirementsForm((prev) => ({ ...prev, remarks: text }))
+                  }
+                  placeholder="Add any notes or comments."
+                  multiline
+                />
+              </View>
+            </ScrollView>
+            <View style={styles.editActions}>
+              <TouchableOpacity
+                style={[styles.latinModalButton, styles.latinModalButtonGhost]}
+                onPress={() => setEditRequirementsVisible(false)}
+                disabled={editRequirementsSaving}
+              >
+                <Text style={styles.latinModalButtonGhostText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.latinModalButton,
+                  styles.latinModalButtonPrimary,
+                  editRequirementsSaving && { opacity: 0.6 },
+                ]}
+                onPress={handleSaveRequirementsEdit}
+                disabled={editRequirementsSaving}
+              >
+                <Text style={styles.latinModalButtonPrimaryText}>
+                  {editRequirementsSaving ? "Saving..." : "Save Requirements"}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -3290,7 +3832,13 @@ const styles = StyleSheet.create({
   
   // Original styles
   container: { padding: 16, paddingBottom: 40, backgroundColor: "#f6f6f6" },
-  title: { fontSize: 22, fontWeight: "700", marginBottom: 12 },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  title: { fontSize: 22, fontWeight: "700" },
   gradeList: { marginTop: 12, gap: 12 },
   gradeTableCard: {
     backgroundColor: "#fff",
@@ -3985,6 +4533,166 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontWeight: "700",
   },
+  statusScreen: {
+    flex: 1,
+    backgroundColor: "#f6f6f6",
+    padding: 16,
+  },
+  statusHeaderCard: {
+    backgroundColor: "#991b1b",
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+  },
+  statusHeaderTitle: {
+    color: "#fff",
+    fontSize: 20,
+    fontWeight: "700",
+  },
+  statusHeaderSubtitle: {
+    color: "#fcd34d",
+    marginTop: 6,
+    fontSize: 13,
+  },
+  refreshBadge: {
+    marginTop: 12,
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#fff",
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+  },
+  refreshBadgeText: {
+    color: "#1d4ed8",
+    fontWeight: "600",
+  },
+  statusCard: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#dbeafe",
+    padding: 16,
+  },
+  statusTableWrapper: {
+    marginTop: 8,
+  },
+  statusSectionTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    marginBottom: 12,
+    color: "#1f2937",
+  },
+  statusTable: {
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  statusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: "#e5e7eb",
+  },
+  statusRowHeader: {
+    backgroundColor: "#eff6ff",
+  },
+  statusCell: {
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRightWidth: 1,
+    borderRightColor: "#e5e7eb",
+    textAlign: "center",
+    fontSize: 12,
+    color: "#1f2937",
+    flexShrink: 0,
+  },
+  cellNumber: { width: 40 },
+  cellSR: { width: 90 },
+  cellName: { flex: 1, textAlign: "left" },
+  cellStatus: { width: 120, fontWeight: "600", color: "#15803d" },
+  cellRequirement: { width: 90 },
+  cellActions: {
+    width: 140,
+    borderRightWidth: 0,
+  },
+  statusIndicator: {
+    fontWeight: "700",
+    fontSize: 14,
+  },
+  statusIndicatorYes: {
+    color: "#16a34a",
+  },
+  statusIndicatorNo: {
+    color: "#dc2626",
+  },
+  statusLegendRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    padding: 8,
+    backgroundColor: "#f9fafb",
+  },
+  legendItem: {
+    fontSize: 12,
+    color: "#4b5563",
+  },
+  tableActionButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    paddingVertical: 4,
+  },
+  tableActionText: {
+    color: "#1d4ed8",
+    fontWeight: "600",
+    fontSize: 12,
+  },
+  tableActionDanger: {
+    marginTop: 4,
+  },
+  applicationDetailsCard: {
+    marginTop: 16,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+  },
+  applicationDetailsTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    marginBottom: 12,
+    color: "#1f2937",
+  },
+  applicationInfoRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 16,
+  },
+  applicationInfoItem: {
+    flex: 1,
+  },
+  applicationInfoLabel: {
+    fontSize: 12,
+    color: "#6b7280",
+    marginBottom: 4,
+  },
+  applicationInfoValue: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  statusActions: {
+    flexDirection: "row",
+    justifyContent: "flex-start",
+    gap: 12,
+    marginTop: 16,
+    marginBottom: 30,
+  },
   consentModalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.45)",
@@ -4038,6 +4746,83 @@ const styles = StyleSheet.create({
   consentActions: {
     flexDirection: "row",
     justifyContent: "flex-end",
+  },
+  editModal: {
+    width: "100%",
+    maxWidth: 520,
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+  },
+  editModalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  editModalTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  editField: {
+    marginBottom: 12,
+  },
+  editLabel: {
+    fontSize: 13,
+    color: "#374151",
+    marginBottom: 6,
+    fontWeight: "600",
+  },
+  editInput: {
+    borderWidth: 1,
+    borderColor: "#d1d5db",
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    fontSize: 14,
+    color: "#111827",
+    backgroundColor: "#f9fafb",
+  },
+  editTextarea: {
+    height: 100,
+    textAlignVertical: "top",
+  },
+  existingFileNote: {
+    fontSize: 11,
+    color: "#16a34a",
+    marginTop: 4,
+  },
+  editUploadRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  editUploadButton: {
+    backgroundColor: "#a80909ff",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  editUploadButtonText: {
+    color: "#fff",
+    fontWeight: "600",
+  },
+  editFileName: {
+    flex: 1,
+    fontSize: 12,
+    color: "#374151",
+  },
+  editActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 12,
+    marginTop: 8,
   },
     pdfViewerBox: {
     marginTop: 16,
