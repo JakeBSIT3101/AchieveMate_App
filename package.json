@@ -47,7 +47,8 @@
     "react-native-screens": "^4.11.1",
     "react-native-vector-icons": "^10.2.0",
     "react-native-webview": "^13.16.0",
-    "tesseract.js": "^6.0.1"
+    "tesseract.js": "^6.0.1",
+    "@expo/vector-icons": "^14.1.0"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",

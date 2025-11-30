@@ -212,16 +212,16 @@ function ConfirmModal({ visible, onYes, onNo }) {
                 height: 84,
                 borderRadius: 42,
                 borderWidth: 4,
-                borderColor: "#53B1FD",
+                borderColor: "#9e0009",
                 alignItems: "center",
                 justifyContent: "center",
-                backgroundColor: "#F0F6FF",
+                backgroundColor: "#ffffff",
               }}
             >
               <Text
                 style={{
                   fontSize: 48,
-                  color: "#53B1FD",
+                  color: "#9e0009",
                   fontWeight: "bold",
                   marginTop: 8,
                 }}
@@ -259,13 +259,13 @@ function ConfirmModal({ visible, onYes, onNo }) {
                 paddingVertical: 12,
                 paddingHorizontal: 18,
                 borderRadius: 12,
-                backgroundColor: "#F0F6FF",
+                backgroundColor: "#ffd8d9",
                 borderWidth: 1,
-                borderColor: "#53B1FD",
+                borderColor: "##9e0009",
                 marginRight: 12,
               }}
             >
-              <Text style={{ color: "#53B1FD", fontWeight: "700" }}>NO</Text>
+              <Text style={{ color: "#9e0009", fontWeight: "700" }}>NO</Text>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={onYes}
@@ -273,7 +273,7 @@ function ConfirmModal({ visible, onYes, onNo }) {
                 paddingVertical: 12,
                 paddingHorizontal: 18,
                 borderRadius: 12,
-                backgroundColor: "#53B1FD",
+                backgroundColor: "#9e0009",
               }}
             >
               <Text style={{ color: "#fff", fontWeight: "700" }}>YES</Text>
@@ -3093,7 +3093,7 @@ export default function ApplicationforDeans() {
               style={styles.stepFormNavBtn2}
               onPress={() => setCurrentStep(2)}
             >
-              <Text style={styles.navButtonText2}>← Back</Text>
+              <Text style={styles.navButtonText2}>Back</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[
@@ -3265,7 +3265,7 @@ export default function ApplicationforDeans() {
               onPress={() => setCurrentStep(3)}
               disabled={tamperLoading || curriculumLoading || gradeValueLoading}
             >
-              <Text style={styles.navButtonText}>← Back</Text>
+              <Text style={styles.navButtonText}>Back</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[
@@ -3338,7 +3338,7 @@ export default function ApplicationforDeans() {
               style={styles.stepFormNavBtn}
               onPress={() => setCurrentStep(4)}
             >
-              <Text style={styles.navButtonText}>← Back</Text>
+              <Text style={styles.navButtonText}>Back</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[
@@ -3771,7 +3771,7 @@ export default function ApplicationforDeans() {
               style={styles.stepFormNavBtn}
               onPress={() => setCurrentStep(5)}
             >
-              <Text style={styles.navButtonText}>← Back</Text>
+              <Text style={styles.navButtonText}>Back</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.stepFormNavBtn, { backgroundColor: "#9e0009" }]}
@@ -3903,7 +3903,7 @@ export default function ApplicationforDeans() {
               style={styles.stepFormNavBtn}
               onPress={() => setCurrentStep(6)}
             >
-              <Text style={styles.navButtonText}>← Back</Text>
+              <Text style={styles.navButtonText}>Back</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[
