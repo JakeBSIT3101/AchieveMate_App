@@ -251,7 +251,12 @@ const ApplicationStatus = () => {
               >
                 <View
                   style={{
-                    backgroundColor: "#d0d7e2",
+                    backgroundColor:
+                      row.Status === "Approved"
+                        ? "#d4f6dd" // light green
+                        : row.Status === "For Evaluation"
+                        ? "#e0e0e0" // grey
+                        : "#d0d7e2", // default
                     paddingHorizontal: 10,
                     paddingVertical: 4,
                     borderRadius: 12,
@@ -259,7 +264,12 @@ const ApplicationStatus = () => {
                 >
                   <Text
                     style={{
-                      color: "#2e4057",
+                      color:
+                        row.Status === "Approved"
+                          ? "#1b5e20" // dark green
+                          : row.Status === "For Evaluation"
+                          ? "#555555" // dark grey
+                          : "#2e4057", // default
                       fontWeight: "700",
                       fontSize: 12,
                     }}

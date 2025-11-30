@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Modal,
+  Image,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BASE_URL } from '../config/api';
@@ -27,6 +28,10 @@ const Notification = () => {
   const [selectedAward, setSelectedAward] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [updatingReadId, setUpdatingReadId] = useState(null);
+
+  // Certificate modal
+  const [certificateModalVisible, setCertificateModalVisible] = useState(false);
+  const [certificateUrl, setCertificateUrl] = useState('');
 
   const loadStudentId = async () => {
     try {
@@ -71,7 +76,8 @@ const Notification = () => {
         content: row.Announcement ?? '',
         // bottom line: Semester • End_date
         time: `${row.Semester ?? ''} • ${row.End_date ?? ''}`,
-        read: false, // no read flag in post table
+        // no per-student read flag in post table; start as unread
+        read: false,
       }));
 
       setAnnouncements(mapped);
@@ -104,17 +110,35 @@ const Notification = () => {
         throw new Error(json?.message || `HTTP ${res.status}`);
       }
 
-      // Expect: StudentNotification_id, title, message, is_read, claimed_at, created_at, ...
-      const mapped = (json.data || []).map((row) => ({
-        id: String(row.StudentNotification_id),
-        title: row.title ?? '',
-        content: row.message ?? '',
-        time: row.claimed_at ?? row.created_at ?? '',
-        isRead:
-          row.is_read === '1' ||
-          row.is_read === 1 ||
-          row.is_read === true,
-      }));
+      console.log('[AWARDS][raw]', json.data);
+      // Expect: StudentNotification_id, title, message, is_read, claimable, data, claimed_at, created_at, ...
+      const mapped = (json.data || []).map((row) => {
+        // parse the JSON in `data` column to get certificate_path
+        let certPath = '';
+        try {
+          const parsed = row.data ? JSON.parse(row.data) : null;
+          certPath = parsed?.certificate_path || '';
+        } catch (e) {
+          console.log('[AWARDS][data-parse-error]', e, row.data);
+          certPath = '';
+        }
+
+        return {
+          id: String(row.StudentNotification_id),
+          title: row.title ?? '',
+          content: row.message ?? '',
+          time: row.claimed_at ?? row.created_at ?? '',
+          isRead:
+            row.is_read === '1' ||
+            row.is_read === 1 ||
+            row.is_read === true,
+          // 0 or 1 from DB
+          claimable: Number(row.claimable) || 0,
+          certificatePath: certPath,
+        };
+      });
+
+      console.log('[AWARDS][mapped]', mapped);
 
       setAwards(mapped);
     } catch (e) {
@@ -135,7 +159,8 @@ const Notification = () => {
 
   // --- Read handling ---
 
-  const markAnnouncementAsRead = (id) => {
+  // Announcements: local state + server update via update_post_read.php
+  const markAnnouncementAsReadLocal = (id) => {
     setAnnouncements((prev) =>
       prev.map((item) =>
         item.id === id ? { ...item, read: true } : item
@@ -143,6 +168,31 @@ const Notification = () => {
     );
   };
 
+  const updateAnnouncementIsReadOnServer = async (postId) => {
+    if (!studentId) return;
+    try {
+      const res = await fetch(`${BASE_URL}/update_post_read.php`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          id: Number(postId), // Post_id
+          student_id: Number(studentId),
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.message || `HTTP ${res.status}`);
+      }
+      // Optionally use data.unreadCount if you want a global badge somewhere
+    } catch (e) {
+      console.log('Failed to update post read status:', e.message);
+    }
+  };
+
+  // Awards: local + server update via update_student_award_read.php
   const markAwardAsReadLocal = (id) => {
     setAwards((prev) =>
       prev.map((item) =>
@@ -178,13 +228,39 @@ const Notification = () => {
     }
   };
 
+  // Claim logic: update claimable from 0 -> 1
+  const updateAwardClaimableOnServer = async (awardId) => {
+    try {
+      const res = await fetch(`${BASE_URL}/update_student_award_claim.php`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ student_notification_id: awardId }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.message || `HTTP ${res.status}`);
+      }
+      // On success, update local claimable -> 1
+      setAwards((prev) =>
+        prev.map((item) =>
+          item.id === awardId ? { ...item, claimable: 1 } : item
+        )
+      );
+    } catch (e) {
+      console.log('Failed to update claimable:', e.message);
+    }
+  };
+
   // --- Item press handlers ---
 
   const handlePressItem = (item) => {
     if (activeTab === 'announcement') {
-      markAnnouncementAsRead(item.id);
+      // Mark locally and tell backend
+      markAnnouncementAsReadLocal(item.id);
+      updateAnnouncementIsReadOnServer(item.id);
     } else {
       // Award & Claims: open modal and update is_read
+      console.log('[AWARDS][press]', item);
       setSelectedAward(item);
       setModalVisible(true);
       if (!item.isRead) {
@@ -290,6 +366,10 @@ const Notification = () => {
             <Text style={styles.modalTitle}>
               {selectedAward?.title || ''}
             </Text>
+
+            {/* Divider line under title */}
+            <View style={styles.modalDivider} />
+
             <Text style={styles.modalMessage}>
               {selectedAward?.content || ''}
             </Text>
@@ -297,14 +377,97 @@ const Notification = () => {
               {selectedAward?.time || ''}
             </Text>
 
+            {(() => {
+              const isClaimed =
+                selectedAward?.claimable === 1 ||
+                selectedAward?.claimable === '1';
+              return (
+                <TouchableOpacity
+                  style={styles.claimButton}
+                  onPress={() => {
+                    if (!selectedAward) return;
+                    console.log('[AWARDS][button-press]', {
+                      id: selectedAward.id,
+                      isClaimed,
+                      claimable: selectedAward.claimable,
+                      certificatePath: selectedAward.certificatePath,
+                    });
+                    if (!isClaimed) {
+                      // Claim: set claimable = 1
+                      updateAwardClaimableOnServer(selectedAward.id);
+                    } else {
+                      // View: open certificate modal
+                      if (selectedAward.certificatePath) {
+                        const url = `${BASE_URL}/${selectedAward.certificatePath}`;
+                        console.log('[CERT][open]', url);
+                        setCertificateUrl(url);
+                        setCertificateModalVisible(true);
+                      } else {
+                        console.log('[CERT][missing-path]', selectedAward);
+                      }
+                      setModalVisible(false);
+                    }
+                  }}
+
+                  disabled={updatingReadId === selectedAward?.id}
+                >
+                  <Text style={styles.claimButtonText}>
+                    {updatingReadId === selectedAward?.id
+                      ? 'Updating...'
+                      : isClaimed
+                      ? 'View'
+                      : 'Claim'}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })()}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Certificate modal */}
+      <Modal
+        visible={certificateModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCertificateModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, { paddingHorizontal: 0 }]}>
+            {certificateUrl ? (
+              <View style={{ width: '100%', alignItems: 'center' }}>
+                <Text style={styles.modalTitle}>Certificate</Text>
+                <View style={styles.modalDivider} />
+                <View
+                  style={{
+                    width: '100%',
+                    height: 300,
+                    backgroundColor: '#000',
+                  }}
+                >
+                  {console.log('[CERT][render-image]', certificateUrl)}
+                  <Image
+                    source={{ uri: certificateUrl }}
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      resizeMode: 'contain',
+                    }}
+                  />
+                </View>
+              </View>
+            ) : (
+              <>
+                {console.log('[CERT][no-url]')}
+                <Text style={styles.modalMessage}>Certificate not available.</Text>
+              </>
+            )}
+
             <TouchableOpacity
-              style={styles.claimButton}
-              onPress={() => setModalVisible(false)}
-              disabled={updatingReadId === selectedAward?.id}
+              style={[styles.claimButton, { marginTop: 16 }]}
+              onPress={() => setCertificateModalVisible(false)}
             >
-              <Text style={styles.claimButtonText}>
-                {updatingReadId === selectedAward?.id ? 'Updating...' : 'Claim'}
-              </Text>
+              <Text style={styles.claimButtonText}>Close</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -418,8 +581,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     textAlign: 'center',
-    marginBottom: 16,
+    marginBottom: 8,
     color: '#222',
+  },
+  modalDivider: {
+    height: 1,
+    backgroundColor: '#d0d0d0',
+    marginHorizontal: 8,
+    marginBottom: 16,
   },
   modalMessage: {
     fontSize: 14,
