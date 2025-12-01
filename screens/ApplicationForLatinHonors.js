@@ -146,8 +146,7 @@ const ApplicationForLatinHonor = () => {
                 </Text>
               ))}
               <Text style={styles.note}>
-                Note: some colleges may ask for additional paperwork—follow your
-                department memo.
+                Note: some colleges may ask for additional paperwork - follow your department memo.
               </Text>
             </View>
           )}
