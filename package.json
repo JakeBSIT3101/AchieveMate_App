@@ -10,6 +10,7 @@
     "web": "expo start --web"
   },
   "dependencies": {
+    "@expo/vector-icons": "^14.1.0",
     "@react-native-async-storage/async-storage": "^2.2.0",
     "@react-native-community/slider": "^4.5.7",
     "@react-navigation/drawer": "^7.5.3",
@@ -51,7 +52,8 @@
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
-    "@react-native-community/cli": "^19.1.0"
+    "@react-native-community/cli": "^19.1.0",
+    "expo-module-scripts": "^5.0.7"
   },
   "private": true
 }
