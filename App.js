@@ -19,7 +19,6 @@ import ApplicationForGraduation from "./screens/ApplicationForGraduation";
 import ApplicationStatus from "./screens/ApplicationStatus";
 import ApplicationForLatinHonors from "./screens/ApplicationForLatinHonors";
 import UploadGrades from "./screens/UploadGrades";
-import Notifications from "./screens/Notifications";
 import Notification from "./screens/Notification";
 
 const Stack = createStackNavigator();

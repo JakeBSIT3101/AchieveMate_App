@@ -838,6 +838,14 @@ export default function ApplicationForGraduation() {
   const [tempBirthDate, setTempBirthDate] = useState(new Date());
   const [birthPickerKey, setBirthPickerKey] = useState(0);
   const [pdfUri, setPdfUri] = useState(null);
+
+  const getFieldStateStyle = useCallback((value) => {
+    const hasValue =
+      value !== null &&
+      value !== undefined &&
+      String(value).trim().length > 0;
+    return hasValue ? styles.inputFilled : styles.inputEmpty;
+  }, []);
   const [consentPdfUri, setConsentPdfUri] = useState(null);
   const [showConsentModal, setShowConsentModal] = useState(false);
   const [savingGradDetails, setSavingGradDetails] = useState(false);
@@ -2613,21 +2621,9 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
                     <Text style={styles.recordsBullet}>• Data comes from your official records.</Text>
                     <Text style={styles.recordsBullet}>• Verify completeness and accuracy before proceeding.</Text>
                   </View>
-                  <TouchableOpacity
-                    style={[
-                      styles.refreshCTA,
-                      (!studentId || gradeLoading) && styles.refreshButtonDisabled,
-                    ]}
-                    onPress={() => {
-                      if (!studentId) return;
-                      setGradeReport(null);
-                      fetchGradeReport(studentId, { fromRefresh: true });
-                    }}
-                    disabled={!studentId || gradeLoading}
-                  >
-                    <Ionicons name="cloud-download-outline" size={18} color="#fff" />
-                    <Text style={styles.refreshCTAtext}>Load My Academic Records</Text>
-                  </TouchableOpacity>
+                  <Text style={styles.recordsFooterNote}>
+                    Use the Load My Academic Records button to retrieve the latest data.
+                  </Text>
                 </View>
               )}
 
@@ -2638,7 +2634,7 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
                 </View>
                 <TouchableOpacity
                   style={[
-                    styles.refreshButton,
+                    styles.loadRecordsButton,
                     (!studentId || gradeLoading) && styles.refreshButtonDisabled,
                   ]}
                   onPress={() => {
@@ -2648,9 +2644,9 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
                   }}
                   disabled={!studentId || gradeLoading}
                 >
-                  <Ionicons name="refresh" size={18} color="#fff" />
-                  <Text style={styles.refreshButtonText}>
-                    {gradeLoading ? "Loading" : "Refresh"}
+                  <Ionicons name="cloud-download-outline" size={18} color="#fff" />
+                  <Text style={styles.loadRecordsButtonText}>
+                    {gradeLoading ? "Loading..." : "Load My Academic Records"}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -2692,18 +2688,9 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
                       <Text style={styles.recordsBullet}>• Ensure all grades are complete and accurate.</Text>
                       <Text style={styles.recordsBullet}>• Data is fetched directly from your official student records.</Text>
                     </View>
-                    <TouchableOpacity
-                      style={[styles.refreshCTA, (!studentId || gradeLoading) && styles.refreshButtonDisabled]}
-                      onPress={() => {
-                        if (!studentId) return;
-                        setGradeReport(null);
-                        fetchGradeReport(studentId, { fromRefresh: true });
-                      }}
-                      disabled={!studentId || gradeLoading}
-                    >
-                      <Ionicons name="refresh" size={18} color="#fff" />
-                      <Text style={styles.refreshCTAtext}>Refresh Academic Records</Text>
-                    </TouchableOpacity>
+                    <Text style={styles.recordsFooterNote}>
+                      Need to update your records? Tap the "Load My Academic Records" button to refresh.
+                    </Text>
                   </View>
 
                   <View style={styles.studentInfoPanel}>
@@ -2863,7 +2850,7 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
                 <View style={styles.inputCol}>
                   <Text style={styles.inputLabel}>Surname</Text>
                   <TextInput
-                    style={styles.input}
+                    style={[styles.input, getFieldStateStyle(form.surname)]}
                     placeholder="e.g., Dela Cruz"
                     placeholderTextColor={PLACEHOLDER_COLOR}
                     value={form.surname}
@@ -2874,7 +2861,7 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
                 <View style={styles.inputCol}>
                   <Text style={styles.inputLabel}>First Name</Text>
                   <TextInput
-                    style={styles.input}
+                    style={[styles.input, getFieldStateStyle(form.firstName)]}
                     placeholder="e.g., Juan"
                     placeholderTextColor={PLACEHOLDER_COLOR}
                     value={form.firstName}
@@ -2885,7 +2872,7 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
                 <View style={styles.inputCol}>
                   <Text style={styles.inputLabel}>Middle Name</Text>
                   <TextInput
-                    style={styles.input}
+                    style={[styles.input, getFieldStateStyle(form.middleName)]}
                     placeholder="e.g., Santos"
                     placeholderTextColor={PLACEHOLDER_COLOR}
                     value={form.middleName}
@@ -2896,7 +2883,7 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
                 <View style={styles.inputCol}>
                   <Text style={styles.inputLabel}>Ext.</Text>
                   <TextInput
-                    style={styles.input}
+                    style={[styles.input, getFieldStateStyle(form.extensionName)]}
                     placeholder="Jr., III (optional)"
                     placeholderTextColor={PLACEHOLDER_COLOR}
                     value={form.extensionName}
@@ -2910,7 +2897,7 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
                 <View style={styles.inputCol}>
                   <Text style={styles.inputLabel}>SR Code</Text>
                   <TextInput
-                    style={styles.input}
+                    style={[styles.input, getFieldStateStyle(form.srCode)]}
                     placeholder="e.g., 22-72350"
                     placeholderTextColor={PLACEHOLDER_COLOR}
                     value={form.srCode}
@@ -2924,7 +2911,7 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
                     activeOpacity={0.8}
                     onPress={openBirthPicker}
                   >
-                    <View style={[styles.input, styles.dateInput]}>
+                    <View style={[styles.input, styles.dateInput, getFieldStateStyle(form.birthDate)]}>
                       <Text style={form.birthDate ? styles.dateText : styles.placeholderText}>
                         {form.birthDate || "mm/dd/yyyy"}
                       </Text>
@@ -2935,7 +2922,7 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
                 <View style={styles.inputCol}>
                   <Text style={styles.inputLabel}>Place of Birth</Text>
                   <TextInput
-                    style={styles.input}
+                    style={[styles.input, getFieldStateStyle(form.placeOfBirth)]}
                     placeholder="e.g., Nasugbu, Batangas"
                     placeholderTextColor={PLACEHOLDER_COLOR}
                     value={form.placeOfBirth}
@@ -2945,7 +2932,7 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
                 <View style={styles.inputCol}>
                   <Text style={styles.inputLabel}>Contact Number</Text>
                   <TextInput
-                    style={styles.input}
+                    style={[styles.input, getFieldStateStyle(form.contactNumber)]}
                     placeholder="09XXXXXXXXX"
                     placeholderTextColor={PLACEHOLDER_COLOR}
                     value={form.contactNumber}
@@ -2959,7 +2946,7 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
               <View style={styles.fullWidthField}>
                 <Text style={styles.inputLabel}>Email</Text>
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, getFieldStateStyle(form.emailAddress)]}
                   placeholder="e.g., 22-72350@g.batstate-u.edu.ph"
                   placeholderTextColor={PLACEHOLDER_COLOR}
                   value={form.emailAddress}
@@ -2974,7 +2961,7 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
                 <View style={styles.inputCol}>
                   <Text style={styles.inputLabel}>Scholarship Grant</Text>
                   <TextInput
-                    style={styles.input}
+                    style={[styles.input, getFieldStateStyle(form.scholarshipGrant)]}
                     placeholder="e.g., None / Name of grant"
                     placeholderTextColor={PLACEHOLDER_COLOR}
                     value={form.scholarshipGrant}
@@ -2984,7 +2971,7 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
                 <View style={styles.inputCol}>
                   <Text style={styles.inputLabel}>Parent 1 (Full Name)</Text>
                   <TextInput
-                    style={styles.input}
+                    style={[styles.input, getFieldStateStyle(form.parent1Name)]}
                     placeholder="e.g., Jane Dela Cruz"
                     placeholderTextColor={PLACEHOLDER_COLOR}
                     value={form.parent1Name}
@@ -2997,7 +2984,7 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
                 <View style={styles.inputCol}>
                   <Text style={styles.inputLabel}>Parent 1 Contact</Text>
                   <TextInput
-                    style={styles.input}
+                    style={[styles.input, getFieldStateStyle(form.parent1Contact)]}
                     placeholder="09XXXXXXXXX"
                     placeholderTextColor={PLACEHOLDER_COLOR}
                     value={form.parent1Contact}
@@ -3008,7 +2995,7 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
                 <View style={styles.inputCol}>
                   <Text style={styles.inputLabel}>Parent 2 (Full Name)</Text>
                   <TextInput
-                    style={styles.input}
+                    style={[styles.input, getFieldStateStyle(form.parent2Name)]}
                     placeholder="e.g., Juan Dela Cruz"
                     placeholderTextColor={PLACEHOLDER_COLOR}
                     value={form.parent2Name}
@@ -3021,7 +3008,7 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
                 <View style={styles.inputCol}>
                   <Text style={styles.inputLabel}>Parent 2 Contact</Text>
                   <TextInput
-                    style={styles.input}
+                    style={[styles.input, getFieldStateStyle(form.parent2Contact)]}
                     placeholder="09XXXXXXXXX"
                     placeholderTextColor={PLACEHOLDER_COLOR}
                     value={form.parent2Contact}
@@ -3034,7 +3021,7 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
               <View style={styles.inputRow}>
                 <View style={styles.inputCol}>
                   <Text style={styles.inputLabel}>Region</Text>
-                  <TouchableOpacity style={styles.selectBox} onPress={() => showPicker("region")}>
+                  <TouchableOpacity style={[styles.selectBox, getFieldStateStyle(form.region)]} onPress={() => showPicker("region")}>
                     <View style={styles.selectBoxContent}>
                       <Text style={styles.selectText}>{form.region || "Select region"}</Text>
                       <Ionicons name="chevron-down" size={16} color="#666" />
@@ -3046,7 +3033,7 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
               <View style={styles.inputRow}>
                 <View style={styles.inputCol}>
                   <Text style={styles.inputLabel}>Province</Text>
-                  <TouchableOpacity style={styles.selectBox} onPress={() => showPicker("province")}>
+                  <TouchableOpacity style={[styles.selectBox, getFieldStateStyle(form.province)]} onPress={() => showPicker("province")}>
                     <View style={styles.selectBoxContent}>
                       <Text style={styles.selectText}>{form.province || "Select province"}</Text>
                       <Ionicons name="chevron-down" size={16} color="#666" />
@@ -3055,7 +3042,7 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
                 </View>
                 <View style={styles.inputCol}>
                   <Text style={styles.inputLabel}>City/Municipality</Text>
-                  <TouchableOpacity style={styles.selectBox} onPress={() => showPicker("city")}>
+                  <TouchableOpacity style={[styles.selectBox, getFieldStateStyle(form.city)]} onPress={() => showPicker("city")}>
                     <View style={styles.selectBoxContent}>
                       <Text style={styles.selectText}>{form.city || "Select city/municipality"}</Text>
                       <Ionicons name="chevron-down" size={16} color="#666" />
@@ -3067,7 +3054,7 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
               <View style={styles.inputRow}>
                 <View style={styles.inputCol}>
                   <Text style={styles.inputLabel}>Barangay</Text>
-                  <TouchableOpacity style={styles.selectBox} onPress={() => showPicker("barangay")}>
+                  <TouchableOpacity style={[styles.selectBox, getFieldStateStyle(form.barangay)]} onPress={() => showPicker("barangay")}>
                     <View style={styles.selectBoxContent}>
                       <Text style={styles.selectText}>{form.barangay || "Select barangay"}</Text>
                       <Ionicons name="chevron-down" size={16} color="#666" />
@@ -3077,7 +3064,7 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
                 <View style={styles.inputCol}>
                   <Text style={styles.inputLabel}>ZIP Code</Text>
                   <TextInput
-                    style={styles.input}
+                    style={[styles.input, getFieldStateStyle(form.zipCode)]}
                     placeholder="e.g., 4200"
                     placeholderTextColor={PLACEHOLDER_COLOR}
                     value={form.zipCode}
@@ -3090,7 +3077,7 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
               <View style={styles.fullWidthField}>
                 <Text style={styles.inputLabel}>House No./Street/Subdivision (optional)</Text>
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, getFieldStateStyle(form.address)]}
                   placeholder="e.g., Barangay 7 (Pob.), Nasugbu, Batangas"
                   placeholderTextColor={PLACEHOLDER_COLOR}
                   value={form.address}
@@ -3102,7 +3089,7 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
                 <View style={styles.inputCol}>
                   <Text style={styles.inputLabel}>Secondary School Graduated</Text>
                   <TextInput
-                    style={styles.input}
+                    style={[styles.input, getFieldStateStyle(form.secondarySchool)]}
                     placeholder="e.g., ABC High School"
                     placeholderTextColor={PLACEHOLDER_COLOR}
                     value={form.secondarySchool}
@@ -3112,7 +3099,7 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
                 <View style={styles.inputCol}>
                   <Text style={styles.inputLabel}>Year Graduated</Text>
                   <TextInput
-                    style={styles.input}
+                    style={[styles.input, getFieldStateStyle(form.secondaryYear)]}
                     placeholder="e.g., 2022"
                     placeholderTextColor={PLACEHOLDER_COLOR}
                     value={form.secondaryYear}
@@ -3126,7 +3113,7 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
                 <View style={styles.inputCol}>
                   <Text style={styles.inputLabel}>Elementary School Graduated</Text>
                   <TextInput
-                    style={styles.input}
+                    style={[styles.input, getFieldStateStyle(form.elementarySchool)]}
                     placeholder="e.g., ABC Elementary School"
                     placeholderTextColor={PLACEHOLDER_COLOR}
                     value={form.elementarySchool}
@@ -3136,7 +3123,7 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
                 <View style={styles.inputCol}>
                   <Text style={styles.inputLabel}>Year Graduated</Text>
                   <TextInput
-                    style={styles.input}
+                    style={[styles.input, getFieldStateStyle(form.elementaryYear)]}
                     placeholder="e.g., 2016"
                     placeholderTextColor={PLACEHOLDER_COLOR}
                     value={form.elementaryYear}
@@ -3150,7 +3137,7 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
                 <View style={styles.inputCol}>
                   <Text style={styles.inputLabel}>College</Text>
                   <TextInput
-                    style={styles.input}
+                    style={[styles.input, getFieldStateStyle(form.college)]}
                     placeholder="e.g., College of Informatics and Computing Sciences"
                     placeholderTextColor={PLACEHOLDER_COLOR}
                     value={form.college}
@@ -3161,7 +3148,7 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
                 <View style={styles.inputCol}>
                   <Text style={styles.inputLabel}>Program</Text>
                   <TextInput
-                    style={styles.input}
+                    style={[styles.input, getFieldStateStyle(form.program)]}
                     placeholder="e.g., Bachelor of Science in IT"
                     placeholderTextColor={PLACEHOLDER_COLOR}
                     value={form.program}
@@ -3182,7 +3169,7 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
                     <Text style={styles.text}>Graduation in December?</Text>
                     {form.gradDecemberChecked && (
                       <TextInput
-                        style={[styles.input, { flex: 1 }]}
+                        style={[styles.input, getFieldStateStyle(form.gradDecemberYear), { flex: 1 }]}
                         placeholder="Year"
                         value={form.gradDecemberYear}
                         onChangeText={(value) => updateField("gradDecemberYear", value)}
@@ -3200,7 +3187,7 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
                     <Text style={styles.text}>Graduation in May?</Text>
                     {form.gradMayChecked && (
                       <TextInput
-                        style={[styles.input, { flex: 1 }]}
+                        style={[styles.input, getFieldStateStyle(form.gradMayYear), { flex: 1 }]}
                         placeholder="Year"
                         value={form.gradMayYear}
                         onChangeText={(value) => updateField("gradMayYear", value)}
@@ -3218,7 +3205,7 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
                     <Text style={styles.text}>Graduation in Midterm?</Text>
                     {form.gradMidtermChecked && (
                       <TextInput
-                        style={[styles.input, { flex: 1 }]}
+                        style={[styles.input, getFieldStateStyle(form.gradMidtermYear), { flex: 1 }]}
                         placeholder="Year"
                         value={form.gradMidtermYear}
                         onChangeText={(value) => updateField("gradMidtermYear", value)}
@@ -3232,7 +3219,7 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
                 <View style={styles.inputCol}>
                   <Text style={styles.inputLabel}>Major</Text>
                   <TextInput
-                    style={styles.input}
+                    style={[styles.input, getFieldStateStyle(form.major)]}
                     placeholder="e.g., Business Analytics"
                     placeholderTextColor={PLACEHOLDER_COLOR}
                     value={form.major}
@@ -3990,6 +3977,35 @@ const styles = StyleSheet.create({
   },
   infoLabel: { fontSize: 12, color: "#6b7280", fontWeight: "600" },
   infoValue: { fontSize: 14, color: "#111827", fontWeight: "700" },
+  gradeHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 16,
+    marginBottom: 12,
+  },
+  loadRecordsButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#DC143C",
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+  },
+  loadRecordsButtonText: {
+    color: "#fff",
+    fontWeight: "700",
+  },
+  refreshButtonDisabled: {
+    opacity: 0.6,
+  },
+  recordsFooterNote: {
+    marginTop: 12,
+    fontSize: 12,
+    color: "#4b5563",
+    fontStyle: "italic",
+  },
   gradeCard: {
     backgroundColor: "#fff",
     borderRadius: 14,
@@ -4218,6 +4234,8 @@ const styles = StyleSheet.create({
   sectionHeader: { fontSize: 16, fontWeight: "700", marginTop: 10, marginBottom: 6 },
   inputLabel: { fontWeight: "600", marginTop: 10, marginBottom: 4, textTransform: "capitalize" },
   input: { borderWidth: 1, borderColor: "#ccc", borderRadius: 8, padding: 10, backgroundColor: "#fafafa", marginBottom: 10 },
+  inputFilled: { borderColor: "#16a34a" },
+  inputEmpty: { borderColor: "#facc15" },
   selectBox: {
     borderWidth: 1,
     borderColor: "#ccc",
