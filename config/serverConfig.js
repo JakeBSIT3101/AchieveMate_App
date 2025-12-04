@@ -1,5 +1,3 @@
-// Server Configuration
-// Update this IP address when your network changes
 export const OCR_SERVER_CONFIG = {
   // Hosted OCR service (VPS)
   BASE_URL: 'https://ocr.achievemate.website',
