@@ -18,6 +18,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Ionicons } from '@expo/vector-icons';
 import { OCR_SERVER_CONFIG } from '../config/serverConfig';
+import { OCR_URL } from '../config/api';
 import { BASE_URL } from '../config/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Pdf from 'react-native-pdf';
@@ -27,13 +28,17 @@ import ViewShot from 'react-native-view-shot';
 const runGradeOCRBackend = async (fileUri) => {
   try {
     const formData = new FormData();
-    formData.append("file", {
+    formData.append("pdf", {
       uri: fileUri,
       name: "grades.pdf",
       type: "application/pdf",
     });
 
-    const response = await fetch(OCR_SERVER_CONFIG.getEndpointURL(OCR_SERVER_CONFIG.ENDPOINTS.OCR_DIRECT), {
+    // Use the upload_grade_pdf endpoint (app.py) that handles CRUD + text files
+    const ocrEndpoint = `${OCR_URL || OCR_SERVER_CONFIG.BASE_URL}/upload_grade_pdf`;
+    console.log('runGradeOCRBackend url', ocrEndpoint);
+
+    const response = await fetch(ocrEndpoint, {
       method: "POST",
       body: formData,
       headers: {
@@ -61,6 +66,26 @@ const runGradeOCRBackend = async (fileUri) => {
     console.error("runGradeOCRBackend error:", err);
     throw err;
   }
+};
+
+const fetchRawCogTextFromServer = async () => {
+  const base = OCR_URL || OCR_SERVER_CONFIG.BASE_URL;
+  const endpoints = [
+    `${base}/ocr_results/raw_cog_text.txt?t=${Date.now()}`,
+    `${base}/results/raw_cog_text.txt?t=${Date.now()}`,
+  ];
+  for (const endpoint of endpoints) {
+    try {
+      const response = await fetch(endpoint);
+      if (response.ok) {
+        return await response.text();
+      }
+    } catch (error) {
+      console.error("fetchRawCogTextFromServer endpoint error:", endpoint, error);
+    }
+  }
+  console.error("fetchRawCogTextFromServer error: Unable to retrieve raw_cog_text.txt");
+  return null;
 };
 
 const normalizeSemester = (value) => {
@@ -145,6 +170,8 @@ const parseGradeData = (extractedText) => {
   
   const lines = extractedText.split('\n');
   const courses = [];
+  let weightedSumFromCourses = 0;
+  let unitsFromCourses = 0;
   let gwa = null;
   let totalUnits = null;
   let totalCourses = null;
@@ -230,6 +257,12 @@ const parseGradeData = (extractedText) => {
       
       if (course.courseCode && course.grade && !courses.some(c => c.courseCode === course.courseCode)) {
         courses.push(course);
+        const numericGrade = parseFloat(course.grade);
+        const numericUnits = parseFloat(course.units);
+        if (!isNaN(numericGrade) && !isNaN(numericUnits) && numericUnits > 0) {
+          weightedSumFromCourses += numericGrade * numericUnits;
+          unitsFromCourses += numericUnits;
+        }
       }
     }
     
@@ -250,6 +283,12 @@ const parseGradeData = (extractedText) => {
           
           if (course.courseCode && course.grade && !courses.some(c => c.courseCode === course.courseCode)) {
             courses.push(course);
+            const numericGrade = parseFloat(course.grade);
+            const numericUnits = parseFloat(course.units);
+            if (!isNaN(numericGrade) && !isNaN(numericUnits) && numericUnits > 0) {
+              weightedSumFromCourses += numericGrade * numericUnits;
+              unitsFromCourses += numericUnits;
+            }
           }
         }
       }
@@ -274,12 +313,27 @@ const parseGradeData = (extractedText) => {
           
           if (course.courseCode && course.grade && !courses.some(c => c.courseCode === course.courseCode)) {
             courses.push(course);
+            const numericGrade = parseFloat(course.grade);
+            const numericUnits = parseFloat(course.units);
+            if (!isNaN(numericGrade) && !isNaN(numericUnits) && numericUnits > 0) {
+              weightedSumFromCourses += numericGrade * numericUnits;
+              unitsFromCourses += numericUnits;
+            }
           }
         }
       }
     }
   }
   
+  if (unitsFromCourses > 0) {
+    gwa = weightedSumFromCourses / unitsFromCourses;
+    if (!totalUnits) {
+      totalUnits = unitsFromCourses;
+    }
+    if (!totalCourses) {
+      totalCourses = courses.length;
+    }
+  }
   
   return { courses, gwa, totalUnits, totalCourses, academicYear, semester, yearLevel };
 };
@@ -489,21 +543,23 @@ const levenshteinDistance = (str1, str2) => {
 // Helper function to get academic year ID (matches your academic_years table)
 const getAcademicYearId = (academicYear) => {
   const yearMap = {
-    "2022-2023": 20,
-    "2023-2024": 21,
-    "2024-2025": 22,
+    "2021-2022": 24,
+    "2022-2023": 25,
+    "2023-2024": 26,
+    "2024-2025": 27,
   };
 
   // Fall back to the latest known academic year to avoid invalid FK references
-  return yearMap[academicYear] || 22;
+  return yearMap[academicYear] || 27;
 };
 
 // Reverse mapping for labels when viewing grades
 const getAcademicYearLabel = (academicYearId) => {
   const map = {
-    20: "2022-2023",
-    21: "2023-2024",
-    22: "2024-2025",
+    24: "2021-2022",
+    25: "2022-2023",
+    26: "2023-2024",
+    27: "2024-2025",
   };
   return map[academicYearId] || null;
 };
@@ -878,9 +934,11 @@ const pickGradeFile = async (
     try {
       // Extract text using OCR
       const extractedText = await runGradeOCRBackend(newPath);
+      const rawCogTextFromServer = await fetchRawCogTextFromServer();
+      const gradeTextSource = rawCogTextFromServer || extractedText;
       
       // Parse the extracted text to get academic info
-      const gradeData = parseGradeData(extractedText);
+      const gradeData = parseGradeData(gradeTextSource);
       
       // Get student data for curriculum validation
       const studentData = await getStudentData();
@@ -933,7 +991,8 @@ const pickGradeFile = async (
         id: timestamp,
         fileName: newFileName,
         filePath: newPath,
-        extractedText,
+        extractedText: gradeTextSource,
+        rawCogText: rawCogTextFromServer,
         academicYear: gradeData.academicYear,
         semester: normalizedSemester,
         yearLevel: gradeData.yearLevel,

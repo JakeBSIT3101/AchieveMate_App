@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { View, Text, TouchableOpacity, Alert } from "react-native";
 import { WebView } from "react-native-webview";
 import * as DocumentPicker from "expo-document-picker";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import Icon from "react-native-vector-icons/MaterialCommunityIcons";
 
 export default function PdfUploader({ label, fileUri, onPickFile, style, webviewHeight = 400 }) {

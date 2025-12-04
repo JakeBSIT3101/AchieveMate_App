@@ -1,5 +1,5 @@
 # ocr_server.py
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import os
 import re
@@ -12,9 +12,8 @@ from PIL import Image
 import pytesseract
 import fitz  # PyMuPDF for direct PDF text extraction
 
-# Configure Tesseract path (update this path after installing Tesseract)
-# Default installation path for Windows
-pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+# Configure Tesseract path (allow override via env; default to system PATH)
+pytesseract.pytesseract.tesseract_cmd = os.environ.get('TESSERACT_CMD', pytesseract.pytesseract.tesseract_cmd)
 
 app = Flask(__name__)
 CORS(app)  # Allow requests from your mobile app
@@ -22,7 +21,18 @@ CORS(app)  # Allow requests from your mobile app
 BASE_DIR = os.path.dirname(__file__)
 RESULTS_DIR = os.path.join(BASE_DIR, "results")
 os.makedirs(RESULTS_DIR, exist_ok=True)
-POPPLER_BIN = r"c:\xampp\htdocs\AchievemateApp\AchieveMate_App\poppler\poppler-24.08.0\Library\bin"
+# Allow POPPLER_BIN to be set via environment; default to Linux poppler path so the VPS works without extra env.
+POPPLER_BIN = os.environ.get("POPPLER_BIN", "/usr/bin")
+
+# Lightweight debug logger so we can see what the server is doing on the VPS.
+def debug_log(msg: str):
+    try:
+        log_path = os.path.join(RESULTS_DIR, "ocr_server.log")
+        with open(log_path, "a", encoding="utf-8") as lf:
+            lf.write(f"[{datetime.now().isoformat()}] {msg}\n")
+    except Exception:
+        # Never break OCR because of logging.
+        pass
 
 def scale_image(image, scale_factor=2):
     new_size = (int(image.width * scale_factor), int(image.height * scale_factor))
@@ -85,6 +95,7 @@ def extract_text_directly_from_pdf(pdf_bytes, original_filename="document.pdf"):
 def extract_text_with_poppler(pdf_bytes, original_filename):
     """Use poppler's pdftotext to extract text with layout preserved."""
     try:
+        debug_log(f"pdftotext using POPPLER_BIN='{POPPLER_BIN}' for {original_filename}")
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_pdf:
             tmp_pdf.write(pdf_bytes)
             tmp_pdf_path = tmp_pdf.name
@@ -92,8 +103,12 @@ def extract_text_with_poppler(pdf_bytes, original_filename):
         with tempfile.NamedTemporaryFile(delete=False, suffix=".txt") as tmp_txt:
             tmp_txt_path = tmp_txt.name
 
+        pdftotext_cmd = "pdftotext"
+        if POPPLER_BIN:
+            pdftotext_cmd = os.path.join(POPPLER_BIN, "pdftotext")
+
         cmd = [
-            os.path.join(POPPLER_BIN, "pdftotext.exe"),
+            pdftotext_cmd,
             "-layout",
             "-enc",
             "UTF-8",
@@ -107,7 +122,7 @@ def extract_text_with_poppler(pdf_bytes, original_filename):
 
         return text if text.strip() else ""
     except Exception as e:
-        print(f"Poppler pdftotext failed: {e}")
+        debug_log(f"Poppler pdftotext failed: {e}")
         return ""
     finally:
         for path in [locals().get("tmp_pdf_path"), locals().get("tmp_txt_path")]:
@@ -842,17 +857,18 @@ def save_ocr_results_to_file(text_content, file_type="full", original_filename="
             f.write(f"======================\n\n")
             f.write(formatted_content)
         
-        print(f"OCR results saved to: {filepath}")
+        debug_log(f"OCR results saved to: {filepath} bytes={len(formatted_content.encode('utf-8', 'ignore'))}")
         return filepath
     except Exception as e:
-        print(f"Error saving OCR results: {e}")
+        debug_log(f"Error saving OCR results: {e}")
         return None
 
 def extract_cor_from_pdf(pdf_bytes, original_filename="document.pdf"):
+    debug_log(f"extract_cor_from_pdf start file={original_filename} bytes={len(pdf_bytes)} poppler='{POPPLER_BIN}'")
     # Convert PDF → Images (ALL pages)
     images = convert_from_bytes(
         pdf_bytes,
-        poppler_path = r"c:\xampp\htdocs\AchievemateApp\AchieveMate_App\poppler\poppler-24.08.0\Library\bin"
+        poppler_path=POPPLER_BIN if POPPLER_BIN else None
     )
     if not images:
         raise ValueError("No image generated from PDF")
@@ -869,6 +885,16 @@ def extract_cor_from_pdf(pdf_bytes, original_filename="document.pdf"):
     
     # Save raw text to file
     save_ocr_results_to_file(raw_text, "parsed", original_filename)
+    debug_log(f"extract_cor_from_pdf extracted {len(raw_text.splitlines())} lines from {original_filename}")
+
+    # Also save a layout-preserved dump via poppler (closer to what the PDF looks like)
+    try:
+        layout_text = extract_text_with_poppler(pdf_bytes, original_filename)
+        if layout_text:
+            save_ocr_results_to_file(layout_text, "layout", original_filename)
+            debug_log(f"extract_cor_from_pdf saved layout text ({len(layout_text.splitlines())} lines) for {original_filename}")
+    except Exception as e:
+        debug_log(f"extract_cor_from_pdf layout dump failed for {original_filename}: {e}")
 
     # Parse key fields
     sr_code = name = program = academic_year = semester = year_level = ""
@@ -904,7 +930,7 @@ def extract_all_text_from_pdf(pdf_bytes, original_filename="document.pdf"):
     # Convert PDF → Images (ALL pages)
     images = convert_from_bytes(
         pdf_bytes,
-        poppler_path = r"c:\xampp\htdocs\AchievemateApp\AchieveMate_App\poppler\poppler-24.08.0\Library\bin"
+        poppler_path=POPPLER_BIN if POPPLER_BIN else None
     )
     if not images:
         raise ValueError("No image generated from PDF")
@@ -935,7 +961,7 @@ def extract_positioned_text_from_pdf(pdf_bytes, original_filename="document.pdf"
     # Convert PDF → Images (ALL pages)
     images = convert_from_bytes(
         pdf_bytes,
-        poppler_path = r"c:\xampp\htdocs\AchievemateApp\AchieveMate_App\poppler\poppler-24.08.0\Library\bin"
+        poppler_path=POPPLER_BIN if POPPLER_BIN else None
     )
     if not images:
         raise ValueError("No image generated from PDF")
@@ -1051,6 +1077,46 @@ def ocr_direct_pdf_endpoint():
     except Exception as e:
         print(f"OCR Direct endpoint error: {e}")
         return jsonify({"error": f"PDF extraction failed: {str(e)}"}), 500
+
+# Serve OCR result files (text/previews) at /results/<filename> and /ocr_results/<filename>
+@app.route("/results/<path:filename>", methods=["GET"])
+def serve_results(filename):
+    try:
+        return send_from_directory(RESULTS_DIR, filename, as_attachment=False)
+    except Exception as e:
+        return jsonify({"error": f"File not found: {str(e)}"}), 404
+
+@app.route("/ocr_results/<path:filename>", methods=["GET"])
+def serve_results_alias(filename):
+    # Alias for convenience: /ocr_results/<file>
+    try:
+        return send_from_directory(RESULTS_DIR, filename, as_attachment=False)
+    except Exception as e:
+        return jsonify({"error": f"File not found: {str(e)}"}), 404
+
+@app.route("/ocr_results", methods=["GET"])
+def list_results():
+    """List recent OCR output files so you can see what to fetch."""
+    try:
+        entries = []
+        for name in os.listdir(RESULTS_DIR):
+            full_path = os.path.join(RESULTS_DIR, name)
+            if not os.path.isfile(full_path):
+                continue
+            stat = os.stat(full_path)
+            entries.append({
+                "name": name,
+                "size_bytes": stat.st_size,
+                "mtime_epoch": stat.st_mtime,
+            })
+        entries.sort(key=lambda x: x["mtime_epoch"], reverse=True)
+
+        base = request.host_url.rstrip("/")
+        for e in entries:
+            e["url"] = f"{base}/ocr_results/{e['name']}"
+        return jsonify({"files": entries})
+    except Exception as e:
+        return jsonify({"error": f"Failed to list results: {str(e)}"}), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)

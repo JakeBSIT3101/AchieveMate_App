@@ -36,6 +36,11 @@ const menuItems = [
     icon: require("../assets/status.png"),
     screen: "Application Status",
   },
+  {
+    title: "Notifications",
+    icon: require("../assets/latinhonor.png"),
+    screen: "Notifications",
+  },
 ];
 
 const DrawerContent = ({ navigation }) => {

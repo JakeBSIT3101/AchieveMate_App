@@ -1,15 +1,9 @@
 // Server Configuration
 // Update this IP address when your network changes
 export const OCR_SERVER_CONFIG = {
-  // Current network IP address
-  HOST: '192.168.254.111',
-  PORT: '5000',
-  
-  // Full server URL
-  get BASE_URL() {
-    return `http://${this.HOST}:${this.PORT}`;
-  },
-  
+  // Hosted OCR service (VPS)
+  BASE_URL: 'https://ocr.achievemate.website',
+
   // OCR endpoints
   ENDPOINTS: {
     OCR: '/ocr',

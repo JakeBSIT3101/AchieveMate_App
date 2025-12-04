@@ -19,6 +19,8 @@ import ApplicationForGraduation from "./screens/ApplicationForGraduation";
 import ApplicationStatus from "./screens/ApplicationStatus";
 import ApplicationForLatinHonors from "./screens/ApplicationForLatinHonors";
 import UploadGrades from "./screens/UploadGrades";
+import Notifications from "./screens/Notifications";
+import Notification from "./screens/Notification";
 
 const Stack = createStackNavigator();
 const Drawer = createDrawerNavigator();
@@ -36,6 +38,7 @@ const DrawerNavigator = () => (
     <Drawer.Screen name="Application Status" component={ApplicationStatus} />
     <Drawer.Screen name="Application For Latin Honors" component={ApplicationForLatinHonors} />
     <Drawer.Screen name="Upload Grades" component={UploadGrades} />
+    <Drawer.Screen name="Notifications" component={Notification} />
     <Drawer.Screen
       name="ApplicationforDeans"
       component={ApplicationforDeans}
