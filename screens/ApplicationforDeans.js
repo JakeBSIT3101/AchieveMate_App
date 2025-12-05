@@ -337,6 +337,7 @@ export default function ApplicationforDeans() {
     useState(initialAcademicYear);
   const [requiredSemester, setRequiredSemester] = useState(initialSemester);
   const [studentId, setStudentId] = useState("");
+  const [authStudentId, setAuthStudentId] = useState("");
   const [submitLoading, setSubmitLoading] = useState(false);
 
   useEffect(() => {
@@ -1277,6 +1278,62 @@ export default function ApplicationforDeans() {
     return await res.text();
   };
 
+  const REVIEW_TEXT_SOURCES = [
+    { key: "grade_for_review", url: `${OCR_URLON}/results/grade_for_review.txt` },
+    { key: "grade_pdf_ocr", url: `${OCR_URLON}/results/grade_pdf_ocr.txt` },
+    { key: "grade_webpage", url: `${OCR_URLON}/results/grade_webpage.txt` },
+    { key: "raw_cog_text", url: `${OCR_URLON}/results/raw_cog_text.txt` },
+    { key: "raw_grade_text", url: `${OCR_URLON}/results/raw_grade_text.txt` },
+    { key: "result_copy_of_grade", url: `${OCR_URLON}/results/result_copy_of_grade.txt` },
+    { key: "raw_ocr_text", url: `${OCR_URLON}/results/raw_ocr_text.txt` },
+    {
+      key: "result_certificate_of_enrollment",
+      url: `${OCR_URLON}/results/result_certificate_of_enrollment.txt`,
+    },
+  ];
+
+  const fetchReviewTextMap = async () => {
+    const hits = {};
+    const errors = {};
+
+    for (const source of REVIEW_TEXT_SOURCES) {
+      try {
+        const text = await fetchText(source.url);
+        if (text && text.trim()) {
+          hits[source.key] = text;
+        }
+      } catch (err) {
+        errors[source.key] = err;
+        console.warn(
+          "Review text fetch failed:",
+          source.url,
+          err?.message || err
+        );
+      }
+    }
+
+    if (Object.keys(hits).length === 0) {
+      const lastKey = Object.keys(errors)[Object.keys(errors).length - 1];
+      throw errors[lastKey] || new Error("No review text source available.");
+    }
+
+    return hits;
+  };
+
+  const extractGwaFromText = (text) => {
+    if (!text) return null;
+    const match = text.match(
+      /(General\s+Weighted\s+Average|Weighted\s+Average|GWA)\s*[:=]?\s*([0-9.]+)/i
+    );
+    return match ? match[2].trim() : null;
+  };
+
+  const extractSectionFromText = (text) => {
+    if (!text) return "";
+    const match = text.match(/Section\s*[:\-]\s*([A-Za-z0-9\- ]{2,})/i);
+    return match ? match[1].trim() : "";
+  };
+
   // Fetch helpers for API lookups
   const fetchJsonFirst = async (urls) => {
     for (const u of urls) {
@@ -1359,19 +1416,6 @@ export default function ApplicationforDeans() {
         setStudentId(cached);
         return cached;
       }
-      const loginResultRaw = await AsyncStorage.getItem("login_result");
-      if (loginResultRaw) {
-        try {
-          const parsed = JSON.parse(loginResultRaw);
-          const extracted = extractStudentId(parsed);
-          if (extracted) {
-            const persisted = await persistStudentId(extracted);
-            if (persisted) return persisted;
-          }
-        } catch (e) {
-          console.log("Student ID parse error:", e?.message || e);
-        }
-      }
       const src = reviewMeta?.srcode;
       if (src) {
         const enc = encodeURIComponent(String(src).trim());
@@ -1422,6 +1466,75 @@ export default function ApplicationforDeans() {
     tryResolveStudentId();
   }, [tryResolveStudentId]);
 
+  const loadAuthStudentId = useCallback(async () => {
+    const syncAuth = async (value) => {
+      if (!value) return "";
+      const persisted = await persistStudentId(value);
+      if (persisted) {
+        setAuthStudentId(persisted);
+      }
+      return persisted;
+    };
+
+    const loginResultRaw = await AsyncStorage.getItem("login_result");
+    if (loginResultRaw) {
+      try {
+        const parsed = JSON.parse(loginResultRaw);
+        const extracted = extractStudentId(parsed);
+        if (extracted) {
+          const persisted = await syncAuth(extracted);
+          if (persisted) return persisted;
+        }
+      } catch (e) {
+        console.log("Auth student ID parse error:", e?.message || e);
+      }
+    }
+
+    const sessionRaw = await AsyncStorage.getItem("session");
+    if (sessionRaw) {
+      try {
+        const parsed = JSON.parse(sessionRaw);
+        const extracted = extractStudentId(parsed);
+        if (extracted) {
+          const persisted = await syncAuth(extracted);
+          if (persisted) return persisted;
+        }
+      } catch (e) {
+        console.log("Session student ID parse error:", e?.message || e);
+      }
+    }
+
+    const loginId = await AsyncStorage.getItem("login_id");
+    if (loginId) {
+      try {
+        const enc = encodeURIComponent(loginId);
+        const info = await fetchJsonFirst([
+          `${BASE_URL}/student_manage.php?login_id=${enc}`,
+          `${BASE_URL}/student_contact.php?login_id=${enc}`,
+          `${BASE_URL}/contact.php?login_id=${enc}`,
+        ]);
+        const extracted = extractStudentId(info);
+        if (extracted) {
+          const persisted = await syncAuth(extracted);
+          if (persisted) return persisted;
+        }
+      } catch (e) {
+        console.log("login_id student ID fetch error:", e?.message || e);
+      }
+    }
+    return "";
+  }, [persistStudentId]);
+
+  useEffect(() => {
+    loadAuthStudentId();
+  }, [loadAuthStudentId]);
+
+  useEffect(() => {
+    if (studentId && !authStudentId) {
+      setAuthStudentId(studentId);
+    }
+  }, [studentId, authStudentId]);
+
   const resolveTrackName = async (abbr) => {
     if (!abbr) return "";
     const a = encodeURIComponent(String(abbr).trim());
@@ -1466,54 +1579,113 @@ export default function ApplicationforDeans() {
   const loadReviewData = async () => {
     setReviewLoading(true);
     try {
-      // grade_for_review.txt contains table + meta
-      const coeTxt = await fetchText(`${OCR_URLON}/results/grade_for_review.txt`);
-      // Weighted Average resides in Grade_with_Units.txt
-      const gradeUnitsTxt = await fetchText(
-        `${OCR_URLON}/results/Grade_with_Units.txt`
-      );
+      const textMap = await fetchReviewTextMap();
+      const courseTxt =
+        textMap.raw_cog_text ||
+        textMap.raw_ocr_text ||
+        textMap.grade_pdf_ocr ||
+        textMap.grade_webpage ||
+        textMap.raw_grade_text ||
+        textMap.result_copy_of_grade ||
+        textMap.grade_for_review;
 
-      const gwaMatch = gradeUnitsTxt.match(/Weighted Average:\s*([0-9.]+)/i);
-      const gwa = gwaMatch ? gwaMatch[1] : "—";
+      const metaTxt =
+        textMap.grade_for_review ||
+        textMap.grade_pdf_ocr ||
+        textMap.grade_webpage ||
+        textMap.raw_cog_text ||
+        textMap.raw_ocr_text ||
+        textMap.raw_grade_text ||
+        textMap.result_copy_of_grade ||
+        courseTxt;
+
+      if (!courseTxt) {
+        throw new Error("No grade OCR text found.");
+      }
+
+      const corTxt = textMap.result_certificate_of_enrollment || "";
+      // Weighted Average resides in Grade_with_Units.txt
+      let gradeUnitsTxt = "";
+      try {
+        gradeUnitsTxt = await fetchText(
+          `${OCR_URLON}/results/Grade_with_Units.txt`
+        );
+      } catch (err) {
+        console.warn("GWA text fetch failed:", err?.message);
+      }
+
+      const gwa =
+        extractGwaFromText(gradeUnitsTxt) ||
+        extractGwaFromText(textMap.grade_pdf_ocr) ||
+        extractGwaFromText(textMap.grade_webpage) ||
+        extractGwaFromText(metaTxt) ||
+        "—";
 
       const meta = {
         fullname: (() => {
-          const m = coeTxt.match(/Fullname\s*:\s*([^\n]+?)(?:\s*SRCODE|$)/i);
+          const m = metaTxt.match(/Fullname\s*:\s*([^\n]+?)(?:\s*SRCODE|$)/i);
           return m ? m[1].trim() : "";
         })(),
         srcode: (() => {
-          const m = coeTxt.match(/SRCODE\s*:\s*([^\n]+)/i);
+          const m = metaTxt.match(/SRCODE\s*:\s*([^\n]+)/i);
           return m ? m[1].trim() : "";
         })(),
         college: (() => {
-          const m = coeTxt.match(/College\s*:\s*([^\n]+)/i);
+          const m = metaTxt.match(/College\s*:\s*([^\n]+)/i);
           return m ? m[1].trim() : "";
         })(),
         academic_year: (() => {
-          const m = coeTxt.match(/Academic Year\s*:\s*([^\n]+)/i);
+          const m = metaTxt.match(/Academic Year\s*:\s*([^\n]+)/i);
           return m ? m[1].trim() : "";
         })(),
         program: (() => {
-          const m = coeTxt.match(/Program\s*:\s*([^\n]+)/i);
+          const m = metaTxt.match(/Program\s*:\s*([^\n]+)/i);
           return m ? m[1].trim() : "";
         })(),
         semester: (() => {
-          const m = coeTxt.match(/Semester\s*:\s*([^\n]+)/i);
+          const m = metaTxt.match(/Semester\s*:\s*([^\n]+)/i);
           return m ? m[1].trim() : "";
         })(),
         year_level: (() => {
-          const m = coeTxt.match(/Year Level\s*:\s*([^\n]+)/i);
+          const m = metaTxt.match(/Year Level\s*:\s*([^\n]+)/i);
           return m ? m[1].trim() : "";
         })(),
         track: (() => {
-          const m = coeTxt.match(/Track\s*:\s*([^\n]+)/i);
+          const m = metaTxt.match(/Track\s*:\s*([^\n]+)/i);
           return m ? m[1].trim() : "";
         })(),
       };
 
+      const mergeMetaFromCor = (field, regex) => {
+        if (meta[field]) return;
+        if (!corTxt) return;
+        const match = corTxt.match(regex);
+        if (match) {
+          meta[field] = match[1].trim();
+        }
+      };
+
+      mergeMetaFromCor("fullname", /Name\s*:\s*([^\n]+)/i);
+      mergeMetaFromCor("program", /Program\s*:\s*([^\n]+)/i);
+      mergeMetaFromCor("track", /Track\s*:\s*([^\n]+)/i);
+      mergeMetaFromCor("year_level", /Year\s*Level\s*:\s*([^\n]+)/i);
+      mergeMetaFromCor("semester", /Semester\s*:\s*([^\n]+)/i);
+      mergeMetaFromCor("academic_year", /Academic\s*Year\s*:\s*([^\n]+)/i);
+      mergeMetaFromCor("srcode", /SR\s*Code\s*:\s*([^\n]+)/i);
+
+      if (!meta.section) {
+        const sectionFromMeta =
+          extractSectionFromText(courseTxt) ||
+          extractSectionFromText(metaTxt) ||
+          extractSectionFromText(corTxt);
+        if (sectionFromMeta) {
+          meta.section = sectionFromMeta;
+        }
+      }
+
       // -------- parse table lines --------
       const tableLines = [];
-      const lines = coeTxt.split("\n");
+      const lines = courseTxt.split("\n");
       let inTable = false;
       for (let ln of lines) {
         if (ln.startsWith("# Course Code")) {
@@ -1531,6 +1703,15 @@ export default function ApplicationforDeans() {
 
           if (/^\d+\s/.test(ln)) tableLines.push(trimmed);
         }
+      }
+
+      if (tableLines.length === 0) {
+        lines.forEach((ln) => {
+          const trimmed = ln.trim();
+          if (/^\d+\s+[A-Za-z]/.test(trimmed)) {
+            tableLines.push(trimmed);
+          }
+        });
       }
 
       // -------- helpers for token classification --------
@@ -1616,12 +1797,33 @@ export default function ApplicationforDeans() {
         };
       });
 
-      const totalCoursesMatch = coeTxt.match(/Total no of Course\s*(\d+)/i);
-      const totalUnitsMatch = coeTxt.match(/Total no of Units\s*(\d+)/i);
+      const totalCoursesMatch = courseTxt.match(/Total no of Course\s*(\d+)/i);
+      const totalUnitsMatch = courseTxt.match(/Total no of Units\s*(\d+)/i);
+      const excludedCodes = new Set(["NSTP111", "NSTP121"]);
+      let weightedSum = 0;
+      let computedUnits = 0;
+      rows.forEach((row) => {
+        const codeKey = (row.code || "").replace(/\s+/g, "").toUpperCase();
+        if (excludedCodes.has(codeKey)) return;
+
+        const unitsNum = parseFloat(row.units);
+        const gradeNum = toNumericGrade(row.grade);
+        if (!Number.isFinite(unitsNum) || !Number.isFinite(gradeNum)) {
+          return;
+        }
+        weightedSum += unitsNum * gradeNum;
+        computedUnits += unitsNum;
+      });
+
+      const computedGwa =
+        computedUnits > 0 ? (weightedSum / computedUnits).toFixed(4) : gwa;
+
       const summary = {
         totalCourses: totalCoursesMatch ? totalCoursesMatch[1] : rows.length,
-        totalUnits: totalUnitsMatch ? totalUnitsMatch[1] : "—",
-        gwa,
+        totalUnits:
+          totalUnitsMatch?.[1] ||
+          (computedUnits > 0 ? computedUnits.toString() : "—"),
+        gwa: computedGwa,
       };
 
       // Compute a representative Section (most common non-empty across rows)
@@ -1636,6 +1838,14 @@ export default function ApplicationforDeans() {
             (a, b) => counts[b] - counts[a]
           )[0];
           if (best) meta.section = best;
+        }
+        if (!meta.section) {
+          const firstWithSection = rows.find(
+            (r) => r.section && String(r.section).trim()
+          );
+          if (firstWithSection) {
+            meta.section = String(firstWithSection.section).trim();
+          }
         }
       } catch (_) {}
 
@@ -2073,7 +2283,15 @@ export default function ApplicationforDeans() {
       const gwaTL = fromTopLeftAdj(166, 291.5, TOTALS_Y_SHIFT_PT);
       const rankTL = fromTopLeftAdj(160, 296.5, TOTALS_Y_SHIFT_PT);
       const rankVal = rankFromGwa(reviewSummary?.gwa);
-      const wa = totalUnits ? totalWG / totalUnits : 0;
+      const parsedSummaryGwa = parseFloat(
+        String(reviewSummary?.gwa ?? "").replace(/[^0-9.]/g, "")
+      );
+      const wa =
+        Number.isFinite(parsedSummaryGwa) && parsedSummaryGwa > 0
+          ? parsedSummaryGwa
+          : totalUnits
+          ? totalWG / totalUnits
+          : 0;
       page.drawText(String(totalUnits), {
         x: totalUnitsTL.x,
         y: totalUnitsTL.y,
@@ -2548,7 +2766,8 @@ export default function ApplicationforDeans() {
     if (submitLoading) return;
     try {
       setSubmitLoading(true);
-      const resolvedId = studentId || (await tryResolveStudentId());
+      const resolvedId =
+        authStudentId || studentId || (await tryResolveStudentId());
       if (!resolvedId) {
         Alert.alert(
           "Missing Information",
@@ -2588,7 +2807,7 @@ export default function ApplicationforDeans() {
         file_data: pdfData,
         gwa: gwaValue,
         rank: rankFromGwa(reviewSummary.gwa),
-        status: "For evaluation",
+        status: "For Evaluation",
         post_id: linkedPostId || null,
       };
       console.log("[SUBMIT] Payload:", payload);

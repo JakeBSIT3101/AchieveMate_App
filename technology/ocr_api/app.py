@@ -58,6 +58,7 @@ def parse_grade_for_review(raw_text: str) -> str:
       if m:
         total_units = m.group(1)
 
+
   # Format output
   out = []
   out.append("BATANGAS STATE UNIVERSITY\n")
@@ -84,8 +85,9 @@ def parse_grade_for_review(raw_text: str) -> str:
   out.append(f"Total no of Units {total_units}\n")
   return "\n".join(out)
 
+
 from flask import Flask, request, jsonify, send_from_directory, Response  # <-- added Response
-from PIL import Image, ImageOps  # <-- added ImageOps for inversion
+from PIL import Image, ImageOps, ImageEnhance, ImageFilter  # <-- added ImageEnhance/ImageFilter for OCR boosts
 import pytesseract
 import re
 import io
@@ -105,6 +107,7 @@ from datetime import datetime
 import shutil
 import traceback
 
+
 POPPLER_PATH = os.environ.get("POPPLER_PATH", "/usr/bin")
 CHROME_BINARY = (os.environ.get("GOOGLE_CHROME_BIN")
                  or shutil.which("google-chrome")
@@ -112,7 +115,10 @@ CHROME_BINARY = (os.environ.get("GOOGLE_CHROME_BIN")
                  or shutil.which("chromium"))
 
 
+
+
 app = Flask(__name__)
+
 
 # --- grade_for_review parser and endpoint ---
 def parse_grade_for_review(raw_text: str) -> str:
@@ -175,6 +181,7 @@ def parse_grade_for_review(raw_text: str) -> str:
       if m:
         total_units = m.group(1)
 
+
   # Format output
   out = []
   out.append("BATANGAS STATE UNIVERSITY\n")
@@ -201,6 +208,7 @@ def parse_grade_for_review(raw_text: str) -> str:
   out.append(f"Total no of Units {total_units}\n")
   return "\n".join(out)
 
+
 # --- NEW: Parse Grades and Units, output Weighted Grades table with totals ---
 def parse_grade_with_units(raw_text: str) -> str:
     """
@@ -220,7 +228,7 @@ def parse_grade_with_units(raw_text: str) -> str:
         if header_found and re.match(r"^\d+ ", line):
             tokens = line.split()
             units = None
-            grade = None
+            norm_grade = None
             code_idx = -1
             course_code = None
             for i in range(1, len(tokens) - 1):
@@ -232,13 +240,16 @@ def parse_grade_with_units(raw_text: str) -> str:
             if course_code in {"NSTP 111", "NSTP 121"}:
                 continue
             if code_idx != -1:
-                for j in range(code_idx + 2, len(tokens)):
-                    if re.match(r"^\d+$", tokens[j]):
-                        units = tokens[j]
-                        if j + 1 < len(tokens):
-                            grade = tokens[j + 1]
+                tail_tokens = tokens[code_idx + 2:]
+                for idx in range(len(tail_tokens) - 1, -1, -1):
+                    candidate = _normalize_grade_token(tail_tokens[idx])
+                    if candidate:
+                        norm_grade = candidate
+                        for j in range(idx - 1, -1, -1):
+                            if re.match(r"^\d+$", tail_tokens[j]):
+                                units = tail_tokens[j]
+                                break
                         break
-            norm_grade = _normalize_grade_token(grade) if grade else None
             try:
                 g_val = float(norm_grade) if norm_grade and norm_grade not in {"INC", "DROP"} else None
                 u_val = int(units) if units else None
@@ -265,6 +276,7 @@ def parse_grade_with_units(raw_text: str) -> str:
     out.append(f"Weighted Average: {weighted_average_str}")
     return "\n".join(out)
 
+
 # --- Endpoint to serve Grade_with_Units.txt ---
 @app.route('/grade_with_units', methods=['GET'])
 def grade_with_units():
@@ -278,14 +290,17 @@ def grade_with_units():
   atomic_write_text(os.path.join(RESULTS_DIR, "Grade_with_Units.txt"), result)
   return Response(result, mimetype="text/plain")
 
+
 # === Paths ===
 RESULTS_DIR = "/opt/ocr_api/results"
 os.makedirs(RESULTS_DIR, exist_ok=True)  # ensure results/ exists
 PUBLIC_RESULTS_BASE = os.environ.get("PUBLIC_RESULTS_BASE_URL", "https://ocr.achievemate.website/results").rstrip("/")
 
+
 # === Canonical result files you are watching ===
 RESULT_FILE_COE = os.path.join(RESULTS_DIR, "result_certificate_of_enrollment.txt")
 RESULT_FILE_COURSE = os.path.join(RESULTS_DIR, "result_course_grade.txt")
+
 
 def atomic_write_text(path, text):
   """Write text atomically to avoid partial writes on Windows/Linux."""
@@ -296,6 +311,7 @@ def atomic_write_text(path, text):
     os.fsync(f.fileno())
   os.replace(tmp, path)
 
+
 def debug_log(message: str):
   """Emit a timestamped debug line to stdout for terminal visibility."""
   try:
@@ -304,12 +320,30 @@ def debug_log(message: str):
     stamp = "UNKNOWN"
   print(f"[DEBUG {stamp}] {message}", flush=True)
 
+
 debug_log(f"PUBLIC_RESULTS_BASE={PUBLIC_RESULTS_BASE}")
+
 
 # === Image Scaling Only ===
 def scale_image(image, scale_factor=2):
   new_size = (int(image.width * scale_factor), int(image.height * scale_factor))
   return image.resize(new_size, Image.LANCZOS)
+
+
+def preprocess_for_ocr(image):
+  """
+  Lightweight image normalization to help Tesseract read text more reliably.
+  Keeps the rest of the workflow intact while boosting contrast/sharpness
+  and removing minor noise.
+  """
+  try:
+    gray = image.convert("L")
+    contrast = ImageEnhance.Contrast(gray).enhance(1.5)
+    sharp = ImageEnhance.Sharpness(contrast).enhance(1.2)
+    return sharp.filter(ImageFilter.MedianFilter(size=3))
+  except Exception:
+    return image
+
 
 def crop_to_content(image, pad=20, threshold=240):
   """Trim large white margins so OCR focuses on the page content."""
@@ -329,6 +363,7 @@ def crop_to_content(image, pad=20, threshold=240):
   except Exception:
     return image
 
+
 # === NEW: Preprocess uploaded image to ~300 DPI and min width 1024 px ===
 def set_image_dpi(file_path, min_width_px=1024, dpi=300):
   """
@@ -341,11 +376,13 @@ def set_image_dpi(file_path, min_width_px=1024, dpi=300):
   new_size = (int(width * factor), int(height * factor))
   im_resized = im.resize(new_size, Image.LANCZOS)
 
+
   tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
   tmp_name = tmp.name
   tmp.close()
   im_resized.save(tmp_name, dpi=(dpi, dpi))
   return tmp_name
+
 
 # ---------------- Grade normalization helpers ----------------
 ALLOWED_GRADES = [
@@ -354,26 +391,33 @@ ALLOWED_GRADES = [
 ALLOWED_DECIMALS = [1.00,1.25,1.50,1.75,2.00,2.25,2.50,2.75,3.00,4.00,5.00]
 ALLOWED_STR_TO_FLOAT = {s: float(s) for s in ALLOWED_GRADES if re.fullmatch(r"\d\.\d{2}", s)}
 
+
 def _num_to_grade_string(x: float) -> str:
   if x in (3.0, 4.0, 5.0):
     return str(int(x))
   return f"{x:.2f}"
 
+
 def _nearest_allowed_decimal(x: float) -> str:
   best = min(ALLOWED_DECIMALS, key=lambda g: abs(g - x))
   return f"{best:.2f}"
 
+
 def _clean_inc_token(tok: str) -> bool:
   t = tok.upper().replace(" ", "")
   return t in {"INC","IINC","1NC","INc"} or re.fullmatch(r"I[\W_]*N[\W_]*C", tok, flags=re.I) is not None
+
 
 def _normalize_grade_token(token: str) -> str | None:
   if not token:
     return None
   t = token.strip()
 
+
   if _clean_inc_token(t):
     return "INC"
+
+
 
 
   # Only allow 3.00, 4.00, 5.00 as decimals, not as integers
@@ -381,6 +425,7 @@ def _normalize_grade_token(token: str) -> str | None:
   # m_int = re.fullmatch(r"([345])(?:\.00)?", t)
   # if m_int:
   #   return m_int.group(1)
+
 
   m_three = re.fullmatch(r"(\d)(\d{2})", t)
   if m_three:
@@ -391,6 +436,7 @@ def _normalize_grade_token(token: str) -> str | None:
     except:
       pass
 
+
   m_dec = re.fullmatch(r"(\d)\.(\d{2})", t)
   if m_dec:
     try:
@@ -400,6 +446,7 @@ def _normalize_grade_token(token: str) -> str | None:
     except:
       pass
 
+
   m_weird = re.fullmatch(r"(\d)[,·•:;](\d{2})", t)
   if m_weird:
     try:
@@ -407,6 +454,7 @@ def _normalize_grade_token(token: str) -> str | None:
       return _nearest_allowed_decimal(x)
     except:
       pass
+
 
   if "/" in t:
     parts = re.split(r"[\/\\|]", t)
@@ -417,12 +465,45 @@ def _normalize_grade_token(token: str) -> str | None:
       if re.fullmatch(r"[345](?:\.00)?", p):
         return re.sub(r"\.00$", "", p)
 
+
   if t.upper() == "INC":
     return "INC"
   if t in ALLOWED_GRADES:
     return t
 
+
   return None
+
+
+def _merge_grade_tokens(tokens):
+  """
+  Merge split decimal grades such as ['1.', '25'] or ['1', '.', '25'] so they
+  can be recognized by _normalize_grade_token.
+  """
+  merged = []
+  i = 0
+  length = len(tokens)
+  while i < length:
+    tok = tokens[i]
+    # Pattern: '1.' + '25'
+    if re.fullmatch(r"\d+\.", tok) and i + 1 < length and re.fullmatch(r"\d{2}", tokens[i + 1]):
+      merged.append(tok + tokens[i + 1])
+      i += 2
+      continue
+    # Pattern: '1' '.' '25'
+    if (
+      i + 2 < length
+      and re.fullmatch(r"\d", tok)
+      and tokens[i + 1] == "."
+      and re.fullmatch(r"\d{2}", tokens[i + 2])
+    ):
+      merged.append(f"{tok}.{tokens[i + 2]}")
+      i += 3
+      continue
+    merged.append(tok)
+    i += 1
+  return merged
+
 
 # === Existing Functions (Unchanged-ish) ===
 def fix_grade_format(value):
@@ -431,22 +512,27 @@ def fix_grade_format(value):
     return f"{value[0]}.{value[1:]}"
   return value
 
+
 def fix_course_code(raw_code, raw_number):
   prefix = raw_code.upper().strip()
   number = raw_number.strip()
   return f"{prefix}{number}"
+
 
 def extract_course_grade_only(lines):
   course_codes = []
   grades = []
   skipped_lines = []
 
+
   for line in lines:
     tokens = line.strip().split()
+
 
     if not tokens or not tokens[0].isdigit():
       skipped_lines.append(f"[SKIPPED: No starting row number] {line}")
       continue
+
 
     course_code = ""
     for i in range(1, len(tokens) - 1):
@@ -454,28 +540,36 @@ def extract_course_grade_only(lines):
         course_code = tokens[i] + " " + tokens[i + 1]
         break
 
+
     if not course_code:
       skipped_lines.append(f"[SKIPPED: Course code not found] {line}")
       continue
 
+
     normalized_grade = None
-    for tok in reversed(tokens):
+    merged_tokens = _merge_grade_tokens(tokens)
+    for tok in reversed(merged_tokens):
       g = _normalize_grade_token(tok)
       if g:
         normalized_grade = g
         break
 
+
     if not normalized_grade:
       skipped_lines.append(f"[SKIPPED: Grade not found] {line}")
       continue
 
+
     course_codes.append(course_code)
     grades.append(normalized_grade)
+
 
   result = "CourseCode{\n" + "\n".join(course_codes) + "\n};\n\n"
   result += "Grade{\n" + "\n".join(grades) + "\n};\n"
 
+
   return result, skipped_lines, course_codes, grades
+
 
 def extract_metadata(lines):
   sr_code = sex = name = program = ""
@@ -505,27 +599,34 @@ def extract_metadata(lines):
             program = program.split(w)[0].strip()
   return sr_code, sex, name, program
 
+
 def extract_course_data(line):
   line = re.sub(r"\s+", " ", line).strip()
   if not re.search(r"\b([A-Za-z]{2,5})[- ]?(\d{3})\b", line):
     return None
 
+
   match = re.search(r"\b([A-Za-z]{2,5})[- ]?(\d{3})\b", line)
   if not match:
     return None
 
+
   prefix = match.group(1).upper()
   code = f"{prefix} {match.group(2)}"
+
 
   blacklist_prefixes = {"FEE", "SCUAA", "ANTI", "INS", "HEMF", "TOTAL", "DISCOUNT"}
   if prefix in blacklist_prefixes:
     return None
 
+
   finance_words = ["fee", "discount", "php", ".00", "tuition", "insurance", "assessment"]
   if all(word in line.lower() for word in finance_words):
     return None
 
+
   return code
+
 
 # ---------- Cross-check helpers ----------
 SEMESTER_MAP = {
@@ -541,11 +642,14 @@ YEARLEVEL_MAP = {
   "FOURTH": "4", "4TH": "4", "4": "4"
 }
 
+
 def _digits_only(s: str) -> str:
   return re.sub(r"\D+", "", s or "")
 
+
 def _norm_sr_code(s: str) -> str:
   return _digits_only(s)
+
 
 def normalize_ocr_noise(s: str) -> str:
   if not s:
@@ -558,6 +662,7 @@ def normalize_ocr_noise(s: str) -> str:
   t = re.sub(r"\s*,\s*", ", ", t)
   return t
 
+
 def _norm_acad_year(s: str) -> str:
   m = re.search(
     r"(?:A\.?\s*Y\.?|S\.?\s*Y\.?|Academic\s*Year\s*:?)?\s*(20\d{2})\s*[-/–]\s*(20\d{2})",
@@ -568,6 +673,7 @@ def _norm_acad_year(s: str) -> str:
   a, b = m.group(1), m.group(2)
   return f"{a}-{b}"
 
+
 def _norm_semester_token(tok: str) -> str:
   up = (tok or "").upper()
   if "MID" in up and "YEAR" in up:
@@ -576,6 +682,7 @@ def _norm_semester_token(tok: str) -> str:
     if re.fullmatch(k, up):
       return v
   return SEMESTER_MAP.get(up, "")
+
 
 def _norm_semester(s: str) -> str:
   up = (s or "").upper()
@@ -589,6 +696,7 @@ def _norm_semester(s: str) -> str:
     return _norm_semester_token(m.group(1))
   return ""
 
+
 def _norm_year_level(s: str) -> str:
   up = (s or "").upper()
   m = re.search(r"\b(FIRST|SECOND|THIRD|FOURTH|1ST|2ND|3RD|4TH|[1-4])\b", up)
@@ -597,10 +705,12 @@ def _norm_year_level(s: str) -> str:
   tok = m.group(1)
   return YEARLEVEL_MAP.get(tok, tok if tok in {"1", "2", "3", "4"} else "")
 
+
 def parse_from_coe(raw_text: str) -> dict:
   txt = normalize_ocr_noise(raw_text or "")
   sem = ""
   ay  = ""
+
 
   m = re.search(
     r"\b(FIRST|SECOND|1ST|2ND|MID[- ]?YEAR|SUMMER)\b\s*[, ]+\s*(?:A\.?\s*Y\.?|S\.?\s*Y\.?)?\s*(20\d{2}\s*[-/–]\s*20\d{2})",
@@ -614,6 +724,7 @@ def parse_from_coe(raw_text: str) -> dict:
     if m_sem:
       sem = _norm_semester(m_sem.group(1))
 
+
     m_ay = re.search(r"(A\.?\s*Y\.?|S\.?\s*Y\.?|Academic\s*Year\s*:?)\s*(20\d{2}\s*[-/–]\s*20\d{2})", txt, flags=re.I)
     if m_ay:
       ay = _norm_acad_year(m_ay.group(2))
@@ -622,12 +733,14 @@ def parse_from_coe(raw_text: str) -> dict:
       if m_anyay:
         ay = _norm_acad_year(m_anyay.group(1))
 
+
   sr = ""
   m_sr = re.search(r"\bSR\s*Code\s*:\s*([A-Za-z0-9\- ]+)", txt, flags=re.I)
   if not m_sr:
     m_sr = re.search(r"\bSRCODE\s*:\s*([A-Za-z0-9\- ]+)", txt, flags=re.I)
   if m_sr:
     sr = _norm_sr_code(m_sr.group(1))
+
 
   yl = ""
   m_yl = re.search(r"/\s*(FIRST|SECOND|THIRD|FOURTH|1ST|2ND|3RD|4TH)\b", txt, flags=re.I)
@@ -638,6 +751,7 @@ def parse_from_coe(raw_text: str) -> dict:
     if m_yl2:
       yl = _norm_year_level(m_yl2.group(1))
 
+
   return {
     "sr_code": sr,
     "academic_year": ay,
@@ -645,8 +759,10 @@ def parse_from_coe(raw_text: str) -> dict:
     "year_level": yl
   }
 
+
 def parse_from_cog(raw_text: str) -> dict:
   txt = raw_text or ""
+
 
   sr = ""
   m = re.search(r"\bSR\s*CODE\s*:\s*([A-Za-z0-9\- ]+)", txt, flags=re.I)
@@ -655,20 +771,24 @@ def parse_from_cog(raw_text: str) -> dict:
   if m:
     sr = _norm_sr_code(m.group(1))
 
+
   ay = ""
   m = re.search(r"\bAcademic\s*Year\s*:\s*(20\d{2}\s*[-/–]\s*20\d{2})", txt, flags=re.I)
   if m:
     ay = _norm_acad_year(m.group(1))
+
 
   sem = ""
   m = re.search(r"\bSemester\s*:\s*([A-Za-z0-9\- ]+)", txt, flags=re.I)
   if m:
     sem = _norm_semester(m.group(1))
 
+
   yl = ""
   m = re.search(r"\bYear\s*Level\s*:\s*([A-Za-z0-9\- ]+)", txt, flags=re.I)
   if m:
     yl = _norm_year_level(m.group(1))
+
 
   return {
     "sr_code": sr,
@@ -677,11 +797,13 @@ def parse_from_cog(raw_text: str) -> dict:
     "year_level": yl
   }
 
+
 def compare_fields(a: dict, b: dict) -> dict:
   keys = ["sr_code", "academic_year", "semester", "year_level"]
   matches = {k: (a.get(k, "") == b.get(k, "")) for k in keys}
   all_match = all(matches.values())
   return {"matches": matches, "all_match": all_match}
+
 
 _YEAR_ORDINAL_MAP = {
   "1": "FIRST", "1ST": "FIRST", "FIRST": "FIRST",
@@ -696,6 +818,7 @@ _SEM_WORD_MAP = {
   "SUMMER": "SUMMER"
 }
 
+
 def _normalize_bs_prefix(text: str) -> str:
   t = (text or "").strip()
   m = re.match(r"^\s*B\.?\s*S\.?\s+(.*)$", t, flags=re.I)
@@ -703,8 +826,10 @@ def _normalize_bs_prefix(text: str) -> str:
     return "BS " + m.group(1).strip()
   return t
 
+
 def split_program_track_year(program_str: str):
   s = (program_str or "").strip()
+
 
   year_word = ""
   m_year = re.search(r"/\s*(FIRST|SECOND|THIRD|FOURTH|1ST|2ND|3RD|4TH|[1-4])\s*$", s, flags=re.I)
@@ -715,9 +840,11 @@ def split_program_track_year(program_str: str):
   else:
     left = s
 
+
   left_upper = left.upper()
   has_bs_prefix = bool(re.match(r"^\s*B\.?\s*S\.?\b", left_upper)) or left_upper.startswith("BS ")
   has_bachelor = "BACHELOR" in left_upper
+
 
   sep_idx = max(left.rfind('-'), left.rfind('–'))
   if sep_idx != -1 and (has_bs_prefix or has_bachelor):
@@ -732,7 +859,9 @@ def split_program_track_year(program_str: str):
     base = _normalize_bs_prefix(left) if has_bs_prefix else left.strip()
     track = ""
 
+
   return base, track, year_word
+
 
 def to_semester_word(sem_val: str) -> str:
   if not sem_val:
@@ -744,10 +873,12 @@ def to_semester_word(sem_val: str) -> str:
     return "SECOND"
   return _SEM_WORD_MAP.get(up, "")
 
+
 # === Serve results/ files ===
 @app.route('/results/<path:filename>')
 def serve_results(filename):
   return send_from_directory(RESULTS_DIR, filename)
+
 
 # === Flask Routes ===
 @app.route('/upload_registration_summary_pdf', methods=['POST'])
@@ -755,8 +886,10 @@ def upload_registration_summary_pdf():
   if 'pdf' not in request.files:
     return jsonify({"error": "No PDF uploaded"}), 400
 
+
   pdf_file = request.files['pdf']
   pdf_bytes = pdf_file.read()
+
 
   try:
     images = convert_from_bytes(
@@ -768,10 +901,13 @@ def upload_registration_summary_pdf():
   except Exception as e:
     return jsonify({"error": f"PDF conversion failed: {str(e)}"}), 500
 
+
   if not images:
     return jsonify({"error": "No image generated from PDF"}), 400
 
+
   original_image = images[0]
+
 
   width, height = original_image.size
   left = 0
@@ -779,25 +915,34 @@ def upload_registration_summary_pdf():
   right = width
   bottom = int(height * 0.60)
 
+
   cropped_image = original_image.crop((left, top, right, bottom))
+
 
   cropped_path = os.path.join(RESULTS_DIR, "COR_pdf_image.png")
   cropped_image.save(cropped_path)
 
+
   scaled = scale_image(cropped_image, scale_factor=2)
-  raw_text = pytesseract.image_to_string(scaled)
+  processed_cropped = preprocess_for_ocr(scaled)
+  raw_text = pytesseract.image_to_string(processed_cropped)
+
 
   raw_ocr_path = os.path.join(RESULTS_DIR, "raw_certificate_of_enrollment.txt")
   atomic_write_text(raw_ocr_path, raw_text)
 
+
   parsed_data = process_ocr_text(raw_text)
 
+
   atomic_write_text(RESULT_FILE_COE, parsed_data)
+
 
   base = (PUBLIC_RESULTS_BASE or request.host_url).rstrip('/')
   saved_image_rel = "results/COR_pdf_image.png"
   saved_image_url = f"{base}/{saved_image_rel}"
   cor_public_url = f"{PUBLIC_RESULTS_BASE}/{os.path.basename(cropped_path)}"
+
 
   return jsonify({
     "message": "COR top section cropped and processed.",
@@ -810,11 +955,13 @@ def upload_registration_summary_pdf():
     "result": parsed_data
   })
 
+
 # -------------------- OLD image-based upload (kept for compatibility) --------------------
 @app.route('/upload', methods=['POST'])
 def upload_image():
   if 'image' not in request.files:
     return jsonify({"error": "No image uploaded"}), 400
+
 
   image_file = request.files['image']
   try:
@@ -822,15 +969,19 @@ def upload_image():
   except Exception:
     return jsonify({"error": "Unsupported image format"}), 400
 
+
   image = image.resize((image.width * 3, image.height * 3))
   qr_result = decode(image)
+
 
   if not qr_result:
     return jsonify({"error": "No QR code detected"}), 400
 
+
   qr_data = qr_result[0].data.decode('utf-8', errors='ignore')
   if not qr_data.startswith('http'):
     return jsonify({"error": "QR code does not contain a valid URL"}), 400
+
 
   driver = None
   try:
@@ -842,14 +993,17 @@ def upload_image():
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.binary_location = CHROME_BINARY
 
+
     service = Service(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=chrome_options)
     driver.set_window_size(995, 795)
     driver.get(qr_data)
     time.sleep(3)
 
+
     screenshot_path = os.path.join(RESULTS_DIR, "qr_website_screenshot.png")
     driver.save_screenshot(screenshot_path)
+
 
     screenshot = Image.open(screenshot_path)
     cropped = crop_to_content(screenshot)
@@ -859,32 +1013,41 @@ def upload_image():
     else:
       cropped = screenshot
     scaled_image = scale_image(cropped, scale_factor=2)
-    raw_text = pytesseract.image_to_string(scaled_image)
+    processed_image = preprocess_for_ocr(scaled_image)
+    raw_text = pytesseract.image_to_string(processed_image)
     debug_log(f"/upload webpage OCR produced {len(raw_text.splitlines())} lines")
+
 
     raw_txt_path = os.path.join(RESULTS_DIR, "raw_ocr_text.txt")
     atomic_write_text(raw_txt_path, raw_text)
 
+
     raw_cog_path = os.path.join(RESULTS_DIR, "raw_cog_text.txt")
     atomic_write_text(raw_cog_path, raw_text)
+
 
     # --- Update Grade_with_Units.txt after new upload ---
     grade_with_units_path = os.path.join(RESULTS_DIR, "Grade_with_Units.txt")
     grade_with_units_str = parse_grade_with_units(raw_text)
     atomic_write_text(grade_with_units_path, grade_with_units_str)
 
+
     lines = raw_text.splitlines()
     filtered_lines = [line.strip() for line in lines if line.strip() and not re.fullmatch(r"[#,\]\|\“”=()\-\_. ]+", line)]
     grouped_result, skipped, _, grades = extract_course_grade_only(filtered_lines)
 
+
     legacy_path = os.path.join(RESULTS_DIR, "parsed_course_grade_result.txt")
     atomic_write_text(legacy_path, grouped_result)
 
+
     atomic_write_text(RESULT_FILE_COURSE, grouped_result)
+
 
     grade_web_path = os.path.join(RESULTS_DIR, "grade_webpage.txt")
     atomic_write_text(grade_web_path, "Grade{\n" + "\n".join(grades) + "\n}\n")
     debug_log(f"/upload saved {len(grades)} grades to grade_webpage.txt")
+
 
     return jsonify({
       "mode": "qr + ocr + parse",
@@ -901,6 +1064,7 @@ def upload_image():
       "result": grouped_result
     })
 
+
   except Exception as e:
     return jsonify({"error": f"Failed to process: {str(e)}"}), 500
   finally:
@@ -909,6 +1073,7 @@ def upload_image():
         driver.quit()
     except:
       pass
+
 
 # -------------------- NEW PDF-based Step 3 --------------------
 @app.route('/upload_grade_pdf', methods=['POST'])
@@ -925,8 +1090,10 @@ def upload_grade_pdf():
   if 'pdf' not in request.files:
     return jsonify({"error": "No PDF uploaded"}), 400
 
+
   pdf_file = request.files['pdf']
   pdf_bytes = pdf_file.read()
+
 
   try:
     # Render ALL pages (you can limit to first 1–2 if needed)
@@ -937,12 +1104,15 @@ def upload_grade_pdf():
   except Exception as e:
     return jsonify({"error": f"PDF conversion failed: {str(e)}"}), 500
 
+
   if not pages:
     return jsonify({"error": "No pages in PDF"}), 400
+
 
   # Save preview of page 1 for the app
   preview_png = os.path.join(RESULTS_DIR, "qr_website_screenshot.png")
   pages[0].save(preview_png)
+
 
   # ---- 1) Detect QR from PDF pages ----
   qr_data = None
@@ -958,6 +1128,7 @@ def upload_grade_pdf():
     except Exception:
       pass
 
+
   # ---- 2) If QR found, load webpage & OCR for comparison ----
   if qr_data:
     driver = None
@@ -971,15 +1142,18 @@ def upload_grade_pdf():
       chrome_options.add_argument("--disable-dev-shm-usage")
       chrome_options.binary_location = CHROME_BINARY
 
+
       service = Service(ChromeDriverManager().install())
       driver = webdriver.Chrome(service=service, options=chrome_options)
       driver.set_window_size(995, 795)
       driver.get(qr_data)
       time.sleep(3)
 
+
       screenshot_path = os.path.join(RESULTS_DIR, "qr_website_screenshot.png")
       driver.save_screenshot(screenshot_path)
       debug_log("/upload_grade_pdf captured webpage screenshot")
+
 
       screenshot = Image.open(screenshot_path)
       cropped = crop_to_content(screenshot)
@@ -989,8 +1163,10 @@ def upload_grade_pdf():
       else:
         cropped = screenshot
       scaled_image = scale_image(cropped, scale_factor=2)
-      grade_web_txt = pytesseract.image_to_string(scaled_image)
+      processed_web = preprocess_for_ocr(scaled_image)
+      grade_web_txt = pytesseract.image_to_string(processed_web)
       debug_log(f"/upload_grade_pdf webpage OCR produced {len(grade_web_txt.splitlines())} lines")
+
 
       # Extract grades from webpage OCR and store as block
       lines_web = [ln.strip() for ln in grade_web_txt.splitlines() if ln.strip()]
@@ -1013,14 +1189,17 @@ def upload_grade_pdf():
     atomic_write_text(os.path.join(RESULTS_DIR, "grade_webpage.txt"), "")
     debug_log("/upload_grade_pdf no QR found; grade_webpage.txt cleared")
 
+
   # ---- 3) OCR the PDF pages themselves ----
   raw_pdf_text_parts = []
   grades_all = []
   for im in pages:
     try:
       bigger = scale_image(im, scale_factor=2)
-      raw_txt = pytesseract.image_to_string(bigger)
+      processed_page = preprocess_for_ocr(bigger)
+      raw_txt = pytesseract.image_to_string(processed_page)
       raw_pdf_text_parts.append(raw_txt)
+
 
       # Parse grades per page
       lines = [ln.strip() for ln in raw_txt.splitlines() if ln.strip()]
@@ -1029,23 +1208,29 @@ def upload_grade_pdf():
     except Exception:
       continue
 
+
   raw_pdf_text = "\n".join(raw_pdf_text_parts)
+
 
   raw_cog_path = os.path.join(RESULTS_DIR, "raw_cog_text.txt")
   atomic_write_text(raw_cog_path, raw_pdf_text)
+
 
   # --- Update Grade_with_Units.txt after new upload ---
   grade_with_units_path = os.path.join(RESULTS_DIR, "Grade_with_Units.txt")
   grade_with_units_str = parse_grade_with_units(raw_pdf_text)
   atomic_write_text(grade_with_units_path, grade_with_units_str)
 
+
   # Save parsed grade block from PDF OCR
   atomic_write_text(os.path.join(RESULTS_DIR, "grade_pdf_ocr.txt"),
                     "Grade{\n" + "\n".join(grades_all) + "\n}\n")
 
+
   # Also keep a grouped result file for debugging/consistency
   atomic_write_text(os.path.join(RESULTS_DIR, "result_course_grade.txt"),
                     "Grade{\n" + "\n".join(grades_all) + "\n}\n")
+
 
   # --- NEW: After writing raw_cog_text.txt, also write grade_for_review.txt ---
   try:
@@ -1079,6 +1264,7 @@ def upload_grade_pdf():
     # Log or ignore error, but don't break upload
     print(f"[grade_for_review] Failed to generate: {e}")
 
+
   base = (PUBLIC_RESULTS_BASE or request.host_url).rstrip('/')
   saved_preview_rel = f"results/{os.path.basename(preview_png)}"
   saved_preview_url = f"{base}/{saved_preview_rel}"
@@ -1087,8 +1273,10 @@ def upload_grade_pdf():
   qr_screenshot_url = f"{base}/{qr_screenshot_rel}"
   qr_screenshot_public_url = f"{PUBLIC_RESULTS_BASE}/qr_website_screenshot.png"
 
+
   # Build a visible "result" string like your other endpoints
   result_str = "Grade{\n" + "\n".join(grades_all) + "\n}\n"
+
 
   return jsonify({
     "mode": "pdf + qr + ocr",
@@ -1104,6 +1292,7 @@ def upload_grade_pdf():
     "result": result_str
   })
 
+
 def _read_grade_block_or_tokens(path):
   if not os.path.exists(path):
     return None
@@ -1115,6 +1304,7 @@ def _read_grade_block_or_tokens(path):
     return vals
   return re.findall(r"\b(?:\d\.\d{2}|[345]|INC)\b", txt, flags=re.I)
 
+
 # ---- helpers for (old) Step 3 inversion trial (kept for reference) ----
 def _extract_grades_from_text(raw_text: str):
   tokens = re.findall(r"[A-Za-z0-9\./\\|:;,\-]+", raw_text or "")
@@ -1124,6 +1314,7 @@ def _extract_grades_from_text(raw_text: str):
     if g:
       out.append(g)
   return out
+
 
 # (Kept for debugging legacy image uploads)
 @app.route('/upload_grade_image', methods=['POST'])
@@ -1136,6 +1327,7 @@ def upload_grade_image():
     return jsonify({"error": "No image uploaded"}), 400
   image_file = request.files['image']
 
+
   tmp_in = None
   tmp_proc = None
   try:
@@ -1145,18 +1337,24 @@ def upload_grade_image():
     tmp_in_file.close()
     Image.open(image_file.stream).convert("RGB").save(tmp_in)
 
+
     # Preprocess: ~300 DPI & min width
     tmp_proc = set_image_dpi(tmp_in)
 
+
     # OCR pass 1: original
     img_orig = Image.open(tmp_proc).convert("RGB")
-    raw_orig = pytesseract.image_to_string(img_orig)
+    processed_orig = preprocess_for_ocr(img_orig)
+    raw_orig = pytesseract.image_to_string(processed_orig)
     grades_orig = _extract_grades_from_text(raw_orig)
+
 
     # OCR pass 2: inverted (helps when text is light on dark)
     img_inverted = ImageOps.invert(img_orig)
-    raw_inverted = pytesseract.image_to_string(img_inverted)
+    processed_inverted = preprocess_for_ocr(img_inverted)
+    raw_inverted = pytesseract.image_to_string(processed_inverted)
     grades_inverted = _extract_grades_from_text(raw_inverted)
+
 
     # Pick whichever yields more grades; still overwrite the same file
     if len(grades_inverted) > len(grades_orig):
@@ -1166,17 +1364,21 @@ def upload_grade_image():
       chosen = "original"
       grades = grades_orig
 
+
     # ALWAYS OVERWRITE
     grade_block = "Grade{\n" + "\n".join(grades) + "\n}\n"
     out_path = os.path.join(RESULTS_DIR, "grade_image.txt")
     atomic_write_text(out_path, grade_block)  # unconditional replace
     os.utime(out_path, None)  # optional: bump mtime for watchers
 
+
     app.logger.info(f"[{datetime.now()}] WROTE {out_path} via {chosen} (grades={len(grades)})")
+
 
     # cache-busted URL so clients fetch fresh
     base = (PUBLIC_RESULTS_BASE or request.host_url).rstrip('/')
     grade_image_url = f"{base}/results/grade_image.txt?t={int(time.time())}"
+
 
     return jsonify({
       "message": "Grade image OCR complete",
@@ -1200,6 +1402,7 @@ def upload_grade_image():
     except Exception:
       pass
 
+
 # -------------------- UPDATED TAMPER CHECK (PDF OCR vs WEBPAGE OCR) --------------------
 @app.route('/validate_grade_tamper', methods=['GET'])
 def validate_grade_tamper():
@@ -1211,18 +1414,23 @@ def validate_grade_tamper():
   pdf_path = os.path.join(RESULTS_DIR, "grade_pdf_ocr.txt")
   web_path = os.path.join(RESULTS_DIR, "grade_webpage.txt")
 
+
   def tampered_response():
     return Response("Copy of Grades is tampered", mimetype="text/plain")
+
 
   # Both sources must exist
   if not os.path.exists(pdf_path) or not os.path.exists(web_path):
     return tampered_response()
 
+
   g_pdf = _read_grade_block_or_tokens(pdf_path) or []
   g_web = _read_grade_block_or_tokens(web_path) or []
 
+
   if g_pdf != g_web:
     return tampered_response()
+
 
   # Match → return detailed JSON (contract unchanged)
   return jsonify({
@@ -1236,24 +1444,29 @@ def validate_grade_tamper():
     "only_in_webpage": []
   })
 
+
 @app.route('/validate_cross_fields', methods=['GET'])
 def validate_cross_fields():
   coe_path = os.path.join(RESULTS_DIR, "raw_certificate_of_enrollment.txt")
   cog_path = os.path.join(RESULTS_DIR, "raw_cog_text.txt")
+
 
   if not os.path.exists(coe_path):
     return jsonify({"error": "raw_certificate_of_enrollment.txt not found"}), 400
   if not os.path.exists(cog_path):
     return jsonify({"error": "raw_cog_text.txt not found"}), 400
 
+
   with open(coe_path, "r", encoding="utf-8") as f:
     coe_text = f.read()
   with open(cog_path, "r", encoding="utf-8") as f:
     cog_text = f.read()
 
+
   coe = parse_from_coe(coe_text)
   cog = parse_from_cog(cog_text)
   verdict = compare_fields(coe, cog)
+
 
   return jsonify({
     "coe": coe,
@@ -1261,23 +1474,29 @@ def validate_cross_fields():
     "verdict": verdict
   })
 
+
 def process_ocr_text(raw_text):
   lines = raw_text.splitlines()
 
+
   sr_code, sex, name, program_raw = extract_metadata(lines)
+
 
   coe_fields = parse_from_coe(raw_text)
   sem_word = to_semester_word(coe_fields.get("semester", ""))
 
+
   base_program, track, year_from_program = split_program_track_year(program_raw)
   year_from_coe = _YEAR_ORDINAL_MAP.get((coe_fields.get("year_level") or "").upper(), "")
   year_word = year_from_program or year_from_coe
+
 
   course_codes = []
   for line in lines:
     res = extract_course_data(line)
     if res:
       course_codes.append(res)
+
 
   result = []
   result.append(f"SR Code: {sr_code}")
@@ -1293,6 +1512,7 @@ def process_ocr_text(raw_text):
   result.append("}")
   return "\n".join(result)
 
+
 @app.route('/generate_pdf_with_data', methods=['POST'])
 def generate_pdf_with_data():
     try:
@@ -1304,8 +1524,10 @@ def generate_pdf_with_data():
         track = data.get('track', '')
         contact_number = data.get('contact_number', '')
 
+
         template_pdf_path = "assets/DL_Template.pdf"
         output_pdf_path = os.path.join(RESULTS_DIR, "generated_application_filled.pdf")
+
 
         packet = io.BytesIO()
         c = canvas.Canvas(packet, pagesize=letter)
@@ -1319,25 +1541,31 @@ def generate_pdf_with_data():
         c.drawString(100, 720, f"Scholarship Grant: {scholarship_grant}")
         c.save()
 
+
         packet.seek(0)
         new_pdf = PdfReader(packet)
         existing_pdf = PdfReader(template_pdf_path)
         output_pdf = PdfWriter()
 
+
         page = existing_pdf.pages[0]
         merger = PageMerge(page)
         merger.add(new_pdf.pages[0]).render()
 
+
         output_pdf.addpage(page)
         output_pdf.write(output_pdf_path)
+
 
         return jsonify({
             "message": "PDF generated successfully",
             "pdf_url": f"results/{os.path.basename(output_pdf_path)}"
         })
 
+
     except Exception as e:
         return jsonify({"error": f"Failed to generate PDF: {str(e)}"}), 500
+
 
 # --- Simple debug endpoint to verify grade_image.txt on the server
 @app.route('/debug/grade_image_txt', methods=['GET'])
@@ -1356,6 +1584,7 @@ def debug_grade_image_txt():
     "mtime_iso": datetime.fromtimestamp(st.st_mtime).isoformat(),
     "preview": content[:300]
   }), 200
+
 
 if __name__ == '__main__':
   # Tip: set TESSDATA_PREFIX / poppler path per env as needed.

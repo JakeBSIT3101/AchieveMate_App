@@ -68,11 +68,11 @@ const runGradeOCRBackend = async (fileUri) => {
   }
 };
 
-const fetchRawCogTextFromServer = async () => {
+const fetchServerTextFile = async (filename) => {
   const base = OCR_URL || OCR_SERVER_CONFIG.BASE_URL;
   const endpoints = [
-    `${base}/ocr_results/raw_cog_text.txt?t=${Date.now()}`,
-    `${base}/results/raw_cog_text.txt?t=${Date.now()}`,
+    `${base}/ocr_results/${filename}?t=${Date.now()}`,
+    `${base}/results/${filename}?t=${Date.now()}`,
   ];
   for (const endpoint of endpoints) {
     try {
@@ -81,10 +81,37 @@ const fetchRawCogTextFromServer = async () => {
         return await response.text();
       }
     } catch (error) {
-      console.error("fetchRawCogTextFromServer endpoint error:", endpoint, error);
+      console.error("fetchServerTextFile endpoint error:", endpoint, error);
     }
   }
-  console.error("fetchRawCogTextFromServer error: Unable to retrieve raw_cog_text.txt");
+  console.error(`fetchServerTextFile error: Unable to retrieve ${filename}`);
+  return null;
+};
+
+const fetchRawCogTextFromServer = () => fetchServerTextFile("raw_cog_text.txt");
+const fetchGradePdfOcrTextFromServer = () => fetchServerTextFile("grade_pdf_ocr.txt");
+const fetchGradeWebpageTextFromServer = () => fetchServerTextFile("grade_webpage.txt");
+
+const downloadQrScreenshotToCache = async () => {
+  const base = OCR_URL || OCR_SERVER_CONFIG.BASE_URL;
+  const endpoints = [
+    `${base}/ocr_results/qr_website_screenshot.png?t=${Date.now()}`,
+    `${base}/results/qr_website_screenshot.png?t=${Date.now()}`,
+  ];
+  const cacheDir = FileSystem.cacheDirectory || FileSystem.documentDirectory || "";
+  for (const endpoint of endpoints) {
+    const localPath = `${cacheDir}qr_screenshot_${Date.now()}.png`;
+    try {
+      const download = await FileSystem.downloadAsync(endpoint, localPath);
+      if (download.status === 200) {
+        return download.uri;
+      }
+      await FileSystem.deleteAsync(localPath, { idempotent: true });
+    } catch (error) {
+      console.error("downloadQrScreenshotToCache endpoint error:", endpoint, error);
+    }
+  }
+  console.error("downloadQrScreenshotToCache error: Unable to download qr_website_screenshot.png");
   return null;
 };
 
@@ -164,7 +191,52 @@ const incrementAcademicYearRange = (value) => {
 };
 
 // Parse OCR text to extract grade data
-const parseGradeData = (extractedText) => {
+const parseGradeListFromText = (text) => {
+  if (!text) return [];
+  const match = text.match(/Grade\s*\{([^}]*)\}/i);
+  const body = match ? match[1] : text;
+  return body
+    .split(/\r?\n+/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && line !== "Grade{" && line !== "}");
+};
+
+const ALLOWED_GRADE_VALUES = new Set([
+  "1.00",
+  "1.25",
+  "1.50",
+  "1.75",
+  "2.00",
+  "2.25",
+  "2.50",
+  "2.75",
+  "3.00",
+  "4.00",
+  "5.00",
+  "INC",
+]);
+
+const isAllowedGradeValue = (value) => {
+  if (value === undefined || value === null) return false;
+  const normalized = value.toString().trim().toUpperCase();
+  if (normalized === "INCOMPLETE") return ALLOWED_GRADE_VALUES.has("INC");
+  if (normalized === "DROP" || normalized === "DRP") return ALLOWED_GRADE_VALUES.has("5.00");
+  if (ALLOWED_GRADE_VALUES.has(normalized)) return true;
+
+  const numericMatch = normalized.match(/^(\d(?:\.\d{2})?)$/);
+  if (numericMatch) {
+    const formatted = parseFloat(numericMatch[1]).toFixed(2);
+    return ALLOWED_GRADE_VALUES.has(formatted);
+  }
+  return false;
+};
+
+const extractGradeSequenceFromCourses = (courses = []) =>
+  courses
+    .map((course) => (course?.grade ? course.grade.toString().trim() : null))
+    .filter(Boolean);
+
+const parseGradeData = (extractedText, gradeOverrideList = []) => {
   if (!extractedText) return { courses: [], gwa: null, totalUnits: null, totalCourses: null, academicYear: null, semester: null, yearLevel: null };
   
   
@@ -215,36 +287,75 @@ const parseGradeData = (extractedText) => {
     yearLevel = getYearLevelLabel(yearLevelMatch[1]);
   }
   
+  // Helpers for course parsing/aggregation
+  const normalizeCodeForComparison = (value) =>
+    (value || "").toString().toUpperCase().replace(/\s+/g, "");
+  const addCourse = (course) => {
+    if (!course || !course.courseCode) return;
+    const exists = courses.some((existing) => {
+      if (course.rowNumber && existing.rowNumber) {
+        return existing.rowNumber === course.rowNumber;
+      }
+      return (
+        normalizeCodeForComparison(existing.courseCode) ===
+        normalizeCodeForComparison(course.courseCode)
+      );
+    });
+    if (exists) return;
+
+    courses.push(course);
+    const numericGrade = parseFloat(course.grade);
+    const numericUnits = parseFloat(course.units);
+    if (!isNaN(numericGrade) && !isNaN(numericUnits) && numericUnits > 0) {
+      weightedSumFromCourses += numericGrade * numericUnits;
+      unitsFromCourses += numericUnits;
+    }
+  };
+
   // Parse course data - handle both structured data and table format
   let inStructuredSection = false;
-  let inTableSection = false;
+  let structuredCourseCounter = 0;
+  const tableRows = [];
+  let collectingTableRows = false;
+  let pendingRow = null;
   
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
+    if (!line) continue;
     
     // Check if we've reached the structured data section
     if (line.includes('COURSE_CODE|COURSE_TITLE|UNITS|GRADE|SECTION|INSTRUCTOR')) {
       inStructuredSection = true;
-      inTableSection = false;
       continue;
     }
     
-    // Check if we've reached the table section
+    // Begin capturing table rows
     if (line.includes('Course Code') && line.includes('Course Title') && line.includes('Units') && line.includes('Grade')) {
-      inTableSection = true;
+      collectingTableRows = true;
+      if (pendingRow) {
+        tableRows.push(pendingRow);
+        pendingRow = null;
+      }
       inStructuredSection = false;
       continue;
     }
     
     // Stop parsing when we reach certain sections
-    if (line.includes('SUMMARY:') || line.includes('STUDENT INFO:') || line.includes('** NOTHING FOLLOWS **')) {
+    if (line.includes('SUMMARY:') || line.includes('STUDENT INFO:') || line.includes('** NOTHING FOLLOWS **') || line.includes('Total no of Course')) {
       inStructuredSection = false;
-      inTableSection = false;
+      if (collectingTableRows && pendingRow) {
+        tableRows.push(pendingRow);
+        pendingRow = null;
+      }
+      if (line.includes('** NOTHING FOLLOWS **') || line.includes('Total no of Course')) {
+        collectingTableRows = false;
+      }
       continue;
     }
     
     // Parse structured data (pipe-separated format)
     if (inStructuredSection && line.includes('|') && line.split('|').length >= 6) {
+      structuredCourseCounter += 1;
       const parts = line.split('|');
       const course = {
         courseCode: parts[0].trim(),
@@ -252,83 +363,127 @@ const parseGradeData = (extractedText) => {
         units: parts[2].trim(),
         grade: parts[3].trim(),
         section: parts[4].trim(),
-        instructor: parts[5].trim()
+        instructor: parts[5].trim(),
+        rowNumber: structuredCourseCounter,
       };
-      
-      if (course.courseCode && course.grade && !courses.some(c => c.courseCode === course.courseCode)) {
-        courses.push(course);
-        const numericGrade = parseFloat(course.grade);
-        const numericUnits = parseFloat(course.units);
-        if (!isNaN(numericGrade) && !isNaN(numericUnits) && numericUnits > 0) {
-          weightedSumFromCourses += numericGrade * numericUnits;
-          unitsFromCourses += numericUnits;
-        }
+      if (course.courseCode && course.grade) {
+        addCourse(course);
       }
+      continue;
     }
-    
-    // Parse table format (both pipe-separated and space-separated)
-    if (inTableSection || (!inStructuredSection && !inTableSection)) {
-      // Handle pipe-separated table format
-      if (line.match(/^\s*\d+\s*\|\s*[A-Z]/)) {
-        const match = line.match(/^\s*\d+\s*\|\s*([A-Za-z\s\d]+?)\s*\|\s*(.+?)\s*\|\s*(\d+)\s*\|\s*([\d.]+)\s*\|\s*([A-Z\d-]+)\s*\|\s*(.+)$/);
-        if (match) {
-          const course = {
-            courseCode: match[1].trim(),
-            courseTitle: match[2].trim(),
-            units: match[3].trim(),
-            grade: match[4].trim(),
-            section: match[5].trim(),
-            instructor: match[6].trim()
-          };
-          
-          if (course.courseCode && course.grade && !courses.some(c => c.courseCode === course.courseCode)) {
-            courses.push(course);
-            const numericGrade = parseFloat(course.grade);
-            const numericUnits = parseFloat(course.units);
-            if (!isNaN(numericGrade) && !isNaN(numericUnits) && numericUnits > 0) {
-              weightedSumFromCourses += numericGrade * numericUnits;
-              unitsFromCourses += numericUnits;
-            }
-          }
+
+    // Collect table rows using row numbers (1,2,3...)
+    if (collectingTableRows) {
+      const rowMatch = line.match(/^\s*(\d+)\s+/);
+      if (rowMatch) {
+        if (pendingRow) {
+          tableRows.push(pendingRow);
         }
-      }
-      // Handle space-separated format (like the problematic PE 101 line)
-      else if (line.match(/^\d+\s+[A-Z]/)) {
-        // Improved regex to better separate course number from course code
-        // Pattern: "8   PE 101    Physical Fitness, Gymnastics and Aerobics                2   1.25  IT-1103      BENTIR, JETHRO D."
-        const match = line.match(/^(\d+)\s+([A-Z][A-Za-z]*\s*\d+)\s+(.+?)\s+(\d+)\s+([\d.]+)\s+([A-Z\d-]+)\s+(.+)$/);
-        
-        if (match) {
-          const course = {
-            courseCode: match[2].trim(),
-            courseTitle: match[3].trim(),
-            units: match[4].trim(),
-            grade: match[5].trim(),
-            section: match[6].trim(),
-            instructor: match[7].trim()
-          };
-          
-          // Clean up course title (remove extra spaces)
-          course.courseTitle = course.courseTitle.replace(/\s+/g, ' ').trim();
-          
-          if (course.courseCode && course.grade && !courses.some(c => c.courseCode === course.courseCode)) {
-            courses.push(course);
-            const numericGrade = parseFloat(course.grade);
-            const numericUnits = parseFloat(course.units);
-            if (!isNaN(numericGrade) && !isNaN(numericUnits) && numericUnits > 0) {
-              weightedSumFromCourses += numericGrade * numericUnits;
-              unitsFromCourses += numericUnits;
-            }
-          }
-        }
+        pendingRow = {
+          rowNumber: parseInt(rowMatch[1], 10),
+          text: line,
+        };
+      } else if (pendingRow) {
+        pendingRow.text += ' ' + line;
       }
     }
   }
+  if (pendingRow) {
+    tableRows.push(pendingRow);
+  }
+
+  const parseTableRow = (row) => {
+    if (!row || !row.text) return null;
+    const sanitized = row.text.replace(/\|/g, ' ');
+    const tokens = sanitized.trim().split(/\s+/);
+    if (tokens.length < 5) return null;
+    
+    // Remove row number token
+    tokens.shift();
+
+    // Determine course code (prefix + number)
+    const codeTokens = [];
+    while (tokens.length > 0) {
+      const token = tokens.shift();
+      if (/^\d{2,3}$/.test(token)) {
+        codeTokens.push(token);
+        break;
+      }
+      codeTokens.push(token);
+    }
+    if (codeTokens.length < 2) return null;
+    const courseNumber = codeTokens.pop();
+    const courseCode = `${codeTokens.join(' ')} ${courseNumber}`.replace(/\s+/g, ' ').trim();
+
+    if (tokens.length < 3) return null;
+
+    // Locate section token (pattern like IT-1203)
+    let sectionIndex = -1;
+    for (let idx = tokens.length - 1; idx >= 0; idx--) {
+      const token = tokens[idx];
+      if (/^[A-Za-z]{1,}[A-Za-z0-9-]*\d{2,}$/.test(token) || /^[A-Za-z]{2,}-\d{3,}$/.test(token)) {
+        sectionIndex = idx;
+        break;
+      }
+    }
+    if (sectionIndex === -1 || sectionIndex < 2) {
+      return null;
+    }
+
+    const unitsIndex = sectionIndex - 2;
+    const gradeIndex = sectionIndex - 1;
+    if (unitsIndex < 0 || gradeIndex < 0) {
+      return null;
+    }
+
+    const courseTitleTokens = tokens.slice(0, unitsIndex);
+    const courseTitle = courseTitleTokens.join(' ').replace(/\s+/g, ' ').trim();
+    const unitsToken = tokens[unitsIndex];
+    const gradeToken = tokens[gradeIndex];
+    const sectionToken = tokens[sectionIndex];
+    const instructorTokens = tokens.slice(sectionIndex + 1);
+
+    return {
+      rowNumber: row.rowNumber,
+      courseCode,
+      courseTitle,
+      units: unitsToken,
+      grade: gradeToken,
+      section: sectionToken,
+      instructor: instructorTokens.join(' ').trim(),
+    };
+  };
+
+  tableRows.forEach((row) => {
+    const parsedCourse = parseTableRow(row);
+    if (parsedCourse) {
+      addCourse(parsedCourse);
+    }
+  });
   
-  if (unitsFromCourses > 0) {
-    gwa = weightedSumFromCourses / unitsFromCourses;
+  if (gradeOverrideList.length > 0) {
+    courses.forEach((course, index) => {
+      if (gradeOverrideList[index]) {
+        course.grade = gradeOverrideList[index];
+      }
+    });
+  }
+
+  let finalWeightedSum = 0;
+  let finalUnitsSum = 0;
+  courses.forEach((course) => {
+    const numericGrade = parseFloat(course.grade);
+    const numericUnits = parseFloat(course.units);
+    if (!isNaN(numericGrade) && !isNaN(numericUnits) && numericUnits > 0) {
+      finalWeightedSum += numericGrade * numericUnits;
+      finalUnitsSum += numericUnits;
+    }
+  });
+
+  if (finalUnitsSum > 0) {
+    gwa = finalWeightedSum / finalUnitsSum;
     if (!totalUnits) {
-      totalUnits = unitsFromCourses;
+      totalUnits = finalUnitsSum;
     }
     if (!totalCourses) {
       totalCourses = courses.length;
@@ -485,6 +640,8 @@ const validateGradesAgainstCurriculum = async (extractedCourses, studentData) =>
           suggestedMatches: closestMatches.map(item => ({
             courseCode: item.subject.Code,
             courseTitle: item.subject.Course_Title,
+            units: item.subject.units ?? item.subject.Units ?? null,
+            subjectData: item.subject,
             similarity: item.similarity
           }))
         });
@@ -538,6 +695,29 @@ const levenshteinDistance = (str1, str2) => {
   }
   
   return matrix[str2.length][str1.length];
+};
+
+const buildValidatedCourseList = (validationResults = {}) => {
+  const matchedCourses = validationResults.matchedCourses || [];
+  const suggestedCourses = (validationResults.unmatchedCourses || [])
+    .map((course) => {
+      const suggestion = course.suggestedMatches?.[0];
+      const subjectData = suggestion?.subjectData;
+      if (!suggestion || !subjectData) return null;
+
+      return {
+        ...course,
+        courseCode: suggestion.courseCode || course.courseCode,
+        courseTitle: suggestion.courseTitle || course.courseTitle,
+        units: suggestion.units ?? course.units,
+        curriculumSubject: subjectData,
+        isValid: true,
+        suggestionApplied: true,
+      };
+    })
+    .filter(Boolean);
+
+  return [...matchedCourses, ...suggestedCourses];
 };
 
 // Helper function to get academic year ID (matches your academic_years table)
@@ -934,11 +1114,33 @@ const pickGradeFile = async (
     try {
       // Extract text using OCR
       const extractedText = await runGradeOCRBackend(newPath);
-      const rawCogTextFromServer = await fetchRawCogTextFromServer();
-      const gradeTextSource = rawCogTextFromServer || extractedText;
-      
-      // Parse the extracted text to get academic info
-      const gradeData = parseGradeData(gradeTextSource);
+      const [rawCogTextFromServer, gradePdfOcrText, gradeWebpageText] = await Promise.all([
+        fetchRawCogTextFromServer(),
+        fetchGradePdfOcrTextFromServer(),
+        fetchGradeWebpageTextFromServer(),
+      ]);
+
+      const gradeStructureText = rawCogTextFromServer || extractedText;
+      const initialGradeData = parseGradeData(gradeStructureText, []);
+      const rawGradeSequence = extractGradeSequenceFromCourses(initialGradeData.courses);
+      const rawGradesAreClear =
+        rawGradeSequence.length > 0 && rawGradeSequence.every(isAllowedGradeValue);
+
+      const parsedWebGradeList = parseGradeListFromText(gradeWebpageText);
+      const cleanWebGradeList = parsedWebGradeList.filter((grade) =>
+        grade ? isAllowedGradeValue(grade) : false
+      );
+      const shouldUseRawGrades =
+        rawGradesAreClear || cleanWebGradeList.length === 0;
+      const effectiveGradeList = shouldUseRawGrades
+        ? rawGradeSequence
+        : cleanWebGradeList;
+      const gradeData = shouldUseRawGrades
+        ? initialGradeData
+        : parseGradeData(gradeStructureText, effectiveGradeList);
+      const gradeListSource = shouldUseRawGrades
+        ? "raw_cog_text"
+        : "grade_webpage";
       
       // Get student data for curriculum validation
       const studentData = await getStudentData();
@@ -962,20 +1164,26 @@ const pickGradeFile = async (
       
       // Validate grades against curriculum
       const validationResults = await validateGradesAgainstCurriculum(gradeData.courses, studentData);
+      const effectiveValidatedCourses = buildValidatedCourseList(validationResults);
       
       // Check for existing grades (duplicates) - pass matched courses with subject_id
       let duplicateCheck = null;
-      if (validationResults.matchedCourses.length > 0) {
-        const coursesWithSubjectId = validationResults.matchedCourses.map(course => ({
-          ...course,
-          subject_id: course.curriculumSubject?.subject_id || course.curriculumSubject?.id
-        }));
-        duplicateCheck = await checkExistingGrades(
-          studentData.Student_id, 
-          coursesWithSubjectId, 
-          gradeData.academicYear, 
-          gradeData.semester
-        );
+      if (effectiveValidatedCourses.length > 0) {
+        const coursesWithSubjectId = effectiveValidatedCourses
+          .map(course => ({
+            ...course,
+            subject_id: course.curriculumSubject?.subject_id || course.curriculumSubject?.id
+          }))
+          .filter(course => !!course.subject_id);
+
+        if (coursesWithSubjectId.length > 0) {
+          duplicateCheck = await checkExistingGrades(
+            studentData.Student_id, 
+            coursesWithSubjectId, 
+            gradeData.academicYear, 
+            gradeData.semester
+          );
+        }
       }
       
       // Add grade status to each course
@@ -991,13 +1199,18 @@ const pickGradeFile = async (
         id: timestamp,
         fileName: newFileName,
         filePath: newPath,
-        extractedText: gradeTextSource,
+        extractedText: gradeStructureText,
         rawCogText: rawCogTextFromServer,
+        gradePdfOcrText,
+        gradeWebpageText,
+        gradeWebList: effectiveGradeList,
+        gradeListSource,
         academicYear: gradeData.academicYear,
         semester: normalizedSemester,
         yearLevel: gradeData.yearLevel,
         uploadDate: new Date().toISOString(),
         validationResults: validationResults,
+        effectiveValidatedCourses,
         duplicateCheck: duplicateCheck,
         coursesWithStatus: coursesWithStatus,
         studentData: studentData,
@@ -1387,9 +1600,12 @@ const UploadGrades = ({ navigation }) => {
   const uploadGradePdfImage = async (gradeRecord, fallbackAcademicYear, fallbackSemesterLabel) => {
     if (!gradeRecord) return false;
     try {
-      const capturedUri = await requestPdfImageCapture(gradeRecord);
+      let capturedUri = await downloadQrScreenshotToCache();
       if (!capturedUri) {
-        throw new Error('Failed to capture the PDF into an image. Please try again.');
+        capturedUri = await requestPdfImageCapture(gradeRecord);
+      }
+      if (!capturedUri) {
+        throw new Error('Failed to capture the report image. Please try again.');
       }
 
       const studentId = gradeRecord.studentData?.Student_id;
@@ -1492,8 +1708,9 @@ const UploadGrades = ({ navigation }) => {
     }
 
     const { validationResults, studentData, academicYear, semester, duplicateCheck } = gradeRecord;
+    const coursesToSave = buildValidatedCourseList(validationResults);
     
-    if (validationResults.matchedCourses.length === 0) {
+    if (coursesToSave.length === 0) {
       Alert.alert("No Valid Courses", "No courses matched the curriculum. Cannot save to database.");
       return;
     }
@@ -1514,10 +1731,9 @@ const UploadGrades = ({ navigation }) => {
       return;
     }
 
-    // If no duplicates, proceed with all matched courses
-    const coursesToSave = validationResults.matchedCourses;
+    // If no duplicates, proceed with all validated courses (including suggested matches)
     const newCoursesCount = coursesToSave.length;
-    const totalMatched = validationResults.matchedCourses.length;
+    const totalMatched = coursesToSave.length;
 
     let confirmMessage = `Review Grade Upload:\n\n`;
     confirmMessage += `📊 Total Matched Courses: ${totalMatched}\n`;
@@ -2027,7 +2243,11 @@ const renderGradeTablesForTerms = (terms) => (
           </View>
           
           {selectedGrade && (() => {
-            const gradeData = parseGradeData(selectedGrade.extractedText);
+            const gradeData = parseGradeData(
+              selectedGrade.extractedText,
+              selectedGrade.gradeWebList ||
+                parseGradeListFromText(selectedGrade.gradeWebpageText || "")
+            );
             
             return (
               <View style={styles.modalContentWrapper}>
@@ -2096,21 +2316,26 @@ const renderGradeTablesForTerms = (terms) => (
                                 
                                 const isMatched = !!matchedCourse;
                                 const gradeStatus = getGradeStatus(course.grade);
+                                const fallbackSuggestion = !isMatched ? unmatchedCourse?.suggestedMatches?.[0] : null;
+                                const treatedMatched = isMatched || !!fallbackSuggestion;
+                                const displayCourseCode = fallbackSuggestion?.courseCode || course.courseCode;
+                                const displayCourseTitle = fallbackSuggestion?.courseTitle || course.courseTitle;
+                                const displayUnits = fallbackSuggestion?.units ?? course.units;
                                 
                                 return (
                                   <View key={index} style={[
                                     styles.tableRow, 
                                     index % 2 === 0 ? styles.evenRow : styles.oddRow,
-                                    !isMatched && styles.unmatchedRow
+                                    !treatedMatched && styles.unmatchedRow
                                   ]}>
                                     <Text style={[styles.tableCellText, styles.codeColumnWide]} numberOfLines={2}>
-                                      {course.courseCode}
+                                      {displayCourseCode}
                                     </Text>
                                     <Text style={[styles.tableCellText, styles.titleColumnWide]} numberOfLines={3}>
-                                      {course.courseTitle}
+                                      {displayCourseTitle}
                                     </Text>
                                     <Text style={[styles.tableCellText, styles.unitsColumnWide]}>
-                                      {course.units}
+                                      {displayUnits}
                                     </Text>
                                     <Text style={[styles.tableCellText, styles.gradeColumnWide, styles.gradeText]}>
                                       {course.grade}
@@ -2125,28 +2350,44 @@ const renderGradeTablesForTerms = (terms) => (
                                       {gradeStatus}
                                     </Text>
                                     <View style={[styles.tableCellText, styles.matchColumnWide]}>
-                                      {isMatched ? (
+                                      {treatedMatched ? (
                                         <View style={styles.matchedIndicator}>
                                           <Text style={styles.matchedText}>✅ MATCHED</Text>
-                                          {matchedCourse.matchStrategy && (
+                                          {(matchedCourse?.matchStrategy || fallbackSuggestion) && (
                                             <Text style={styles.matchStrategyText}>
-                                              ({matchedCourse.matchStrategy})
+                                              ({matchedCourse?.matchStrategy || 'suggested'})
                                             </Text>
                                           )}
-                                          {matchedCourse.curriculumCourseCode !== course.courseCode && (
+                                          {(matchedCourse?.curriculumCourseCode || fallbackSuggestion?.courseCode) && (matchedCourse?.curriculumCourseCode !== course.courseCode || fallbackSuggestion) && (
                                             <Text style={styles.curriculumCodeText}>
-                                              Curriculum: {matchedCourse.curriculumCourseCode}
+                                              Curriculum: {matchedCourse?.curriculumCourseCode || fallbackSuggestion?.courseCode}
                                             </Text>
                                           )}
                                         </View>
                                       ) : (
                                         <View style={styles.unmatchedIndicator}>
                                           <Text style={styles.unmatchedText}>❌ NOT FOUND</Text>
-                                          {unmatchedCourse?.suggestedMatches?.length > 0 && (
-                                            <Text style={styles.suggestionText}>
-                                              Similar: {unmatchedCourse.suggestedMatches[0].courseCode}
-                                            </Text>
-                                          )}
+                                          {(() => {
+                                            const suggestion = unmatchedCourse?.suggestedMatches?.[0];
+                                            if (!suggestion) return null;
+                                            return (
+                                              <>
+                                                <Text style={styles.suggestionText}>
+                                                  Similar Code: {suggestion.courseCode || 'N/A'}
+                                                </Text>
+                                                {suggestion.courseTitle ? (
+                                                  <Text style={styles.suggestionText}>
+                                                    Title: {suggestion.courseTitle}
+                                                  </Text>
+                                                ) : null}
+                                                {suggestion.units ? (
+                                                  <Text style={styles.suggestionText}>
+                                                    Units: {suggestion.units}
+                                                  </Text>
+                                                ) : null}
+                                              </>
+                                            );
+                                          })()}
                                         </View>
                                       )}
                                     </View>
@@ -3629,3 +3870,8 @@ const styles = StyleSheet.create({
 });
 
 export default UploadGrades;
+
+
+
+
+

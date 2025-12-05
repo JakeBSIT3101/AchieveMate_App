@@ -7,7 +7,8 @@ export const OCR_SERVER_CONFIG = {
     OCR: '/ocr',
     OCR_FULL: '/ocr/full', 
     OCR_POSITIONED: '/ocr/positioned',
-    OCR_DIRECT: '/ocr/direct'
+    OCR_DIRECT: '/ocr/direct',
+    COR_UPLOAD: '/upload_registration_summary_pdf'
   },
   
   // Get full endpoint URL

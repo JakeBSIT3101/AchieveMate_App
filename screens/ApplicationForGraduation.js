@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   ScrollView,
+  Animated,
   RefreshControl,
   TouchableOpacity,
   TextInput,
@@ -33,14 +34,38 @@ const ACADEMIC_YEAR_LABELS = {
   9: "2023-2024",
   17: "2024-2025",
   18: "2025-2026",
+  24: "2021-2022",
+  25: "2022-2023",
+  26: "2023-2024",
+  27: "2024-2025",
+  28: "2023-2024",
 };
 
 const getAcademicYearLabel = (id) => {
-  if (!id && id !== 0) return "N/A";
-  return ACADEMIC_YEAR_LABELS[id] || `AY #${id}`;
+  if (id === null || id === undefined) return "N/A";
+
+  if (typeof id === "string") {
+    const trimmed = id.trim();
+    if (/^\d{4}-\d{4}$/.test(trimmed)) {
+      return trimmed;
+    }
+    const numericId = parseInt(trimmed, 10);
+    if (!isNaN(numericId)) {
+      return ACADEMIC_YEAR_LABELS[numericId] || `AY #${trimmed}`;
+    }
+    return trimmed || "N/A";
+  }
+
+  if (typeof id === "number") {
+    return ACADEMIC_YEAR_LABELS[id] || `AY #${id}`;
+  }
+
+  return "N/A";
 };
 
 const PLACEHOLDER_COLOR = "#999";
+const DEFAULT_SCHOLARSHIP_VALUE =
+  "Higher Education Support Program: Free Tuition 2025";
 const DEFAULT_REQUIRED_COURSES = 56;
 const CONSENT_FORM_BASE_DIMENSIONS = { width: 612, height: 792 };
 const CONSENT_FORM_FIELDS = {
@@ -165,6 +190,40 @@ const stripFeeStrings = (value = "") => {
   return cleaned.trim();
 };
 
+const extractSimpleCourseCodes = (text = "") => {
+  if (!text) return [];
+
+  const blockMatch = text.match(/COURSE\s*CODE\s*\{([\s\S]*?)\}/i);
+  let rawBlock = blockMatch ? blockMatch[1] : "";
+
+  if (!rawBlock && text.includes("COURSE CODE")) {
+    rawBlock = text.split(/COURSE\s*CODE/i)[1] || "";
+  }
+
+  const candidateTokens = rawBlock
+    .split(/[\n,]+/)
+    .map((token) => token.replace(/[^A-Za-z0-9\s]/g, "").trim())
+    .filter(Boolean);
+
+  let codes = candidateTokens.filter((token) =>
+    /^[A-Za-z]{2,6}\s?\d{3,4}$/.test(token.replace(/\s+/g, ""))
+  );
+
+  if (codes.length === 0) {
+    codes = (rawBlock.match(/\b[A-Z]{2,6}\s*\d{3,4}\b/g) || []).map((code) =>
+      code.trim()
+    );
+  }
+
+  return Array.from(
+    new Set(
+      codes
+        .map((code) => code.replace(/\s+/g, " ").toUpperCase())
+        .filter(Boolean)
+    )
+  );
+};
+
 const parseCourseData = (ocrText) => {
   try {
     const lines = ocrText.split('\n');
@@ -204,7 +263,31 @@ const parseCourseData = (ocrText) => {
           courseData.studentInfo.program = nameMatch[2].trim();
         }
       }
-      
+
+      if (!courseData.studentInfo.name && trimmedLine.toLowerCase().startsWith("name:")) {
+        courseData.studentInfo.name = trimmedLine.split(/name:/i)[1]?.trim() || "";
+      }
+
+      if (!courseData.studentInfo.program && trimmedLine.toLowerCase().startsWith("program")) {
+        const programValue = trimmedLine.split(/program\s*:/i)[1] || "";
+        courseData.studentInfo.program = programValue.replace(/^[:\s-]+/, "").trim();
+      }
+
+      if (!courseData.studentInfo.track && trimmedLine.toLowerCase().startsWith("track")) {
+        const trackValue = trimmedLine.split(/track\s*:/i)[1] || "";
+        courseData.studentInfo.track = trackValue.replace(/^[:\s-]+/, "").trim();
+      }
+
+      if (!courseData.studentInfo.yearLevel && trimmedLine.toLowerCase().includes("year level")) {
+        const yearValue = trimmedLine.split(/year\s*level\s*:/i)[1] || "";
+        courseData.studentInfo.yearLevel = yearValue.replace(/^[:\s-]+/, "").trim();
+      }
+
+      if (!courseData.semester && trimmedLine.toLowerCase().startsWith("semester")) {
+        const semValue = trimmedLine.split(/semester\s*:/i)[1] || "";
+        courseData.semester = semValue.replace(/^[:\s-]+/, "").trim();
+      }
+
       // Extract Semester and Academic Year (format: FIRST, 2025-2026)
       if (trimmedLine.match(/^(FIRST|SECOND|SUMMER),?\s*(\d{4}-\d{4})$/)) {
         const semesterMatch = trimmedLine.match(/^(FIRST|SECOND|SUMMER),?\s*(\d{4}-\d{4})$/);
@@ -265,6 +348,23 @@ const parseCourseData = (ocrText) => {
       }
     }
 
+    const simpleCodes = extractSimpleCourseCodes(ocrText);
+    if (simpleCodes.length) {
+      const existingCodes = new Set(
+        courseData.courses.map((course) => (course.code || "").toUpperCase())
+      );
+      simpleCodes.forEach((code) => {
+        if (existingCodes.has(code)) return;
+        courseData.courses.push({
+          code,
+          title: code,
+          units: null,
+          section: "",
+        });
+        existingCodes.add(code);
+      });
+    }
+
     return courseData;
   } catch (error) {
     console.error('Error parsing course data:', error);
@@ -288,6 +388,7 @@ const EDIT_REQUIREMENT_FIELDS = [
 ];
 const GRAD_DETAILS_ENDPOINT = `${BASE_URL}/insert_graduation_details.php`;
 const GRAD_REQUIREMENTS_ENDPOINT = `${BASE_URL}/insert_graduation_requirements.php`;
+const UPLOAD_GRAD_FORM_ENDPOINT = `${BASE_URL}/upload_graduation_form_pdf.php`;
 const GET_MISSING_COURSES_ENDPOINT = `${BASE_URL}/get_missing_courses.php`;
 const GET_GRADUATION_STATUS_ENDPOINT = `${BASE_URL}/get_graduation.php`;
 const DELETE_GRADUATION_FORM_ENDPOINT = `${BASE_URL}/delete_form.php`;
@@ -838,6 +939,7 @@ export default function ApplicationForGraduation() {
   const [tempBirthDate, setTempBirthDate] = useState(new Date());
   const [birthPickerKey, setBirthPickerKey] = useState(0);
   const [pdfUri, setPdfUri] = useState(null);
+  const [uploadedPdfUrl, setUploadedPdfUrl] = useState(null);
 
   const getFieldStateStyle = useCallback((value) => {
     const hasValue =
@@ -850,6 +952,7 @@ export default function ApplicationForGraduation() {
   const [showConsentModal, setShowConsentModal] = useState(false);
   const [savingGradDetails, setSavingGradDetails] = useState(false);
   const [savingRequirements, setSavingRequirements] = useState(false);
+  const [uploadingGeneratedPdf, setUploadingGeneratedPdf] = useState(false);
   const [graduationFormId, setGraduationFormId] = useState(null);
   const [evaluationSummary, setEvaluationSummary] = useState(null);
   const [showLatinHonorsModal, setShowLatinHonorsModal] = useState(false);
@@ -949,7 +1052,10 @@ export default function ApplicationForGraduation() {
 
     gradeReport.forEach((item) => {
       const academicYearId = item.academic_year_id ?? "N/A";
-      const academicYearLabel = getAcademicYearLabel(item.academic_year_id);
+      const academicYearLabel =
+        item.academic_year_label ||
+        item.academic_year ||
+        getAcademicYearLabel(item.academic_year_id);
       const semesterLabel = formatSemesterLabel(item.semester) || "N/A";
       const yearLevelLabel = item.year_level || item.display_year_level || null;
       const key = `${academicYearId}|${semesterLabel}|${yearLevelLabel || ""}`;
@@ -1055,7 +1161,7 @@ export default function ApplicationForGraduation() {
     placeOfBirth: "",
     contactNumber: "",
     emailAddress: "",
-    scholarshipGrant: "",
+    scholarshipGrant: DEFAULT_SCHOLARSHIP_VALUE,
     parent1Name: "",
     parent1Contact: "",
     parent2Name: "",
@@ -1225,6 +1331,7 @@ export default function ApplicationForGraduation() {
           : "base64",
       });
 
+      setUploadedPdfUrl(null);
       return targetPath;
     } catch (e) {
       console.warn("buildFilledApplicationPdf error:", e);
@@ -1378,6 +1485,71 @@ export default function ApplicationForGraduation() {
     }
   }, []);
 
+  const uploadGeneratedApplicationPdf = useCallback(async () => {
+    if (!pdfUri) {
+      throw new Error("Please generate the application form PDF first.");
+    }
+    const numericIdCandidate =
+      (studentId && String(studentId).replace(/[^0-9]/g, "")) ||
+      (form.srCode && String(form.srCode).replace(/[^0-9]/g, "")) ||
+      "";
+    const fallbackId = numericIdCandidate || Date.now().toString();
+    const fileName = `graduation_form_${fallbackId}.pdf`;
+
+    const formData = new FormData();
+    if (studentId) {
+      formData.append("student_id", String(studentId));
+    }
+    if (form.srCode) {
+      formData.append("sr_code", String(form.srCode));
+    }
+    formData.append("id", fallbackId);
+    formData.append("file_name", fileName);
+    const filePayload = {
+      uri: pdfUri,
+      name: fileName,
+      type: "application/pdf",
+    };
+    formData.append("pdf_file", filePayload);
+    formData.append("pdf", filePayload);
+
+    const response = await fetch(UPLOAD_GRAD_FORM_ENDPOINT, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+      },
+      body: formData,
+    });
+
+    const rawText = await response.text();
+    console.log("Graduation form upload response:", rawText);
+    let data = null;
+    try {
+      data = JSON.parse(rawText);
+    } catch (_err) {
+      // keep rawText for error message
+    }
+
+    const uploadSuccess =
+      data?.status === "success" || data?.success === true || response.ok;
+
+    if (!uploadSuccess) {
+      const message =
+        data?.message || rawText || "Failed to upload generated form.";
+      throw new Error(message);
+    }
+
+    let normalizedPath =
+      data?.url || data?.file_url || data?.file_path || null;
+    if (!normalizedPath && data?.filename) {
+      normalizedPath = `/storage/pdf_output/${data.filename}`;
+    }
+    if (normalizedPath) {
+      setUploadedPdfUrl(normalizedPath);
+    }
+    return normalizedPath;
+  }, [pdfUri, studentId, form.srCode]);
+
   // Update steps array to reflect the new step 2
   const steps = [
     "Guidelines",
@@ -1388,6 +1560,35 @@ export default function ApplicationForGraduation() {
     "Requirements Upload",
     "Review",
   ];
+
+  const STEP_GAP = 28;
+  const STEP_ITEM_WIDTH = 92;
+  const stepperTrackWidth =
+    steps.length * STEP_ITEM_WIDTH + (steps.length - 1) * STEP_GAP;
+  const stepperScrollRef = useRef(null);
+  const stepperProgressLine = useRef(new Animated.Value(0)).current;
+  const [stepperViewportWidth, setStepperViewportWidth] = useState(0);
+
+  useEffect(() => {
+    if (!stepperScrollRef.current || stepperTrackWidth === 0) return;
+
+    const denominator = steps.length > 1 ? steps.length - 1 : 1;
+    const pct = (currentStep - 1) / denominator;
+
+    Animated.timing(stepperProgressLine, {
+      toValue: pct * stepperTrackWidth,
+      duration: 300,
+      useNativeDriver: false,
+    }).start();
+
+    const centerX =
+      (currentStep - 1) * (STEP_ITEM_WIDTH + STEP_GAP) + STEP_ITEM_WIDTH / 2;
+    const targetX = Math.max(
+      0,
+      Math.min(centerX - stepperViewportWidth / 2, stepperTrackWidth - stepperViewportWidth)
+    );
+    stepperScrollRef.current.scrollTo({ x: targetX, y: 0, animated: true });
+  }, [currentStep, stepperViewportWidth, stepperTrackWidth, steps.length]);
 
   const STORAGE_KEY = "@app_grad_form_v1";
 
@@ -1465,6 +1666,9 @@ export default function ApplicationForGraduation() {
           parsed.zipCode = "";
           // Clear birthdate to avoid stale selected date on refresh
           parsed.birthDate = "";
+          if (!parsed.scholarshipGrant) {
+            parsed.scholarshipGrant = DEFAULT_SCHOLARSHIP_VALUE;
+          }
           setForm(parsed);
         }
       } catch (e) {
@@ -1865,18 +2069,20 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
       setCourseData(null);
 
       const formData = new FormData();
-      formData.append("file", {
+      formData.append("pdf", {
         uri: file.uri,
         name: file.name || "cor.pdf",
         type: "application/pdf",
       });
 
       const response = await fetch(
-        OCR_SERVER_CONFIG.getEndpointURL(OCR_SERVER_CONFIG.ENDPOINTS.OCR_DIRECT),
+        OCR_SERVER_CONFIG.getEndpointURL(OCR_SERVER_CONFIG.ENDPOINTS.COR_UPLOAD),
         {
           method: "POST",
           body: formData,
-          headers: { "Content-Type": "multipart/form-data" },
+          headers: {
+            Accept: "application/json",
+          },
         }
       );
 
@@ -1899,7 +2105,35 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
         data = {};
       }
 
-      const text = data.full_text || data.raw_text || "";
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      let text = "";
+
+      if (data?.ocr_text_file) {
+        try {
+          const cleanBase = (OCR_SERVER_CONFIG.BASE_URL || "").replace(/\/$/, "");
+          const cleanPath = data.ocr_text_file.replace(/^\//, "");
+          const absoluteUrl = `${cleanBase}/${cleanPath}`;
+          const corResultResponse = await fetch(absoluteUrl);
+          if (corResultResponse.ok) {
+            text = await corResultResponse.text();
+          }
+        } catch (fetchErr) {
+          console.warn("Failed to fetch COR result file:", fetchErr);
+        }
+      }
+
+      if (!text) {
+        text =
+          data.result ||
+          data.ocr_preview ||
+          data.full_text ||
+          data.raw_text ||
+          "";
+      }
+
       setOcrText(text);
       const parsedData = parseCourseData(text);
       if (parsedData) {
@@ -2083,6 +2317,19 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
       throw new Error("Graduation Form ID is missing. Please complete Step 4 first.");
     }
 
+    let applicationFormPath = uploadedPdfUrl;
+    if (!applicationFormPath) {
+      if (!pdfUri) {
+        throw new Error("Please generate and upload your application form first.");
+      }
+      const remotePath = await uploadGeneratedApplicationPdf();
+      applicationFormPath = remotePath || uploadedPdfUrl;
+    }
+
+    if (!applicationFormPath) {
+      throw new Error("Unable to upload the generated application form. Please try again.");
+    }
+
     const resolveRequirementValue = (key) => {
       const data = requirements[key];
       if (!data || data.toFollow) return null;
@@ -2095,7 +2342,7 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
       certificate_library: resolveRequirementValue("libraryCertificate"),
       barangay_clearance: resolveRequirementValue("barangayClearance"),
       birth_certificate: resolveRequirementValue("birthCertificate"),
-      applicationform_grad: pdfUri || null,
+      applicationform_grad: applicationFormPath,
       reportofgrade_path: null,
       remarks: shouldAutoGraduate ? "GRADUATING" : "Pending Review",
       status: "For Evaluation",
@@ -2119,7 +2366,15 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
     }
 
     return data;
-  }, [graduationFormId, pdfUri, requirements, saveGraduationDetails, shouldAutoGraduate]);
+  }, [
+    graduationFormId,
+    pdfUri,
+    requirements,
+    saveGraduationDetails,
+    shouldAutoGraduate,
+    uploadedPdfUrl,
+    uploadGeneratedApplicationPdf,
+  ]);
 
   const handleSubmitApplication = () => {
     setShowLatinHonorsModal(true);
@@ -2183,6 +2438,22 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
       return;
     }
 
+    if (currentStep === 5) {
+      try {
+        setUploadingGeneratedPdf(true);
+        await uploadGeneratedApplicationPdf();
+        setCurrentStep((prev) => (prev < steps.length ? prev + 1 : prev));
+      } catch (error) {
+        Alert.alert(
+          "Upload failed",
+          error.message || "Unable to upload the generated application form."
+        );
+      } finally {
+        setUploadingGeneratedPdf(false);
+      }
+      return;
+    }
+
     if (currentStep === 6) {
       try {
         setSavingRequirements(true);
@@ -2197,7 +2468,13 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
     }
 
     setCurrentStep((prev) => (prev < steps.length ? prev + 1 : prev));
-  }, [currentStep, saveGraduationDetails, saveGraduationRequirements, steps.length]);
+  }, [
+    currentStep,
+    saveGraduationDetails,
+    saveGraduationRequirements,
+    steps.length,
+    uploadGeneratedApplicationPdf,
+  ]);
   const prevStep = () =>
     setCurrentStep((prev) => (prev > 1 ? prev - 1 : prev));
 
@@ -2239,6 +2516,8 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
         major: "",
       });
       setCoe(null);
+      setPdfUri(null);
+      setUploadedPdfUrl(null);
       setOcrText("");
       setCourseData(null);
       setGradeReport(null);
@@ -2435,27 +2714,83 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
       </View>
 
         {/* Step progress */}
-        <View style={styles.progressContainer}>
-          {steps.map((step, index) => (
-            <View key={index} style={styles.stepContainer}>
+        <View style={{ paddingHorizontal: 20, marginTop: 10 }}>
+          <Animated.ScrollView
+            ref={stepperScrollRef}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            onLayout={(e) => setStepperViewportWidth(e.nativeEvent.layout.width)}
+            style={{ marginBottom: 20 }}
+          >
+            <View style={{ width: stepperTrackWidth, paddingBottom: 6 }}>
               <View
-                style={[
-                  styles.circle,
-                  currentStep === index + 1 && styles.activeCircle,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.stepNumber,
-                    currentStep === index + 1 && styles.activeStepNumber,
-                  ]}
-                >
-                  {index + 1}
-                </Text>
+                style={{
+                  position: "absolute",
+                  top: 14,
+                  left: 0,
+                  width: stepperTrackWidth,
+                  height: 2,
+                  backgroundColor: "#E5E7EB",
+                }}
+              />
+              <Animated.View
+                style={{
+                  position: "absolute",
+                  top: 14,
+                  left: 0,
+                  height: 2,
+                  width: stepperProgressLine,
+                  backgroundColor: "#DC143C",
+                }}
+              />
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                {steps.map((stepLabel, index) => (
+                  <View
+                    key={`${stepLabel}-${index}`}
+                    style={{
+                      width: STEP_ITEM_WIDTH,
+                      alignItems: "center",
+                      marginRight: index !== steps.length - 1 ? STEP_GAP : 0,
+                    }}
+                  >
+                    <View
+                      style={{
+                        backgroundColor:
+                          currentStep - 1 >= index ? "#DC143C" : "#E6E6E6",
+                        width: 28,
+                        height: 28,
+                        borderRadius: 14,
+                        justifyContent: "center",
+                        alignItems: "center",
+                      }}
+                    >
+                      <Text
+                        style={{
+                          color: "#fff",
+                          fontWeight: "700",
+                          fontSize: 12,
+                        }}
+                      >
+                        {index + 1}
+                      </Text>
+                    </View>
+                    <Text
+                      numberOfLines={1}
+                      style={{
+                        fontSize: 11,
+                        color:
+                          currentStep - 1 >= index ? "#DC143C" : "#666",
+                        textAlign: "center",
+                        marginTop: 6,
+                      }}
+                    >
+                      {stepLabel}
+                    </Text>
+                  </View>
+                ))}
               </View>
-              <Text style={styles.stepLabel}>{step}</Text>
             </View>
-          ))}
+          </Animated.ScrollView>
         </View>
 
         <View style={styles.card}>
@@ -3315,12 +3650,14 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
                 currentStep === 1 && !step1Consent && { backgroundColor: "#aaa" },
                 currentStep === 4 && savingGradDetails && { backgroundColor: "#aaa" },
                 currentStep === 6 && savingRequirements && { backgroundColor: "#aaa" },
+                currentStep === 5 && uploadingGeneratedPdf && { backgroundColor: "#aaa" },
               ]}
               onPress={nextStep}
               disabled={
                 (currentStep === 1 && !step1Consent) ||
                 (currentStep === 4 && savingGradDetails) ||
-                (currentStep === 6 && savingRequirements)
+                (currentStep === 6 && savingRequirements) ||
+                (currentStep === 5 && uploadingGeneratedPdf)
               }
             >
               <Text style={styles.navButtonTextPrimary}>
@@ -3328,6 +3665,8 @@ const fetchGradeReport = async (id, { fromRefresh = false } = {}) => {
                   ? "Saving..."
                   : currentStep === 6 && savingRequirements
                   ? "Saving..."
+                  : currentStep === 5 && uploadingGeneratedPdf
+                  ? "Uploading..."
                   : "Next"}
               </Text>
             </TouchableOpacity>
