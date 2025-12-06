@@ -150,6 +150,38 @@ export default StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
+  dropdownItem: {
+    marginLeft: 20,
+    marginTop: 6,
+    marginBottom: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: "#f9fafb",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  dropdownTextWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+  dropdownText: {
+    fontSize: 15,
+    color: "#1f2937",
+  },
+  dropdownBadge: {
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+    marginLeft: 10,
+  },
+  dropdownBadgeText: {
+    color: "#fff",
+    fontWeight: "600",
+    fontSize: 11,
+  },
   drawerIcon: {
     width: 24,
     height: 24,

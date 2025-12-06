@@ -185,7 +185,7 @@ export default function ViewPortfolio() {
         />
         <View style={styles.heroContent}>
           <View style={styles.avatarWrapper}>
-            <Image source={require("../assets/Diwata.jpg")} style={styles.avatar} />
+            <Image source={require("../assets/Diwatas.png")} style={styles.avatar} />
           </View>
           <View style={styles.heroText}>
             <Text style={styles.heroName}>
