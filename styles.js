@@ -34,6 +34,7 @@ export default StyleSheet.create({
     paddingHorizontal: 12,
     backgroundColor: "#fff",
     width: "100%",
+    color: "#111", // ensure typed text (and password bullets) stay visible
   },
   blueField: {
     borderColor: "#DC143C",

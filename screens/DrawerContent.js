@@ -18,12 +18,12 @@ const menuItems = [
   },
   {
     title: "Upload Grades",
-    icon: require("../assets/status.png"),
+    icon: require("../assets/grade.png"),
     screen: "Upload Grades",
   },
   {
     title: "Application",
-    icon: require("../assets/status.png"),
+    icon: require("../assets/application.png"),
     isDropdown: true,
     children: [
       {
@@ -47,7 +47,7 @@ const menuItems = [
   },
   {
     title: "Notifications",
-    icon: require("../assets/latinhonor.png"),
+    icon: require("../assets/notification.png"),
     screen: "Notifications",
   },
 ];
