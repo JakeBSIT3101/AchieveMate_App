@@ -12,6 +12,80 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BASE_URL } from '../config/api';
 
+const formatDateLabel = (value) => {
+  if (!value) {
+    return 'Date to be announced';
+  }
+  const parsed = new Date(value);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toLocaleDateString('en-US', {
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  }
+  return value;
+};
+
+const formatTimeLabel = (value) => {
+  if (!value) {
+    return '';
+  }
+  const parsed = new Date(value);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+  const asTime = new Date(`1970-01-01T${value}`);
+  if (!Number.isNaN(asTime.getTime())) {
+    return asTime.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+  return value;
+};
+
+const buildTimeRangeLabel = (row = {}) => {
+  const start =
+    row.event_start_at ||
+    row.start_at ||
+    row.start_time ||
+    row.startTime ||
+    row.time_from ||
+    row.timeFrom ||
+    '';
+  const end =
+    row.event_end_at ||
+    row.end_at ||
+    row.end_time ||
+    row.endTime ||
+    row.time_to ||
+    row.timeTo ||
+    '';
+  const fallback = row.time_range || row.timeRange || '';
+
+  const startLabel = formatTimeLabel(start);
+  const endLabel = formatTimeLabel(end);
+  if (startLabel || endLabel) {
+    return [startLabel, endLabel].filter(Boolean).join(' \u2013 ');
+  }
+  return fallback || 'Time to be announced';
+};
+
+const normalizeStatus = (status) => {
+  if (!status) {
+    return 'Pending';
+  }
+  const trimmed = String(status).trim();
+  if (!trimmed) {
+    return 'Pending';
+  }
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
+};
+
 const Notification = () => {
   const [activeTab, setActiveTab] = useState('announcement');
   const [studentId, setStudentId] = useState(null);
@@ -32,6 +106,11 @@ const Notification = () => {
   // Certificate modal
   const [certificateModalVisible, setCertificateModalVisible] = useState(false);
   const [certificateUrl, setCertificateUrl] = useState('');
+  // Event invitations
+  const [eventInvites, setEventInvites] = useState([]);
+  const [eventError, setEventError] = useState('');
+  const [pendingInviteAction, setPendingInviteAction] = useState(null);
+  const [updatingInviteId, setUpdatingInviteId] = useState(null);
 
   const loadStudentId = async () => {
     try {
@@ -52,8 +131,6 @@ const Notification = () => {
   const fetchAnnouncements = async (id) => {
     // id currently not used in PHP WHERE, but kept for future filter
     if (!id) return;
-    setLoading(true);
-    setError('');
     try {
       const res = await fetch(`${BASE_URL}/student_notification.php`);
       const text = await res.text();
@@ -83,16 +160,13 @@ const Notification = () => {
       setAnnouncements(mapped);
     } catch (e) {
       setError(e.message || 'Failed to load announcements.');
-    } finally {
-      setLoading(false);
+      throw e;
     }
   };
 
   // Section 2: Awards & Claims (student_notifications table via student_awards.php)
   const fetchAwards = async (id) => {
     if (!id) return;
-    setLoading(true);
-    setError('');
     try {
       const res = await fetch(
         `${BASE_URL}/student_awards.php?student_id=${encodeURIComponent(id)}`
@@ -143,8 +217,79 @@ const Notification = () => {
       setAwards(mapped);
     } catch (e) {
       setError(e.message || 'Failed to load awards & claims.');
-    } finally {
-      setLoading(false);
+      throw e;
+    }
+  };
+
+  // Section 3: Event Invitations
+  const fetchEventInvites = async (id) => {
+    if (!id) return;
+    setEventError('');
+    try {
+      const res = await fetch(
+        `${BASE_URL}/get_event_invite.php?student_id=${encodeURIComponent(id)}`
+      );
+      const text = await res.text();
+
+      let json;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        throw new Error('Server response is not valid JSON.');
+      }
+
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.message || `HTTP ${res.status}`);
+      }
+
+      const mapped = (json.data || []).map((row, index) => {
+        const status = normalizeStatus(row?.invite_status || row?.status);
+        const startAt =
+          row?.event_start_at ||
+          row?.start_at ||
+          row?.event_date ||
+          row?.date ||
+          '';
+        const endAt = row?.event_end_at || row?.end_at || '';
+        return {
+          id: String(
+            row?.Assignment_id ??
+              row?.Event_id ??
+              `${Date.now()}-${index}`
+          ),
+          assignmentId: row?.Assignment_id ?? null,
+          title:
+            row?.event_title ||
+            row?.title ||
+            row?.event_name ||
+            `Event #${row?.Event_id ?? row?.Assignment_id ?? index}`,
+          type:
+            row?.event_type_name ||
+            row?.event_type ||
+            row?.type ||
+            'Event',
+          description:
+            row?.event_description ||
+            row?.description ||
+            row?.details ||
+            'No description provided.',
+          date: startAt
+            ? formatDateLabel(startAt)
+            : 'Date to be announced',
+          timeRange: buildTimeRangeLabel({
+            event_start_at: startAt,
+            event_end_at: endAt,
+            time_range: row?.time_range,
+          }),
+          status,
+        };
+      });
+
+      setEventInvites(mapped);
+    } catch (e) {
+      console.log('[EVENT][fetch-error]', e?.message || e);
+      setEventError(e.message || 'Failed to load event invitations.');
+      throw e;
     }
   };
 
@@ -152,7 +297,14 @@ const Notification = () => {
     (async () => {
       const id = await loadStudentId();
       if (id) {
-        await Promise.all([fetchAnnouncements(id), fetchAwards(id)]);
+        setLoading(true);
+        setError('');
+        await Promise.allSettled([
+          fetchAnnouncements(id),
+          fetchAwards(id),
+          fetchEventInvites(id),
+        ]);
+        setLoading(false);
       }
     })();
   }, []);
@@ -291,10 +443,160 @@ const Notification = () => {
     );
   };
 
-  const currentData = activeTab === 'announcement' ? announcements : awards;
+  const updateInviteStatusLocal = (inviteId, action) => {
+    setEventInvites((prev) =>
+      prev.map((invite) =>
+        invite.id === inviteId
+          ? {
+              ...invite,
+              status:
+                action === 'accept'
+                  ? 'Accepted'
+                  : action === 'decline'
+                  ? 'Declined'
+                  : invite.status,
+            }
+          : invite
+      )
+    );
+    console.log(`[EVENT][${action}]`, inviteId);
+  };
+
+  const openInviteActionModal = (invite, action) => {
+    setPendingInviteAction({ invite, action });
+  };
+
+  const closeInviteActionModal = () => {
+    setPendingInviteAction(null);
+  };
+
+  const updateInviteStatusOnServer = async (assignmentId, status) => {
+    if (!assignmentId) return;
+    try {
+      setUpdatingInviteId(assignmentId);
+      const res = await fetch(`${BASE_URL}/get_event_invite.php`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          assignment_id: Number(assignmentId),
+          student_id: Number(studentId),
+          status,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.message || `HTTP ${res.status}`);
+      }
+    } finally {
+      setUpdatingInviteId(null);
+    }
+  };
+
+  const confirmInviteAction = async () => {
+    if (!pendingInviteAction?.invite) return;
+    const { invite, action } = pendingInviteAction;
+    const nextStatus = action === 'decline' ? 'Declined' : 'Accepted';
+
+    try {
+      await updateInviteStatusOnServer(invite.assignmentId, nextStatus);
+      updateInviteStatusLocal(invite.id, action);
+      closeInviteActionModal();
+    } catch (e) {
+      console.log('[EVENT][update-error]', e?.message || e);
+      setEventError(e.message || 'Failed to update invite status.');
+      fetchEventInvites(studentId);
+    }
+  };
+
+  const renderEventInvites = () => (
+    <View style={styles.eventInvitesWrapper}>
+      <Text style={styles.eventHeader}>Event Invitations</Text>
+      <Text style={styles.eventDescription}>
+        Below are the events you have been invited to.
+      </Text>
+      {eventError && eventInvites.length === 0 ? (
+        <Text style={styles.emptyText}>{eventError}</Text>
+      ) : eventInvites.length === 0 ? (
+        <Text style={styles.emptyText}>No event invitations yet.</Text>
+      ) : (
+        eventInvites.map((invite) => (
+          <View key={invite.id} style={styles.eventCard}>
+            <View style={styles.eventCardHeader}>
+              <View>
+                <Text style={styles.eventTitle}>{invite.title}</Text>
+                <Text style={styles.eventType}>
+                  Type: <Text style={styles.eventTypeLink}>{invite.type}</Text>
+                </Text>
+              </View>
+              <View
+                style={[
+                  styles.inviteStatusBadge,
+                  invite.status === 'Pending'
+                    ? styles.statusPending
+                    : invite.status === 'Accepted'
+                    ? styles.statusApproved
+                    : styles.statusDeclined,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.inviteStatusText,
+                    invite.status === 'Declined' && { color: '#8b1a1a' },
+                  ]}
+                >
+                  {invite.status}
+                </Text>
+              </View>
+            </View>
+            <Text style={styles.eventBodyText}>{invite.description}</Text>
+            <View style={styles.eventMetaRow}>
+              <Text style={styles.eventMetaLabel}>Date:</Text>
+              <Text style={styles.eventMetaValue}>{invite.date}</Text>
+            </View>
+            <View style={styles.eventMetaRow}>
+              <Text style={styles.eventMetaLabel}>Time:</Text>
+              <Text style={styles.eventMetaValue}>{invite.timeRange}</Text>
+            </View>
+            {invite.status === 'Pending' ? (
+              <View style={styles.eventActionsRow}>
+                <TouchableOpacity
+                  style={styles.acceptButton}
+                  onPress={() => openInviteActionModal(invite, 'accept')}
+                >
+                  <Text style={styles.acceptButtonText}>Accept</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.declineButton}
+                  onPress={() => openInviteActionModal(invite, 'decline')}
+                >
+                  <Text style={styles.declineButtonText}>Decline</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <Text style={styles.eventNote}>
+                {invite.status === 'Accepted'
+                  ? 'You have accepted this invitation.'
+                  : 'You declined this invitation.'}
+              </Text>
+            )}
+          </View>
+        ))
+      )}
+    </View>
+  );
+
+  const currentData =
+    activeTab === 'announcement'
+      ? announcements
+      : activeTab === 'award'
+      ? awards
+      : [];
 
   const hasUnreadAnnouncements = announcements.some((n) => !n.read);
   const hasUnreadAwards = awards.some((a) => !a.isRead);
+  const hasPendingInvites = eventInvites.some(
+    (invite) => invite.status?.toLowerCase() === 'pending'
+  );
 
   return (
     <View style={styles.container}>
@@ -329,9 +631,34 @@ const Notification = () => {
           </Text>
           {hasUnreadAwards && <View style={styles.unreadBadge} />}
         </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'events' && styles.activeTab]}
+          onPress={() => setActiveTab('events')}
+        >
+          <Text
+            style={[
+              styles.tabText,
+              activeTab === 'events' && styles.activeTabText,
+            ]}
+          >
+            Event Invites
+          </Text>
+          {hasPendingInvites && <View style={styles.unreadBadge} />}
+        </TouchableOpacity>
       </View>
 
-      {loading ? (
+      {activeTab === 'events' ? (
+        loading ? (
+          <ActivityIndicator
+            style={{ marginTop: 20 }}
+            size="small"
+            color="#9e0009"
+          />
+        ) : (
+          renderEventInvites()
+        )
+      ) : loading ? (
         <ActivityIndicator
           style={{ marginTop: 20 }}
           size="small"
@@ -354,6 +681,69 @@ const Notification = () => {
         />
       )}
 
+      {/* Event invite confirmation modal */}
+      <Modal
+        visible={!!pendingInviteAction}
+        transparent
+        animationType="fade"
+        onRequestClose={closeInviteActionModal}
+      >
+        <View style={styles.modalOverlay}>
+          {(() => {
+            const isProcessing =
+              pendingInviteAction?.invite?.assignmentId === updatingInviteId;
+            return (
+              <View style={styles.modalCard}>
+                <Text style={styles.modalTitle}>
+                  {pendingInviteAction?.action === 'decline'
+                    ? 'Decline Invite'
+                    : 'Accept Invite'}
+                </Text>
+                <View style={styles.modalDivider} />
+                <Text style={styles.modalMessage}>
+                  Are you sure you want to{' '}
+                  {pendingInviteAction?.action === 'decline'
+                    ? 'decline'
+                    : 'accept'}{' '}
+                  the event "{pendingInviteAction?.invite?.title}"?
+                </Text>
+                <View style={styles.confirmButtonsRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.confirmButton,
+                      styles.confirmCancelButton,
+                      isProcessing && styles.disabledButton,
+                    ]}
+                    onPress={closeInviteActionModal}
+                    disabled={isProcessing}
+                  >
+                    <Text style={styles.confirmCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.confirmButton,
+                      pendingInviteAction?.action === 'decline'
+                        ? styles.confirmDeclineButton
+                        : styles.confirmAcceptButton,
+                      isProcessing && styles.disabledButton,
+                    ]}
+                    onPress={confirmInviteAction}
+                    disabled={isProcessing}
+                  >
+                    <Text style={styles.confirmButtonText}>
+                      {isProcessing
+                        ? 'Processing...'
+                        : pendingInviteAction?.action === 'decline'
+                        ? 'Yes, Decline'
+                        : 'Yes, Accept'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            );
+          })()}
+        </View>
+      </Modal>
       {/* Award & Claims modal */}
       <Modal
         visible={modalVisible && !!selectedAward}
@@ -639,6 +1029,159 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  eventInvitesWrapper: {
+    flex: 1,
+    padding: 20,
+  },
+  eventHeader: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#1b1b1b',
+    marginBottom: 4,
+  },
+  eventDescription: {
+    fontSize: 13,
+    color: '#5c5c5c',
+    marginBottom: 18,
+  },
+  eventCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 18,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#e6e6e6',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  eventCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  eventTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#111',
+  },
+  eventType: {
+    fontSize: 13,
+    color: '#4c4c4c',
+    marginTop: 2,
+  },
+  eventTypeLink: {
+    color: '#0b71c9',
+    textDecorationLine: 'underline',
+  },
+  inviteStatusBadge: {
+    paddingHorizontal: 14,
+    paddingVertical: 5,
+    borderRadius: 30,
+    backgroundColor: '#f5c242',
+  },
+  statusPending: {
+    backgroundColor: '#f5c242',
+  },
+  statusApproved: {
+    backgroundColor: '#1b7f3b',
+  },
+  statusDeclined: {
+    backgroundColor: '#ffe2df',
+  },
+  inviteStatusText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  eventBodyText: {
+    fontSize: 14,
+    color: '#444',
+    marginBottom: 12,
+  },
+  eventMetaRow: {
+    flexDirection: 'row',
+    marginBottom: 4,
+  },
+  eventMetaLabel: {
+    fontWeight: '700',
+    color: '#222',
+    marginRight: 6,
+  },
+  eventMetaValue: {
+    color: '#444',
+  },
+  eventActionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 16,
+  },
+  acceptButton: {
+    flex: 1,
+    backgroundColor: '#0c8b3a',
+    paddingVertical: 10,
+    borderRadius: 6,
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  declineButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#c62828',
+    paddingVertical: 10,
+    borderRadius: 6,
+    alignItems: 'center',
+  },
+  acceptButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+  },
+  declineButtonText: {
+    color: '#c62828',
+    fontWeight: '700',
+  },
+  eventNote: {
+    marginTop: 12,
+    fontSize: 13,
+    color: '#4f4f4f',
+    fontStyle: 'italic',
+  },
+  confirmButtonsRow: {
+    flexDirection: 'row',
+    marginTop: 16,
+    justifyContent: 'space-between',
+  },
+  confirmButton: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 6,
+    alignItems: 'center',
+  },
+  confirmCancelButton: {
+    borderWidth: 1,
+    borderColor: '#b0b0b0',
+    marginRight: 10,
+  },
+  confirmDeclineButton: {
+    backgroundColor: '#c62828',
+  },
+  confirmAcceptButton: {
+    backgroundColor: '#0c8b3a',
+  },
+  confirmCancelText: {
+    color: '#555',
+    fontWeight: '600',
+  },
+  confirmButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+  },
+  disabledButton: {
+    opacity: 0.6,
   },
 });
 

@@ -24,8 +24,15 @@ export default function ViewPortfolio() {
     year: null,
     contact: null,
   });
-  const [studentProgress, setStudentProgress] = useState(null);
-  const [trackName, setTrackName] = useState(null);
+const [studentProgress, setStudentProgress] = useState(null);
+const [trackName, setTrackName] = useState(null);
+const [portfolioLoading, setPortfolioLoading] = useState(false);
+const [portfolioError, setPortfolioError] = useState("");
+const [portfolioItems, setPortfolioItems] = useState({
+  badges: [],
+  certificates: [],
+  achievements: [],
+});
 
   const fetchStudentTrack = useCallback(async (studentId) => {
     if (!studentId) return;
@@ -53,8 +60,8 @@ export default function ViewPortfolio() {
     }
   }, []);
 
-  const loadStudentProgress = useCallback(async (studentId) => {
-    if (!studentId) return;
+const loadStudentProgress = useCallback(async (studentId) => {
+  if (!studentId) return;
     try {
       const stored = await AsyncStorage.getItem(`studentProgress_${studentId}`);
       if (stored) {
@@ -64,6 +71,62 @@ export default function ViewPortfolio() {
       }
     } catch (error) {
       console.error("Error loading student progress:", error);
+    }
+  }, []);
+
+  const fetchPortfolioCredits = useCallback(async (studentId) => {
+    if (!studentId) return;
+    setPortfolioLoading(true);
+    setPortfolioError("");
+    try {
+      const res = await fetch(
+        `${BASE_URL}/get_portfolio_credits.php?student_id=${encodeURIComponent(
+          studentId
+        )}`
+      );
+      const text = await res.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error("Invalid response from get_portfolio_credits.php");
+      }
+
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.message || `HTTP ${res.status}`);
+      }
+
+      const badges = [];
+      const certificates = [];
+      const achievements = [];
+
+      (data.data || []).forEach((item) => {
+        const base = {
+          id: item.Portfolio_id,
+          title: item.title || "Untitled Entry",
+          description: item.description || "",
+          type: item.type || "",
+          createdAt: item.created_at,
+        };
+
+        if (item.badge_path) {
+          badges.push({ ...base, image: item.badge_path });
+        }
+        if (item.certificate_path) {
+          certificates.push({ ...base, image: item.certificate_path });
+        }
+        if (!item.badge_path && !item.certificate_path) {
+          achievements.push(base);
+        }
+      });
+
+      setPortfolioItems({ badges, certificates, achievements });
+    } catch (error) {
+      console.error("Error fetching portfolio credits:", error);
+      setPortfolioError(error.message || "Failed to load portfolio");
+      setPortfolioItems({ badges: [], certificates: [], achievements: [] });
+    } finally {
+      setPortfolioLoading(false);
     }
   }, []);
 
@@ -108,7 +171,11 @@ export default function ViewPortfolio() {
         });
         session.student_id = s.Student_id;
         await AsyncStorage.setItem("session", JSON.stringify(session));
-        await Promise.all([loadStudentProgress(s.Student_id), fetchStudentTrack(s.Student_id)]);
+        await Promise.all([
+          loadStudentProgress(s.Student_id),
+          fetchStudentTrack(s.Student_id),
+          fetchPortfolioCredits(s.Student_id),
+        ]);
       } else {
         Alert.alert("Error", json.message || "Student info not found");
       }
@@ -121,7 +188,7 @@ export default function ViewPortfolio() {
       }
       setRefreshing(false);
     }
-  }, [fetchStudentTrack, loadStudentProgress]);
+  }, [fetchStudentTrack, fetchPortfolioCredits, loadStudentProgress]);
 
   useEffect(() => {
     loadProfile();
@@ -158,10 +225,70 @@ export default function ViewPortfolio() {
     trackDisplay,
   ];
 
-  const renderEmptyCard = (title, bodyText) => (
+  const formatDateLabel = (value) => {
+    if (!value) return null;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      return value;
+    }
+    return parsed.toLocaleDateString();
+  };
+
+  const renderPortfolioSection = (
+    title,
+    items,
+    emptyMessage,
+    { showImages = false } = {}
+  ) => (
     <View style={styles.summaryCard}>
       <Text style={styles.summaryTitle}>{title}</Text>
-      <Text style={styles.summaryBody}>{bodyText}</Text>
+      {portfolioLoading ? (
+        <ActivityIndicator color="#DC143C" style={{ marginTop: 8 }} />
+      ) : portfolioError ? (
+        <Text style={[styles.summaryBody, styles.errorText]}>
+          {portfolioError}
+        </Text>
+      ) : items.length === 0 ? (
+        <Text style={styles.summaryBody}>{emptyMessage}</Text>
+      ) : (
+        items.map((entry) => (
+          <View key={entry.id} style={styles.portfolioItem}>
+            {showImages ? (
+              entry.image ? (
+                <Image
+                  source={{ uri: entry.image }}
+                  style={styles.portfolioImage}
+                />
+              ) : (
+                <View
+                  style={[styles.portfolioImage, styles.portfolioPlaceholder]}
+                >
+                  <Ionicons name="image-outline" size={20} color="#9ca3af" />
+                </View>
+              )
+            ) : (
+              <View style={styles.portfolioBadge}>
+                <Text style={styles.portfolioBadgeText}>
+                  {entry.type || "Achievement"}
+                </Text>
+              </View>
+            )}
+            <View style={{ flex: 1 }}>
+              <Text style={styles.portfolioItemTitle}>{entry.title}</Text>
+              {entry.description ? (
+                <Text style={styles.portfolioItemDescription}>
+                  {entry.description}
+                </Text>
+              ) : null}
+              {formatDateLabel(entry.createdAt) ? (
+                <Text style={styles.portfolioItemMeta}>
+                  Added {formatDateLabel(entry.createdAt)}
+                </Text>
+              ) : null}
+            </View>
+          </View>
+        ))
+      )}
     </View>
   );
 
@@ -210,11 +337,22 @@ export default function ViewPortfolio() {
         </View>
       )}
 
-      {renderEmptyCard("List of Badges", "No badges yet.")}
+      {renderPortfolioSection("List of Badges", portfolioItems.badges, "No badges yet.", {
+        showImages: true,
+      })}
 
       <View style={styles.rowCards}>
-        {renderEmptyCard("Certificates", "No certificates yet.")}
-        {renderEmptyCard("List of Achievements", "No achievements yet.")}
+        {renderPortfolioSection(
+          "Certificates",
+          portfolioItems.certificates,
+          "No certificates yet.",
+          { showImages: true }
+        )}
+        {renderPortfolioSection(
+          "List of Achievements",
+          portfolioItems.achievements,
+          "No achievements yet."
+        )}
       </View>
     </ScrollView>
   );
@@ -313,5 +451,51 @@ const styles = StyleSheet.create({
   rowCards: {
     flexDirection: "row",
     gap: 12,
+  },
+  errorText: {
+    color: "#b91c1c",
+  },
+  portfolioItem: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 12,
+    alignItems: "center",
+  },
+  portfolioImage: {
+    width: 56,
+    height: 56,
+    borderRadius: 12,
+    backgroundColor: "#f3f4f6",
+  },
+  portfolioPlaceholder: {
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+  },
+  portfolioBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: "#fee2e2",
+    borderRadius: 999,
+  },
+  portfolioBadgeText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#b91c1c",
+  },
+  portfolioItemTitle: {
+    fontWeight: "600",
+    color: "#111827",
+  },
+  portfolioItemDescription: {
+    color: "#4b5563",
+    fontSize: 12,
+    marginTop: 2,
+  },
+  portfolioItemMeta: {
+    color: "#9ca3af",
+    fontSize: 11,
+    marginTop: 2,
   },
 });
